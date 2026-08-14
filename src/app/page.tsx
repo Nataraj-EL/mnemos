@@ -146,6 +146,54 @@ export default function Home() {
     }
   };
 
+  // Contextual Response State
+  const [responseQuery, setResponseQuery] = useState('');
+  const [responseLimit, setResponseLimit] = useState(10);
+  const [responseMaxTokens, setResponseMaxTokens] = useState(1500);
+  const [responseResult, setResponseResult] = useState<{
+    response: string;
+    usedMemories: { id: string; type: string; similarity: number; score: number }[];
+    contextTokenCount: number;
+  } | null>(null);
+  const [responseLoading, setResponseLoading] = useState(false);
+  const [responseError, setResponseError] = useState<string | null>(null);
+
+  const handleResponseSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!responseQuery.trim() || !userId.trim()) return;
+
+    setResponseLoading(true);
+    setResponseError(null);
+    setResponseResult(null);
+
+    try {
+      const response = await fetch('/api/memory/respond', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: userId.trim(),
+          query: responseQuery.trim(),
+          limit: Number(responseLimit),
+          maxTokens: Number(responseMaxTokens),
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        setResponseError(data.error || 'Failed to generate contextual response.');
+      } else {
+        setResponseResult(data);
+      }
+    } catch (err) {
+      console.error('Response Generation Error:', err);
+      setResponseError('An error occurred during response generation.');
+    } finally {
+      setResponseLoading(false);
+    }
+  };
+
   const fetchHealth = async () => {
     try {
       const response = await fetch('/api/health');
@@ -729,6 +777,162 @@ export default function Home() {
                 }}>
                   {contextResult.context || '/* Empty Context Block */'}
                 </pre>
+              </div>
+
+            </div>
+          )}
+        </section>
+
+        {/* Contextual Response Panel */}
+        <section className="card" style={{ marginTop: '2.5rem' }}>
+          <h3 className="card-title">💬 Contextual Response Engine</h3>
+          <p style={{ fontSize: '0.9rem', opacity: 0.7, marginBottom: '1.25rem' }}>
+            Query your persistent memory repository. The system will retrieve matching records, score/deduplicate them under a token budget, and ground the LLM generation using the assembled context.
+          </p>
+
+          <form onSubmit={handleResponseSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+              <div style={{ flexGrow: 1, minWidth: '280px' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Your Question</label>
+                <input
+                  type="text"
+                  placeholder="e.g. What is my favorite hot drink? or What do you know about me?"
+                  value={responseQuery}
+                  onChange={(e) => setResponseQuery(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 1rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border)',
+                    backgroundColor: 'var(--surface)',
+                    color: 'var(--text)'
+                  }}
+                  required
+                />
+              </div>
+              <div style={{ width: '120px' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Limit</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={responseLimit}
+                  onChange={(e) => setResponseLimit(Number(e.target.value))}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border)',
+                    backgroundColor: 'var(--surface)',
+                    color: 'var(--text)'
+                  }}
+                  required
+                />
+              </div>
+              <div style={{ width: '140px' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Max Tokens</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={responseMaxTokens}
+                  onChange={(e) => setResponseMaxTokens(Number(e.target.value))}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border)',
+                    backgroundColor: 'var(--surface)',
+                    color: 'var(--text)'
+                  }}
+                  required
+                />
+              </div>
+            </div>
+            
+            <button
+              type="submit"
+              className="btn btn-primary"
+              style={{ alignSelf: 'flex-start' }}
+              disabled={!mounted || responseLoading || !responseQuery.trim()}
+            >
+              {responseLoading ? 'Generating Response...' : 'Generate Grounded Response'}
+            </button>
+          </form>
+
+          {responseError && (
+            <div style={{
+              padding: '0.75rem',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--error)',
+              backgroundColor: 'rgba(179, 74, 60, 0.1)',
+              color: 'var(--error)',
+              marginBottom: '1.25rem',
+              fontSize: '0.85rem'
+            }}>
+              {responseError}
+            </div>
+          )}
+
+          {responseLoading ? (
+            <div style={{ textAlign: 'center', padding: '2rem', opacity: 0.6 }}>Running contextual synthesis pipeline...</div>
+          ) : responseResult && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '1.5rem' }}>
+              
+              {/* Generated text response */}
+              <div>
+                <h4 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem' }}>🤖 Grounded AI Response</h4>
+                <div style={{
+                  padding: '1.25rem',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'var(--background)',
+                  color: 'var(--text)',
+                  lineHeight: '1.6',
+                  fontSize: '1rem',
+                  whiteSpace: 'pre-wrap'
+                }}>
+                  {responseResult.response}
+                </div>
+              </div>
+
+              {/* Supporting context trace metadata */}
+              <div>
+                <h4 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>🔒 Supporting Memories Trace (Grounded Context)</span>
+                  <span className="badge" style={{ backgroundColor: 'var(--primary)', color: '#fff', fontSize: '0.8rem' }}>
+                    Context Tokens: {responseResult.contextTokenCount}
+                  </span>
+                </h4>
+
+                {responseResult.usedMemories.length === 0 ? (
+                  <div style={{ padding: '1rem', textAlign: 'center', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.9rem' }}>
+                    No memories were passed to the LLM (zero relevant context matching this query).
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.75rem' }}>
+                    {responseResult.usedMemories.map((used) => (
+                      <div key={used.id} style={{
+                        padding: '0.75rem 1rem',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border)',
+                        backgroundColor: 'var(--surface)'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+                          <span className="badge" style={{ backgroundColor: 'var(--background)', color: 'var(--primary)', fontWeight: 'bold', fontSize: '0.75rem' }}>
+                            {used.type}
+                          </span>
+                          <span style={{ fontSize: '0.8rem', opacity: 0.6 }}>
+                            ID: {used.id.substring(0, 8)}...
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.8rem', opacity: 0.7, marginTop: '0.5rem', display: 'flex', gap: '1rem' }}>
+                          <span>Similarity: <strong>{used.similarity.toFixed(2)}</strong></span>
+                          <span>Score: <strong>{used.score.toFixed(3)}</strong></span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
             </div>
