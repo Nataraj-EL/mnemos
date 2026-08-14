@@ -103,8 +103,8 @@ describe('ContextAssembler', () => {
     expect(result.items[0].importance).toBe(9);
 
     // Verify context text compiles
-    expect(result.context).toContain('[PREFERENCE] User prefers PostgreSQL for their projects');
-    expect(result.context).toContain('[FACT] User completed their Python course');
+    expect(result.context).toContain('[PREFERENCE] [CURRENT] User prefers PostgreSQL for their projects');
+    expect(result.context).toContain('[FACT] [CURRENT] User completed their Python course');
     expect(result.tokenCount).toBe(estimateTokens(result.context));
   });
 
@@ -193,9 +193,9 @@ describe('ContextAssembler', () => {
       },
     ];
 
-    // Total characters for line 1 is "[FACT] First item content is quite long" (39 chars -> 10 tokens)
-    // Max tokens set to 12. Line 1 fits. Line 2 adds 40 chars, exceeding 12 tokens. So only line 1 is selected.
-    const result = assembler.assemble('query', retrieved, 12);
+    // Total characters for line 1 is "[FACT] [CURRENT] First item content is quite long" (51 chars -> 13 tokens)
+    // Max tokens set to 15. Line 1 fits. Line 2 adds 51 chars, exceeding 15 tokens. So only line 1 is selected.
+    const result = assembler.assemble('query', retrieved, 15);
     expect(result.items).toHaveLength(1);
     expect(result.items[0].id).toBe('mem-1');
   });

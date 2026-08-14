@@ -587,6 +587,145 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Memory Timeline & History */}
+        <section className="card" style={{ marginTop: '2.5rem' }}>
+          <h3 className="card-title">🕰️ Memory Evolution & Timeline</h3>
+          <p style={{ fontSize: '0.9rem', opacity: 0.7, marginBottom: '1.25rem' }}>
+            Track historical updates, fact supersessions, and temporal relationships.
+          </p>
+
+          {(() => {
+            const activeWithHistory = memories.filter(
+              (m) => (m.metadata.status || 'active') !== 'superseded' && m.metadata.supersedes
+            );
+
+            if (activeWithHistory.length === 0) {
+              return (
+                <div style={{
+                  padding: '2rem',
+                  textAlign: 'center',
+                  opacity: 0.6,
+                  border: '1px dashed var(--border)',
+                  borderRadius: 'var(--radius-sm)'
+                }}>
+                  No versioned memory updates or superseded relationships detected yet for user <strong>{userId || '(none)'}</strong>.
+                </div>
+              );
+            }
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                {activeWithHistory.map((current) => {
+                  const chain: typeof memories = [current];
+                  let curr = current;
+                  const visited = new Set<string>([curr.id]);
+
+                  while (curr.metadata.supersedes && typeof curr.metadata.supersedes === 'string') {
+                    const parentId = curr.metadata.supersedes;
+                    if (visited.has(parentId)) break;
+                    visited.add(parentId);
+
+                    const parent = memories.find((m) => m.id === parentId);
+                    if (!parent) break;
+                    chain.push(parent);
+                    curr = parent;
+                  }
+
+                  return (
+                    <div key={current.id} style={{
+                      padding: '1.25rem',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-sm)',
+                      backgroundColor: 'var(--surface)'
+                    }}>
+                      <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--primary)', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>Topic: <strong>{current.type}</strong></span>
+                        <span style={{ fontSize: '0.75rem', opacity: 0.5, fontWeight: 'normal' }}>
+                          Chain length: {chain.length}
+                        </span>
+                      </h4>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', position: 'relative', paddingLeft: '1.5rem' }}>
+                        {chain.map((version, idx) => {
+                          const isActive = idx === 0;
+                          return (
+                            <div key={version.id} style={{ position: 'relative' }}>
+                              {/* Connector Line */}
+                              {idx !== chain.length - 1 && (
+                                <div style={{
+                                  position: 'absolute',
+                                  left: '-1.05rem',
+                                  top: '0.75rem',
+                                  bottom: '-1.25rem',
+                                  width: '2px',
+                                  backgroundColor: 'var(--border)'
+                                }} />
+                              )}
+                              {/* Bullet Circle */}
+                              <div style={{
+                                position: 'absolute',
+                                left: '-1.3rem',
+                                top: '0.35rem',
+                                width: '10px',
+                                height: '10px',
+                                borderRadius: '50%',
+                                backgroundColor: isActive ? 'var(--success)' : 'var(--error)',
+                                border: '2px solid var(--surface)'
+                              }} />
+
+                              <div>
+                                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                  <span style={{
+                                    fontSize: '0.75rem',
+                                    fontWeight: 'bold',
+                                    color: isActive ? 'var(--success)' : 'var(--error)',
+                                    textTransform: 'uppercase'
+                                  }}>
+                                    {isActive ? 'Current active' : 'superseded'}
+                                  </span>
+                                  <span style={{ fontSize: '0.75rem', opacity: 0.5 }}>
+                                    ID: {version.id.substring(0, 8)}...
+                                  </span>
+                                </div>
+                                <p style={{
+                                  margin: '0.25rem 0 0.5rem 0',
+                                  fontWeight: isActive ? 600 : 400,
+                                  fontSize: '0.9rem',
+                                  color: 'var(--text)'
+                                }}>
+                                  {version.content}
+                                </p>
+                                <div style={{
+                                  display: 'flex',
+                                  gap: '1rem',
+                                  fontSize: '0.75rem',
+                                  opacity: 0.6,
+                                  borderTop: '1px solid rgba(0,0,0,0.05)',
+                                  paddingTop: '0.25rem'
+                                }}>
+                                  {typeof version.metadata.validFrom === 'string' && (
+                                    <span>From: <strong>{new Date(version.metadata.validFrom).toLocaleString()}</strong></span>
+                                  )}
+                                  {typeof version.metadata.validUntil === 'string' && (
+                                    <span>Until: <strong>{new Date(version.metadata.validUntil).toLocaleString()}</strong></span>
+                                  )}
+                                  {typeof version.metadata.validFrom !== 'string' && typeof version.metadata.validUntil !== 'string' && (
+                                    <span>Observed: <strong>{new Date((version.metadata.timestamp as string) || version.createdAt).toLocaleString()}</strong></span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </section>
+
         {/* Semantic Search Panel */}
         <section className="card" style={{ marginTop: '2.5rem' }}>
           <h3 className="card-title">🔍 Semantic Memory Search</h3>

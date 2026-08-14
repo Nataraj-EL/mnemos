@@ -62,6 +62,7 @@ describe('ResponseService', () => {
 
     expect(mockRetriever.retrieve).toHaveBeenCalledWith('user-1', 'What hot drink do I like?', {
       limit: 20,
+      includeHistorical: false
     });
     expect(mockAssembler.assemble).toHaveBeenCalled();
     expect(mockGenerator.generateResponse).toHaveBeenCalledWith(

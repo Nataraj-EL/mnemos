@@ -5,6 +5,7 @@ import { getDbPool } from '@/db';
 export interface RetrievalOptions {
   limit?: number;
   minSimilarity?: number;
+  includeHistorical?: boolean;
 }
 
 export interface RetrievalResult {
@@ -61,6 +62,7 @@ export class MemoryRetriever {
 
     const limit = options?.limit ?? 5;
     const minSimilarity = options?.minSimilarity ?? 0.0;
+    const includeHistorical = options?.includeHistorical ?? false;
 
     // 1. Generate query embedding
     const queryEmbedding = await this.embeddingProvider.generateEmbedding(query);
@@ -69,12 +71,19 @@ export class MemoryRetriever {
     const pool = getDbPool();
     const queryEmbeddingStr = `[${queryEmbedding.join(',')}]`;
 
-    const sql = `
+    let sql = `
       SELECT id, user_id as "userId", type, content, metadata, embedding, created_at as "createdAt", updated_at as "updatedAt",
              (1 - (embedding <=> $1::vector)) as similarity
       FROM memories
       WHERE user_id = $2
-        AND (metadata->>'status' IS NULL OR metadata->>'status' != 'superseded')
+    `;
+
+    // Exclude superseded unless includeHistorical is explicitly set
+    if (!includeHistorical) {
+      sql += ` AND (metadata->>'status' IS NULL OR metadata->>'status' != 'superseded')`;
+    }
+
+    sql += `
         AND embedding IS NOT NULL
         AND (1 - (embedding <=> $1::vector)) >= $3
       ORDER BY embedding <=> $1::vector ASC

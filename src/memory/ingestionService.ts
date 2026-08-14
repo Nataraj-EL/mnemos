@@ -89,30 +89,45 @@ export class MemoryIngestionService {
 
         const newContent = act.content ?? existingMemory.content;
         const newType = act.type ?? existingMemory.type;
+        const nowStr = new Date().toISOString();
 
-        // Perform initial text update
-        const updatedMemory = await this.repository.update(act.id, {
+        // 1. Create the NEW memory as active, referencing the old memory ID
+        const newMemory = await this.repository.create({
+          userId,
           type: newType,
           content: newContent,
           metadata: {
-            ...existingMemory.metadata,
-            confidence: act.confidence ?? existingMemory.metadata.confidence,
-            importance: act.importance ?? existingMemory.metadata.importance,
-            timestamp: new Date().toISOString(),
+            source: 'user_input',
+            confidence: act.confidence ?? 0.8,
+            importance: act.importance ?? 5,
+            timestamp: nowStr,
             status: 'active',
+            validFrom: nowStr,
+            supersedes: existingMemory.id,
           },
         });
 
-        let finalMemory = updatedMemory;
+        // 2. Mark the OLD memory as superseded, linking to the new memory (keep embedding intact)
+        await this.repository.update(existingMemory.id, {
+          metadata: {
+            ...existingMemory.metadata,
+            status: 'superseded',
+            validUntil: nowStr,
+            supersededBy: newMemory.id,
+            timestamp: nowStr,
+          },
+        });
+
+        let finalMemory = newMemory;
         try {
-          // Attempt to generate and save updated embedding
+          // Attempt to generate and save updated embedding for the new memory
           const vector = await this.embeddingProvider.generateEmbedding(newContent);
-          finalMemory = await this.repository.update(act.id, {
+          finalMemory = await this.repository.update(newMemory.id, {
             embedding: vector,
           });
         } catch (embedError) {
           console.error(
-            `Resilient Ingestion: Failed to generate/persist embedding for UPDATE of memory ${act.id}:`,
+            `Resilient Ingestion: Failed to generate/persist embedding for NEW temporal memory ${newMemory.id}:`,
             embedError
           );
         }
@@ -132,14 +147,16 @@ export class MemoryIngestionService {
           continue;
         }
 
-        // Soft-supersede: mark status and clear embedding so it is excluded from vector searches
+        const nowStr = new Date().toISOString();
+        // Soft-supersede: mark status, clear embedding, and record validUntil
         const superseded = await this.repository.update(act.id, {
           embedding: null,
           metadata: {
             ...existingMemory.metadata,
             status: 'superseded',
-            timestamp: new Date().toISOString(),
-            supersededAt: new Date().toISOString(),
+            validUntil: nowStr,
+            timestamp: nowStr,
+            supersededAt: nowStr,
           },
         });
         processedMemories.push(superseded);

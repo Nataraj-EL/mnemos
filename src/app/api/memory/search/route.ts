@@ -45,9 +45,12 @@ export async function GET(request: Request) {
     const embeddingProvider = new GeminiEmbeddingProvider();
     const retriever = new MemoryRetriever(embeddingProvider);
 
+    const includeHistorical = searchParams.get('includeHistorical') === 'true';
+
     const results = await retriever.retrieve(userId, q, {
       limit,
       minSimilarity: threshold,
+      includeHistorical,
     });
 
     return NextResponse.json({

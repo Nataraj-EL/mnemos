@@ -1,7 +1,7 @@
 import { MemoryRetriever } from '@/memory/retriever';
 import { ContextAssembler } from '@/context/assembler';
 import { ResponseGenerator } from './generator';
-
+import { PgMemoryRepository } from '@/memory/repository';
 import { logTelemetry } from '@/core/logger';
 
 export interface ContextualResponseResult {
@@ -19,8 +19,24 @@ export class ResponseService {
   constructor(
     private retriever: MemoryRetriever,
     private assembler: ContextAssembler,
-    private generator: ResponseGenerator
+    private generator: ResponseGenerator,
+    private repository?: PgMemoryRepository
   ) {}
+
+  private isTemporalQuery(query: string): boolean {
+    const temporalKeywords = [
+      'before',
+      'previously',
+      'earlier',
+      'used to',
+      'changed',
+      'history',
+      'old',
+      'previous',
+    ];
+    const lower = query.toLowerCase();
+    return temporalKeywords.some((keyword) => lower.includes(keyword));
+  }
 
   /**
    * Orchestrates candidate retrieval, context assembly (ranking, deduplication, budget filtering),
@@ -29,7 +45,7 @@ export class ResponseService {
   async respond(
     userId: string,
     query: string,
-    options?: { limit?: number; maxTokens?: number }
+    options?: { limit?: number; maxTokens?: number; includeHistorical?: boolean }
   ): Promise<ContextualResponseResult> {
     if (!userId || !userId.trim()) {
       throw new Error('User ID is required.');
@@ -40,6 +56,11 @@ export class ResponseService {
 
     const limit = options?.limit ?? 10;
     const maxTokens = options?.maxTokens ?? 1500;
+    const includeHistorical =
+      options?.includeHistorical !== undefined
+        ? options.includeHistorical
+        : this.isTemporalQuery(query);
+
     const startTime = Date.now();
     const correlationId =
       typeof crypto !== 'undefined' && crypto.randomUUID
@@ -58,18 +79,66 @@ export class ResponseService {
       const retStart = Date.now();
       candidates = await this.retriever.retrieve(userId, query, {
         limit: retrievalLimit,
+        includeHistorical,
       });
       retrievalLatencyMs = Date.now() - retStart;
 
-      // 2. Assemble context
-      const assemblyResult = this.assembler.assemble(query, candidates, maxTokens);
+      // 2. Ancestor traversal for temporal queries (bounded, cycle-safe, user-isolated)
+      if (includeHistorical && this.repository) {
+        const extraCandidates: typeof candidates = [];
+        const visitedIds = new Set<string>();
+
+        for (const cand of candidates) {
+          let current = cand.memory;
+          let depth = 0;
+
+          while (current.metadata.supersedes && depth < 10) {
+            const parentId = current.metadata.supersedes;
+            if (visitedIds.has(parentId)) {
+              console.warn(`Temporal Traversal: Cycle detected at memory ID ${parentId}`);
+              break;
+            }
+            visitedIds.add(parentId);
+
+            const parent = await this.repository.get(parentId);
+            if (!parent) break;
+
+            // Security guard: verify user isolation on traversed ancestor
+            if (parent.userId !== userId) {
+              console.warn(`Security Warning: Traversal crossed user boundary for ancestor ID ${parentId}`);
+              break;
+            }
+
+            // Deduplicate: check if parent is already in candidates or extraCandidates
+            const inCandidates = candidates.some((c) => c.memory.id === parent.id);
+            const inExtra = extraCandidates.some((c) => c.memory.id === parent.id);
+
+            if (!inCandidates && !inExtra) {
+              extraCandidates.push({
+                memory: parent,
+                similarity: 0.0, // Do NOT copy similarity blindly, keep as 0.0
+              });
+            }
+
+            current = parent;
+            depth++;
+          }
+        }
+        candidates = [...candidates, ...extraCandidates];
+      }
+
+      // 3. Assemble context
+      const assemblyResult = this.assembler.assemble(query, candidates, maxTokens, includeHistorical);
 
       // Enforce limit slicing on context items
       let finalItems = assemblyResult.items;
       if (finalItems.length > limit) {
         finalItems = finalItems.slice(0, limit);
         // Reassemble context block to keep text block and token counts synced
-        const lines = finalItems.map((item) => `[${item.type}] ${item.content}`);
+        const lines = finalItems.map((item) => {
+          const statusTag = item.status === 'superseded' ? 'HISTORICAL' : 'CURRENT';
+          return `[${item.type}] [${statusTag}] ${item.content}`;
+        });
         assemblyResult.context = lines.join('\n');
         assemblyResult.tokenCount = Math.ceil(assemblyResult.context.length / 4);
       }
@@ -77,7 +146,7 @@ export class ResponseService {
       selectedCount = finalItems.length;
       estimatedContextTokens = assemblyResult.tokenCount;
 
-      // 3. Generate grounded response
+      // 4. Generate grounded response
       const genStart = Date.now();
       const generatorResult = await this.generator.generateResponse(
         query,
@@ -86,7 +155,7 @@ export class ResponseService {
       const generationLatencyMs = Date.now() - genStart;
       const totalLatencyMs = Date.now() - startTime;
 
-      // 4. Trace memories actually passed into the generator context
+      // 5. Trace memories actually passed into the generator context
       const usedMemories = finalItems.map((item) => ({
         id: item.id,
         type: item.type,

@@ -55,15 +55,18 @@ export class ContextAssembler {
   assemble(
     query: string,
     retrieved: { memory: Memory; similarity: number }[],
-    maxTokens: number = 1500
+    maxTokens: number = 1500,
+    includeHistorical: boolean = false
   ): ContextResult {
-    // 1. Exclude superseded memories defensively
-    const activeCandidates = retrieved.filter(
-      (item) => item.memory.metadata.status !== 'superseded'
-    );
+    // 1. Exclude superseded memories unless includeHistorical is true
+    const candidates = retrieved.filter((item) => {
+      if (includeHistorical) return true;
+      const status = item.memory.metadata.status || 'active';
+      return status !== 'superseded';
+    });
 
     // 2. Score candidates using normalized weighted formulas
-    const scoredItems: ContextItem[] = activeCandidates.map((item) => {
+    const scoredItems: ContextItem[] = candidates.map((item) => {
       const { memory, similarity } = item;
 
       // Normalized Importance (1-10 -> 0.1-1.0)
@@ -83,7 +86,7 @@ export class ContextAssembler {
       // Type weight
       const typeWeight = TYPE_WEIGHTS[memory.type] ?? 0.5;
 
-      // Final score
+      // Final score (Sprint 4 scoring weights formula unchanged)
       const score =
         similarity * SCORING_WEIGHTS.similarity +
         normalizedImportance * SCORING_WEIGHTS.importance +
@@ -100,6 +103,7 @@ export class ContextAssembler {
         importance: importanceVal,
         score,
         reason,
+        status: (memory.metadata.status || 'active') as 'active' | 'superseded',
       };
     });
 
@@ -138,7 +142,8 @@ export class ContextAssembler {
     let compiledContext = '';
 
     for (const item of deduplicatedItems) {
-      const line = `[${item.type}] ${item.content}`;
+      const statusTag = item.status === 'superseded' ? 'HISTORICAL' : 'CURRENT';
+      const line = `[${item.type}] [${statusTag}] ${item.content}`;
       const candidateContext = compiledContext ? `${compiledContext}\n${line}` : line;
       const candidateTokens = estimateTokens(candidateContext);
 

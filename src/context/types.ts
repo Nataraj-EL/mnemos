@@ -8,6 +8,7 @@ export interface ContextItem {
   importance: number;
   score: number;
   reason: string;
+  status?: 'active' | 'superseded';
 }
 
 export interface ContextRequest {

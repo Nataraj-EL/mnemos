@@ -91,7 +91,7 @@ describe('POST /api/memory/context API Route', () => {
     const data = await response.json();
     expect(data.context).toBe('[FACT] test content');
     expect(data.tokenCount).toBe(5);
-    expect(mockRetrieve).toHaveBeenCalledWith('user-1', 'hello', { limit: 10 }); // limit * 2
+    expect(mockRetrieve).toHaveBeenCalledWith('user-1', 'hello', { limit: 10, includeHistorical: false }); // limit * 2
   });
 
   it('should return 503 if GEMINI_API_KEY is not defined', async () => {

@@ -16,7 +16,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { userId, query, limit: limitInput, maxTokens: maxTokensInput } = body;
+    const { userId, query, limit: limitInput, maxTokens: maxTokensInput, includeHistorical } = body;
 
     if (!userId || typeof userId !== 'string' || !userId.trim()) {
       return NextResponse.json(
@@ -56,11 +56,12 @@ export async function POST(request: Request) {
     const retrievalLimit = limit * 2;
     const candidates = await retriever.retrieve(userId, query, {
       limit: retrievalLimit,
+      includeHistorical: !!includeHistorical,
     });
 
     // 2. Assemble context
     const assembler = new ContextAssembler();
-    const result = assembler.assemble(query, candidates, maxTokens);
+    const result = assembler.assemble(query, candidates, maxTokens, !!includeHistorical);
 
     // Slice to the requested limit and recalculate final context block to enforce items count limit
     if (result.items.length > limit) {

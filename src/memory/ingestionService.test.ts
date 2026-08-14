@@ -113,42 +113,76 @@ describe('MemoryIngestionService', () => {
         content: 'User prefers TypeScript',
         confidence: 0.95,
         importance: 6,
+        type: 'PREFERENCE',
       },
     ]);
 
     mockRepo.get.mockResolvedValueOnce(existingMemory);
 
-    const updatedMemory = {
-      ...existingMemory,
+    const newMemory: Memory = {
+      id: 'uuid-new',
+      userId: 'user-1',
+      type: 'PREFERENCE',
       content: 'User prefers TypeScript',
       metadata: {
-        ...mockMetadata,
+        source: 'user_input',
         confidence: 0.95,
         importance: 6,
+        timestamp: new Date().toISOString(),
+        status: 'active',
+        validFrom: new Date().toISOString(),
+        supersedes: 'mem-update-id',
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    mockRepo.create.mockResolvedValueOnce(newMemory);
+
+    const supersededOldMemory = {
+      ...existingMemory,
+      metadata: {
+        ...mockMetadata,
+        status: 'superseded' as const,
+        validUntil: new Date().toISOString(),
+        supersededBy: 'uuid-new',
       },
     };
-    mockRepo.update.mockResolvedValueOnce(updatedMemory); // First save call
+
+    mockRepo.update.mockResolvedValueOnce(supersededOldMemory); // First save call (marks old memory superseded)
     mockRepo.update.mockResolvedValueOnce({
-      ...updatedMemory,
+      ...newMemory,
       embedding: [0.1, 0.2],
-    }); // Second embedding save call
+    }); // Second embedding save call (saves new memory embedding)
 
     const result = await service.ingest('user-1', 'I prefer TypeScript now');
 
     expect(mockRepo.get).toHaveBeenCalledWith('mem-update-id');
-    expect(mockRepo.update).toHaveBeenCalledWith('mem-update-id', {
+    expect(mockRepo.create).toHaveBeenCalledWith({
+      userId: 'user-1',
       type: 'PREFERENCE',
       content: 'User prefers TypeScript',
       metadata: {
-        ...mockMetadata,
+        source: 'user_input',
         confidence: 0.95,
         importance: 6,
         timestamp: expect.any(String),
         status: 'active',
+        validFrom: expect.any(String),
+        supersedes: 'mem-update-id',
+      },
+    });
+    expect(mockRepo.update).toHaveBeenCalledWith('mem-update-id', {
+      metadata: {
+        ...mockMetadata,
+        status: 'superseded',
+        validUntil: expect.any(String),
+        supersededBy: 'uuid-new',
+        timestamp: expect.any(String),
       },
     });
     expect(mockEmbeddingProvider.generateEmbedding).toHaveBeenCalledWith('User prefers TypeScript');
-    expect(result).toEqual([{ ...updatedMemory, embedding: [0.1, 0.2] }]);
+    expect(result).toEqual([{ ...newMemory, embedding: [0.1, 0.2] }]);
   });
 
   it('should successfully soft-supersede a memory on DELETE action with safety verification', async () => {
@@ -177,7 +211,8 @@ describe('MemoryIngestionService', () => {
       embedding: undefined,
       metadata: {
         ...mockMetadata,
-        status: 'superseded',
+        status: 'superseded' as const,
+        validUntil: new Date().toISOString(),
         supersededAt: new Date().toISOString(),
       },
     };
@@ -193,6 +228,7 @@ describe('MemoryIngestionService', () => {
         status: 'superseded',
         timestamp: expect.any(String),
         supersededAt: expect.any(String),
+        validUntil: expect.any(String),
       },
     });
     expect(result).toEqual([deletedMemory]);

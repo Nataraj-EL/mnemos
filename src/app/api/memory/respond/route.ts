@@ -4,6 +4,7 @@ import { MemoryRetriever } from '@/memory/retriever';
 import { ContextAssembler } from '@/context/assembler';
 import { GeminiResponseGenerator } from '@/response/geminiGenerator';
 import { ResponseService } from '@/response/service';
+import { PgMemoryRepository } from '@/memory/repository';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +19,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { userId, query, limit: limitInput, maxTokens: maxTokensInput } = body;
+    const { userId, query, limit: limitInput, maxTokens: maxTokensInput, includeHistorical } = body;
 
     if (!userId || typeof userId !== 'string' || !userId.trim()) {
       return NextResponse.json(
@@ -55,11 +56,13 @@ export async function POST(request: Request) {
     const retriever = new MemoryRetriever(embeddingProvider);
     const assembler = new ContextAssembler();
     const generator = new GeminiResponseGenerator();
-    const service = new ResponseService(retriever, assembler, generator);
+    const repository = new PgMemoryRepository();
+    const service = new ResponseService(retriever, assembler, generator, repository);
 
     const result = await service.respond(userId, query, {
       limit,
       maxTokens,
+      includeHistorical: includeHistorical !== undefined ? !!includeHistorical : undefined,
     });
 
     return NextResponse.json({

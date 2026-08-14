@@ -26,6 +26,10 @@ export interface MemoryMetadata {
   timestamp: string;
   status?: 'active' | 'superseded';
   tags?: string[];
+  validFrom?: string;
+  validUntil?: string;
+  supersededBy?: string;
+  supersedes?: string;
   [key: string]: unknown;
 }
 
