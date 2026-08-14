@@ -54,6 +54,9 @@ export default function Home() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
+  // Mount State
+  const [mounted, setMounted] = useState(false);
+
   const handleSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim() || !userId.trim()) return;
@@ -119,6 +122,7 @@ export default function Home() {
 
   useEffect(() => {
     setTimeout(() => {
+      setMounted(true);
       fetchHealth();
     }, 0);
     // Poll the health check API every 15 seconds
@@ -334,7 +338,7 @@ export default function Home() {
               <button
                 type="submit"
                 className="btn btn-primary"
-                disabled={ingestLoading || !contentInput.trim()}
+                disabled={!mounted || ingestLoading || !contentInput.trim()}
               >
                 {ingestLoading ? 'Processing Ingestion...' : 'Submit to Engine'}
               </button>
@@ -437,7 +441,7 @@ export default function Home() {
             <button
               type="submit"
               className="btn btn-primary"
-              disabled={searchLoading || !searchQuery.trim()}
+              disabled={!mounted || searchLoading || !searchQuery.trim()}
             >
               {searchLoading ? 'Searching...' : 'Search Context'}
             </button>
