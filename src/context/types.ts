@@ -1,15 +1,25 @@
-import { Memory, MemoryType } from '@/core/types';
+import { MemoryType } from '@/core/types';
+
+export interface ContextItem {
+  id: string;
+  type: MemoryType;
+  content: string;
+  similarity: number;
+  importance: number;
+  score: number;
+  reason: string;
+}
 
 export interface ContextRequest {
   userId: string;
   query: string;
   limit?: number;
-  minConfidence?: number;
-  types?: MemoryType[];
+  maxTokens?: number;
 }
 
 export interface ContextResult {
-  memories: Memory[];
-  relevanceScore?: number;
-  extractedContext?: string;
+  query: string;
+  items: ContextItem[];
+  context: string;
+  tokenCount: number;
 }

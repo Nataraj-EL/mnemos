@@ -21,6 +21,23 @@ interface Memory {
   updatedAt: string;
 }
 
+interface ContextItem {
+  id: string;
+  type: string;
+  content: string;
+  similarity: number;
+  importance: number;
+  score: number;
+  reason: string;
+}
+
+interface ContextResult {
+  query: string;
+  items: ContextItem[];
+  context: string;
+  tokenCount: number;
+}
+
 interface HealthResponse {
   status: string;
   timestamp: string;
@@ -82,6 +99,50 @@ export default function Home() {
       setSearchError('An error occurred during search.');
     } finally {
       setSearchLoading(false);
+    }
+  };
+
+  // Context Assembly State
+  const [contextQuery, setContextQuery] = useState('');
+  const [contextLimit, setContextLimit] = useState(10);
+  const [contextMaxTokens, setContextMaxTokens] = useState(1500);
+  const [contextResult, setContextResult] = useState<ContextResult | null>(null);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextError, setContextError] = useState<string | null>(null);
+
+  const handleContextSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!contextQuery.trim() || !userId.trim()) return;
+
+    setContextLoading(true);
+    setContextError(null);
+    setContextResult(null);
+
+    try {
+      const response = await fetch('/api/memory/context', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: userId.trim(),
+          query: contextQuery.trim(),
+          limit: Number(contextLimit),
+          maxTokens: Number(contextMaxTokens),
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        setContextError(data.error || 'Failed to assemble context.');
+      } else {
+        setContextResult(data);
+      }
+    } catch (err) {
+      console.error('Context Assembly Error:', err);
+      setContextError('An error occurred during context assembly.');
+    } finally {
+      setContextLoading(false);
     }
   };
 
@@ -509,6 +570,167 @@ export default function Home() {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </section>
+
+        {/* Context Preview Panel */}
+        <section className="card" style={{ marginTop: '2.5rem' }}>
+          <h3 className="card-title">🧩 Context Assembly Preview</h3>
+          <p style={{ fontSize: '0.9rem', opacity: 0.7, marginBottom: '1.25rem' }}>
+            Deterministically filter, score, deduplicate, and token-budget your memories to synthesize structured context templates.
+          </p>
+
+          <form onSubmit={handleContextSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+              <div style={{ flexGrow: 1, minWidth: '280px' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Contextual Query / Topic</label>
+                <input
+                  type="text"
+                  placeholder="e.g. database choices or language preferences..."
+                  value={contextQuery}
+                  onChange={(e) => setContextQuery(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 1rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border)',
+                    backgroundColor: 'var(--surface)',
+                    color: 'var(--text)'
+                  }}
+                  required
+                />
+              </div>
+              <div style={{ width: '120px' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Limit</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={contextLimit}
+                  onChange={(e) => setContextLimit(Number(e.target.value))}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border)',
+                    backgroundColor: 'var(--surface)',
+                    color: 'var(--text)'
+                  }}
+                  required
+                />
+              </div>
+              <div style={{ width: '140px' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Max Tokens</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={contextMaxTokens}
+                  onChange={(e) => setContextMaxTokens(Number(e.target.value))}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border)',
+                    backgroundColor: 'var(--surface)',
+                    color: 'var(--text)'
+                  }}
+                  required
+                />
+              </div>
+            </div>
+            
+            <button
+              type="submit"
+              className="btn btn-primary"
+              style={{ alignSelf: 'flex-start' }}
+              disabled={!mounted || contextLoading || !contextQuery.trim()}
+            >
+              {contextLoading ? 'Assembling Context...' : 'Assemble Prompt Context'}
+            </button>
+          </form>
+
+          {contextError && (
+            <div style={{
+              padding: '0.75rem',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--error)',
+              backgroundColor: 'rgba(179, 74, 60, 0.1)',
+              color: 'var(--error)',
+              marginBottom: '1.25rem',
+              fontSize: '0.85rem'
+            }}>
+              {contextError}
+            </div>
+          )}
+
+          {contextLoading ? (
+            <div style={{ textAlign: 'center', padding: '2rem', opacity: 0.6 }}>Running context selection heuristics...</div>
+          ) : contextResult && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '1.5rem' }}>
+              
+              {/* Selected memories and reasons */}
+              <div>
+                <h4 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between' }}>
+                  <span>📋 Selected Memory Items</span>
+                  <span style={{ fontSize: '0.85rem', opacity: 0.7 }}>Selected: {contextResult.items.length}</span>
+                </h4>
+                
+                {contextResult.items.length === 0 ? (
+                  <div style={{ padding: '1.5rem', textAlign: 'center', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)' }}>
+                    No memories were selected. Either the search returned no results, or the first memory exceeded your token budget.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {contextResult.items.map((item) => (
+                      <div key={item.id} style={{
+                        padding: '0.75rem 1rem',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border)',
+                        backgroundColor: 'var(--surface)'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+                          <span className="badge" style={{ backgroundColor: 'var(--background)', color: 'var(--primary)', fontWeight: 'bold', fontSize: '0.75rem' }}>
+                            {item.type}
+                          </span>
+                          <span style={{ fontSize: '0.8rem', opacity: 0.6, fontStyle: 'italic' }}>
+                            ID: {item.id.substring(0, 8)}...
+                          </span>
+                        </div>
+                        <p style={{ fontWeight: 500, fontSize: '0.95rem', margin: '0.25rem 0' }}>{item.content}</p>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--primary)', opacity: 0.85, marginTop: '0.5rem', borderTop: '1px dotted var(--border)', paddingTop: '0.25rem' }}>
+                          ℹ️ {item.reason}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Complete assembled context block */}
+              <div>
+                <h4 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>📄 Compiled Prompt Context Block</span>
+                  <span className="badge" style={{ backgroundColor: 'var(--primary)', color: '#fff', fontSize: '0.8rem' }}>
+                    Estimated Tokens: {contextResult.tokenCount}
+                  </span>
+                </h4>
+                <pre style={{
+                  padding: '1rem',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'var(--background)',
+                  color: 'var(--text)',
+                  fontFamily: 'monospace',
+                  fontSize: '0.9rem',
+                  whiteSpace: 'pre-wrap',
+                  maxHeight: '300px',
+                  overflowY: 'auto'
+                }}>
+                  {contextResult.context || '/* Empty Context Block */'}
+                </pre>
+              </div>
+
             </div>
           )}
         </section>
