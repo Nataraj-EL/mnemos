@@ -1,16 +1,18 @@
 import { Memory } from '@/core/types';
 import { MemoryRepository } from './repository';
 import { MemoryExtractor } from './extractor';
+import { EmbeddingProvider } from './embedding';
 
 export class MemoryIngestionService {
   constructor(
     private repository: MemoryRepository,
-    private extractor: MemoryExtractor
+    private extractor: MemoryExtractor,
+    private embeddingProvider: EmbeddingProvider
   ) {}
 
   /**
    * Ingests raw conversation content, extracts structured memories, reconciles them with existing
-   * user candidate memories, and persists changes.
+   * user candidate memories, generates embeddings for active candidates, and persists changes.
    */
   async ingest(userId: string, content: string): Promise<Memory[]> {
     if (!userId || !userId.trim()) {
@@ -41,6 +43,7 @@ export class MemoryIngestionService {
           continue;
         }
 
+        // Persist base memory first
         const newMemory = await this.repository.create({
           userId,
           type: act.type,
@@ -53,7 +56,23 @@ export class MemoryIngestionService {
             status: 'active',
           },
         });
-        processedMemories.push(newMemory);
+
+        let finalMemory = newMemory;
+        try {
+          // Attempt to generate and save embedding
+          const vector = await this.embeddingProvider.generateEmbedding(act.content);
+          finalMemory = await this.repository.update(newMemory.id, {
+            embedding: vector,
+          });
+        } catch (embedError) {
+          console.error(
+            `Resilient Ingestion: Failed to generate/persist embedding for memory ${newMemory.id}:`,
+            embedError
+          );
+          // We return the memory record successfully stored without breaking execution
+        }
+
+        processedMemories.push(finalMemory);
       } 
       else if (act.action === 'UPDATE') {
         if (!act.id) {
@@ -68,9 +87,13 @@ export class MemoryIngestionService {
           continue;
         }
 
-        const updated = await this.repository.update(act.id, {
-          type: act.type ?? existingMemory.type,
-          content: act.content ?? existingMemory.content,
+        const newContent = act.content ?? existingMemory.content;
+        const newType = act.type ?? existingMemory.type;
+
+        // Perform initial text update
+        const updatedMemory = await this.repository.update(act.id, {
+          type: newType,
+          content: newContent,
           metadata: {
             ...existingMemory.metadata,
             confidence: act.confidence ?? existingMemory.metadata.confidence,
@@ -79,7 +102,22 @@ export class MemoryIngestionService {
             status: 'active',
           },
         });
-        processedMemories.push(updated);
+
+        let finalMemory = updatedMemory;
+        try {
+          // Attempt to generate and save updated embedding
+          const vector = await this.embeddingProvider.generateEmbedding(newContent);
+          finalMemory = await this.repository.update(act.id, {
+            embedding: vector,
+          });
+        } catch (embedError) {
+          console.error(
+            `Resilient Ingestion: Failed to generate/persist embedding for UPDATE of memory ${act.id}:`,
+            embedError
+          );
+        }
+
+        processedMemories.push(finalMemory);
       } 
       else if (act.action === 'DELETE') {
         if (!act.id) {
@@ -94,8 +132,9 @@ export class MemoryIngestionService {
           continue;
         }
 
-        // Prefer soft-supersede rather than hard-deleting the row
+        // Soft-supersede: mark status and clear embedding so it is excluded from vector searches
         const superseded = await this.repository.update(act.id, {
+          embedding: null,
           metadata: {
             ...existingMemory.metadata,
             status: 'superseded',

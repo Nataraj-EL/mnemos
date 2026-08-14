@@ -41,6 +41,7 @@ export interface Memory {
   type: MemoryType;
   content: string;
   metadata: MemoryMetadata;
+  embedding?: number[] | null;
   createdAt: Date;
   updatedAt: Date;
 }

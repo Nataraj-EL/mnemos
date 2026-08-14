@@ -9,28 +9,59 @@ export interface MemoryRepository {
   list(filter: { userId?: string; type?: MemoryType }): Promise<Memory[]>;
 }
 
+// Helper to parse pgvector string representation (e.g., "[0.1,0.2,-0.3]") into a number array
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseEmbedding(val: any): number[] | undefined {
+  if (typeof val === 'string') {
+    return val
+      .replace(/[\[\]]/g, '')
+      .split(',')
+      .map(Number);
+  }
+  if (Array.isArray(val)) {
+    return val.map(Number);
+  }
+  return undefined;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapRowToMemory(row: any): Memory {
+  if (!row) return row;
+  return {
+    id: row.id,
+    userId: row.userId,
+    type: row.type as MemoryType,
+    content: row.content,
+    metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
+    embedding: parseEmbedding(row.embedding),
+    createdAt: row.createdAt ? new Date(row.createdAt) : new Date(),
+    updatedAt: row.updatedAt ? new Date(row.updatedAt) : new Date(),
+  };
+}
+
 export class PgMemoryRepository implements MemoryRepository {
   async create(memory: Omit<Memory, 'id' | 'createdAt' | 'updatedAt'>): Promise<Memory> {
     const pool = getDbPool();
     const query = `
-      INSERT INTO memories (user_id, type, content, metadata, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-      RETURNING id, user_id as "userId", type, content, metadata, created_at as "createdAt", updated_at as "updatedAt";
+      INSERT INTO memories (user_id, type, content, metadata, embedding, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      RETURNING id, user_id as "userId", type, content, metadata, embedding, created_at as "createdAt", updated_at as "updatedAt";
     `;
     const values = [
       memory.userId,
       memory.type,
       memory.content,
       JSON.stringify(memory.metadata || {}),
+      memory.embedding ? `[${memory.embedding.join(',')}]` : null,
     ];
     const result = await pool.query(query, values);
-    return result.rows[0];
+    return mapRowToMemory(result.rows[0]);
   }
 
   async get(id: string): Promise<Memory | null> {
     const pool = getDbPool();
     const query = `
-      SELECT id, user_id as "userId", type, content, metadata, created_at as "createdAt", updated_at as "updatedAt"
+      SELECT id, user_id as "userId", type, content, metadata, embedding, created_at as "createdAt", updated_at as "updatedAt"
       FROM memories
       WHERE id = $1;
     `;
@@ -38,7 +69,7 @@ export class PgMemoryRepository implements MemoryRepository {
     if (result.rows.length === 0) {
       return null;
     }
-    return result.rows[0];
+    return mapRowToMemory(result.rows[0]);
   }
 
   async update(id: string, updates: Partial<Omit<Memory, 'id' | 'createdAt' | 'updatedAt'>>): Promise<Memory> {
@@ -63,6 +94,10 @@ export class PgMemoryRepository implements MemoryRepository {
       setClauses.push(`metadata = $${paramIndex++}`);
       values.push(JSON.stringify(updates.metadata));
     }
+    if (updates.embedding !== undefined) {
+      setClauses.push(`embedding = $${paramIndex++}`);
+      values.push(updates.embedding ? `[${updates.embedding.join(',')}]` : null);
+    }
 
     if (setClauses.length === 0) {
       const current = await this.get(id);
@@ -79,14 +114,14 @@ export class PgMemoryRepository implements MemoryRepository {
       UPDATE memories
       SET ${setClauses.join(', ')}
       WHERE id = $${paramIndex}
-      RETURNING id, user_id as "userId", type, content, metadata, created_at as "createdAt", updated_at as "updatedAt";
+      RETURNING id, user_id as "userId", type, content, metadata, embedding, created_at as "createdAt", updated_at as "updatedAt";
     `;
 
     const result = await pool.query(query, values);
     if (result.rows.length === 0) {
       throw new Error(`Memory with ID ${id} not found.`);
     }
-    return result.rows[0];
+    return mapRowToMemory(result.rows[0]);
   }
 
   async delete(id: string): Promise<boolean> {
@@ -106,23 +141,24 @@ export class PgMemoryRepository implements MemoryRepository {
     let paramIndex = 1;
 
     if (filter.userId) {
-      clauses.push(`user_id = $${paramIndex++}`);
+      clauses.push('user_id = $' + paramIndex++);
       values.push(filter.userId);
     }
     if (filter.type) {
-      clauses.push(`type = $${paramIndex++}`);
+      clauses.push('type = $' + paramIndex++);
       values.push(filter.type);
     }
 
-    const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const whereClause = clauses.length > 0 ? 'WHERE ' + clauses.join(' AND ') : '';
     const query = `
-      SELECT id, user_id as "userId", type, content, metadata, created_at as "createdAt", updated_at as "updatedAt"
+      SELECT id, user_id as "userId", type, content, metadata, embedding, created_at as "createdAt", updated_at as "updatedAt"
       FROM memories
       ${whereClause}
       ORDER BY created_at DESC;
     `;
 
     const result = await pool.query(query, values);
-    return result.rows;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return result.rows.map((row: any) => mapRowToMemory(row));
   }
 }

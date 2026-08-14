@@ -48,6 +48,40 @@ export default function Home() {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [loadingMemories, setLoadingMemories] = useState(true);
 
+  // Search State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<{ memory: Memory; similarity: number }[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+
+  const handleSearchSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQuery.trim() || !userId.trim()) return;
+
+    setSearchLoading(true);
+    setSearchError(null);
+
+    try {
+      const response = await fetch(
+        `/api/memory/search?userId=${encodeURIComponent(userId.trim())}&q=${encodeURIComponent(
+          searchQuery.trim()
+        )}`
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setSearchError(data.error || 'Failed to execute search.');
+      } else {
+        setSearchResults(data.results || []);
+      }
+    } catch (err) {
+      console.error('Search Error:', err);
+      setSearchError('An error occurred during search.');
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
   const fetchHealth = async () => {
     try {
       const response = await fetch('/api/health');
@@ -374,6 +408,105 @@ export default function Home() {
               </div>
             )}
           </div>
+        </section>
+
+        {/* Semantic Search Panel */}
+        <section className="card" style={{ marginTop: '2.5rem' }}>
+          <h3 className="card-title">🔍 Semantic Memory Search</h3>
+          <p style={{ fontSize: '0.9rem', opacity: 0.7, marginBottom: '1.25rem' }}>
+            Query active memories using cosine similarity matching. Enter a concept or preference description.
+          </p>
+
+          <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
+            <input
+              type="text"
+              placeholder="e.g. databases, coding preferences, goals..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                flexGrow: 1,
+                minWidth: '280px',
+                padding: '0.5rem 1rem',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border)',
+                backgroundColor: 'var(--surface)',
+                color: 'var(--text)'
+              }}
+              required
+            />
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={searchLoading || !searchQuery.trim()}
+            >
+              {searchLoading ? 'Searching...' : 'Search Context'}
+            </button>
+          </form>
+
+          {searchError && (
+            <div style={{
+              padding: '0.75rem',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--error)',
+              backgroundColor: 'rgba(179, 74, 60, 0.1)',
+              color: 'var(--error)',
+              marginBottom: '1.25rem',
+              fontSize: '0.85rem'
+            }}>
+              {searchError}
+            </div>
+          )}
+
+          {searchLoading ? (
+            <div style={{ textAlign: 'center', padding: '2rem', opacity: 0.6 }}>Executing semantic vector search...</div>
+          ) : searchResults.length === 0 ? (
+            searchQuery && (
+              <div style={{ textAlign: 'center', padding: '2rem', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-md)' }}>
+                No active memories found matching &quot;<strong>{searchQuery}</strong>&quot;.
+              </div>
+            )
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {searchResults.map((result) => {
+                const { memory, similarity } = result;
+                const scorePercent = (similarity * 100).toFixed(1);
+                return (
+                  <div key={memory.id} style={{
+                    padding: '1rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border)',
+                    backgroundColor: 'var(--surface)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.5rem',
+                    position: 'relative'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span className="badge" style={{ backgroundColor: 'var(--background)', color: 'var(--primary)', fontWeight: 'bold' }}>
+                        {memory.type}
+                      </span>
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginLeft: 'auto' }}>
+                        <span style={{ fontSize: '0.85rem', color: 'var(--primary)', fontWeight: 'bold' }}>
+                          Similarity: {scorePercent}%
+                        </span>
+                        <span style={{ fontSize: '0.75rem', opacity: 0.65 }}>
+                          Conf: {(memory.metadata.confidence * 100).toFixed(0)}%
+                        </span>
+                        <span style={{ fontSize: '0.75rem', opacity: 0.65 }}>
+                          Imp: {memory.metadata.importance}/10
+                        </span>
+                      </div>
+                    </div>
+                    <p style={{ fontWeight: 500, fontSize: '1rem', marginTop: '0.25rem' }}>{memory.content}</p>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', opacity: 0.5, borderTop: '1px solid var(--border)', paddingTop: '0.5rem', marginTop: '0.25rem' }}>
+                      <span>Source: {memory.metadata.source}</span>
+                      <span>Observed: {new Date(memory.metadata.timestamp || memory.createdAt).toLocaleString()}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
       </main>
 

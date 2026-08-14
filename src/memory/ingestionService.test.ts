@@ -7,6 +7,8 @@ describe('MemoryIngestionService', () => {
   let mockRepo: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let mockExtractor: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let mockEmbeddingProvider: any;
   let service: MemoryIngestionService;
 
   const mockMetadata = {
@@ -30,7 +32,11 @@ describe('MemoryIngestionService', () => {
       reconcile: vi.fn(),
     };
 
-    service = new MemoryIngestionService(mockRepo, mockExtractor);
+    mockEmbeddingProvider = {
+      generateEmbedding: vi.fn().mockResolvedValue([0.1, 0.2]),
+    };
+
+    service = new MemoryIngestionService(mockRepo, mockExtractor, mockEmbeddingProvider);
   });
 
   it('should successfully handle a CREATE action', async () => {
@@ -62,6 +68,10 @@ describe('MemoryIngestionService', () => {
     };
 
     mockRepo.create.mockResolvedValueOnce(createdMemory);
+    mockRepo.update.mockResolvedValueOnce({
+      ...createdMemory,
+      embedding: [0.1, 0.2],
+    });
 
     const result = await service.ingest('user-1', 'I like green tea');
 
@@ -79,7 +89,9 @@ describe('MemoryIngestionService', () => {
         status: 'active',
       },
     });
-    expect(result).toEqual([createdMemory]);
+    expect(mockEmbeddingProvider.generateEmbedding).toHaveBeenCalledWith('User likes green tea');
+    expect(mockRepo.update).toHaveBeenCalledWith('uuid-new', { embedding: [0.1, 0.2] });
+    expect(result).toEqual([{ ...createdMemory, embedding: [0.1, 0.2] }]);
   });
 
   it('should successfully handle an UPDATE action with safety verification', async () => {
@@ -115,7 +127,11 @@ describe('MemoryIngestionService', () => {
         importance: 6,
       },
     };
-    mockRepo.update.mockResolvedValueOnce(updatedMemory);
+    mockRepo.update.mockResolvedValueOnce(updatedMemory); // First save call
+    mockRepo.update.mockResolvedValueOnce({
+      ...updatedMemory,
+      embedding: [0.1, 0.2],
+    }); // Second embedding save call
 
     const result = await service.ingest('user-1', 'I prefer TypeScript now');
 
@@ -131,7 +147,8 @@ describe('MemoryIngestionService', () => {
         status: 'active',
       },
     });
-    expect(result).toEqual([updatedMemory]);
+    expect(mockEmbeddingProvider.generateEmbedding).toHaveBeenCalledWith('User prefers TypeScript');
+    expect(result).toEqual([{ ...updatedMemory, embedding: [0.1, 0.2] }]);
   });
 
   it('should successfully soft-supersede a memory on DELETE action with safety verification', async () => {
@@ -157,6 +174,7 @@ describe('MemoryIngestionService', () => {
 
     const deletedMemory = {
       ...existingMemory,
+      embedding: undefined,
       metadata: {
         ...mockMetadata,
         status: 'superseded',
@@ -169,6 +187,7 @@ describe('MemoryIngestionService', () => {
 
     expect(mockRepo.get).toHaveBeenCalledWith('mem-delete-id');
     expect(mockRepo.update).toHaveBeenCalledWith('mem-delete-id', {
+      embedding: null,
       metadata: {
         ...mockMetadata,
         status: 'superseded',
@@ -259,5 +278,47 @@ describe('MemoryIngestionService', () => {
     mockRepo.list.mockRejectedValueOnce(new Error('Database breakdown'));
 
     await expect(service.ingest('user-1', 'Fail repo')).rejects.toThrow('Database breakdown');
+  });
+
+  it('should successfully ingest even if embedding generation fails (resilience check)', async () => {
+    mockRepo.list.mockResolvedValueOnce([]);
+    mockExtractor.reconcile.mockResolvedValueOnce([
+      {
+        action: 'CREATE',
+        type: 'FACT',
+        content: 'Resilient memory content',
+        confidence: 0.8,
+        importance: 5,
+      },
+    ]);
+
+    const createdMemory = {
+      id: 'uuid-new-resilient',
+      userId: 'user-1',
+      type: 'FACT',
+      content: 'Resilient memory content',
+      metadata: {
+        source: 'user_input',
+        confidence: 0.8,
+        importance: 5,
+        timestamp: new Date().toISOString(),
+        status: 'active',
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    mockRepo.create.mockResolvedValueOnce(createdMemory);
+    // Mock generateEmbedding to fail
+    mockEmbeddingProvider.generateEmbedding.mockRejectedValueOnce(new Error('Rate Limit exceeded'));
+
+    const result = await service.ingest('user-1', 'Testing resilient database saves');
+
+    expect(mockRepo.create).toHaveBeenCalled();
+    expect(mockEmbeddingProvider.generateEmbedding).toHaveBeenCalled();
+    // Repository update to store embedding should NOT have been called due to error
+    expect(mockRepo.update).not.toHaveBeenCalled();
+    // Ingestion succeeds and returns the base memory without embedding
+    expect(result).toEqual([createdMemory]);
   });
 });

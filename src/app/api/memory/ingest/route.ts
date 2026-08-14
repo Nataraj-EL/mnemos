@@ -3,6 +3,8 @@ import { PgMemoryRepository } from '@/memory/repository';
 import { GeminiMemoryExtractor } from '@/memory/geminiExtractor';
 import { MemoryIngestionService } from '@/memory/ingestionService';
 
+import { GeminiEmbeddingProvider } from '@/memory/geminiEmbedding';
+
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
@@ -34,7 +36,8 @@ export async function POST(request: Request) {
 
     const repository = new PgMemoryRepository();
     const extractor = new GeminiMemoryExtractor();
-    const service = new MemoryIngestionService(repository, extractor);
+    const embeddingProvider = new GeminiEmbeddingProvider();
+    const service = new MemoryIngestionService(repository, extractor, embeddingProvider);
 
     const processed = await service.ingest(userId, content);
 

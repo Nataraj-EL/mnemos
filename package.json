@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "migrate": "npx tsx src/db/migrate.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
