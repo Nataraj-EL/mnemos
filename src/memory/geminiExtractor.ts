@@ -3,9 +3,11 @@ import { MemoryExtractor, ExtractedAction } from './extractor';
 
 export class GeminiMemoryExtractor implements MemoryExtractor {
   private apiKey: string | undefined;
+  private model: string;
 
   constructor() {
     this.apiKey = process.env.GEMINI_API_KEY;
+    this.model = process.env.EXTRACTION_MODEL || 'gemini-1.5-flash';
   }
 
   async reconcile(text: string, candidates: Memory[]): Promise<ExtractedAction[]> {
@@ -96,17 +98,17 @@ Return your actions in the specified JSON schema format. Make sure the content o
       },
     };
 
+    const urlModel = this.model.startsWith('models/') ? this.model.substring(7) : this.model;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${urlModel}:generateContent?key=${this.apiKey}`;
+
     try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${this.apiKey}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(requestBody),
-        }
-      );
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
 
       if (!response.ok) {
         const errorText = await response.text();
