@@ -1,0 +1,263 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { MemoryIngestionService } from './ingestionService';
+import { Memory } from '@/core/types';
+
+describe('MemoryIngestionService', () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let mockRepo: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let mockExtractor: any;
+  let service: MemoryIngestionService;
+
+  const mockMetadata = {
+    source: 'chat',
+    confidence: 0.9,
+    importance: 5,
+    timestamp: new Date().toISOString(),
+    status: 'active' as const,
+  };
+
+  beforeEach(() => {
+    mockRepo = {
+      create: vi.fn(),
+      get: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+      list: vi.fn(),
+    };
+
+    mockExtractor = {
+      reconcile: vi.fn(),
+    };
+
+    service = new MemoryIngestionService(mockRepo, mockExtractor);
+  });
+
+  it('should successfully handle a CREATE action', async () => {
+    mockRepo.list.mockResolvedValueOnce([]);
+    mockExtractor.reconcile.mockResolvedValueOnce([
+      {
+        action: 'CREATE',
+        type: 'FACT',
+        content: 'User likes green tea',
+        confidence: 0.9,
+        importance: 4,
+      },
+    ]);
+
+    const createdMemory = {
+      id: 'uuid-new',
+      userId: 'user-1',
+      type: 'FACT',
+      content: 'User likes green tea',
+      metadata: {
+        source: 'user_input',
+        confidence: 0.9,
+        importance: 4,
+        timestamp: new Date().toISOString(),
+        status: 'active',
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    mockRepo.create.mockResolvedValueOnce(createdMemory);
+
+    const result = await service.ingest('user-1', 'I like green tea');
+
+    expect(mockRepo.list).toHaveBeenCalledWith({ userId: 'user-1' });
+    expect(mockExtractor.reconcile).toHaveBeenCalled();
+    expect(mockRepo.create).toHaveBeenCalledWith({
+      userId: 'user-1',
+      type: 'FACT',
+      content: 'User likes green tea',
+      metadata: {
+        source: 'user_input',
+        confidence: 0.9,
+        importance: 4,
+        timestamp: expect.any(String),
+        status: 'active',
+      },
+    });
+    expect(result).toEqual([createdMemory]);
+  });
+
+  it('should successfully handle an UPDATE action with safety verification', async () => {
+    const existingMemory: Memory = {
+      id: 'mem-update-id',
+      userId: 'user-1',
+      type: 'PREFERENCE',
+      content: 'User prefers Python',
+      metadata: mockMetadata,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    mockRepo.list.mockResolvedValueOnce([existingMemory]);
+    mockExtractor.reconcile.mockResolvedValueOnce([
+      {
+        action: 'UPDATE',
+        id: 'mem-update-id',
+        content: 'User prefers TypeScript',
+        confidence: 0.95,
+        importance: 6,
+      },
+    ]);
+
+    mockRepo.get.mockResolvedValueOnce(existingMemory);
+
+    const updatedMemory = {
+      ...existingMemory,
+      content: 'User prefers TypeScript',
+      metadata: {
+        ...mockMetadata,
+        confidence: 0.95,
+        importance: 6,
+      },
+    };
+    mockRepo.update.mockResolvedValueOnce(updatedMemory);
+
+    const result = await service.ingest('user-1', 'I prefer TypeScript now');
+
+    expect(mockRepo.get).toHaveBeenCalledWith('mem-update-id');
+    expect(mockRepo.update).toHaveBeenCalledWith('mem-update-id', {
+      type: 'PREFERENCE',
+      content: 'User prefers TypeScript',
+      metadata: {
+        ...mockMetadata,
+        confidence: 0.95,
+        importance: 6,
+        timestamp: expect.any(String),
+        status: 'active',
+      },
+    });
+    expect(result).toEqual([updatedMemory]);
+  });
+
+  it('should successfully soft-supersede a memory on DELETE action with safety verification', async () => {
+    const existingMemory: Memory = {
+      id: 'mem-delete-id',
+      userId: 'user-1',
+      type: 'GOAL',
+      content: 'Learn COBOL',
+      metadata: mockMetadata,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    mockRepo.list.mockResolvedValueOnce([existingMemory]);
+    mockExtractor.reconcile.mockResolvedValueOnce([
+      {
+        action: 'DELETE',
+        id: 'mem-delete-id',
+      },
+    ]);
+
+    mockRepo.get.mockResolvedValueOnce(existingMemory);
+
+    const deletedMemory = {
+      ...existingMemory,
+      metadata: {
+        ...mockMetadata,
+        status: 'superseded',
+        supersededAt: new Date().toISOString(),
+      },
+    };
+    mockRepo.update.mockResolvedValueOnce(deletedMemory);
+
+    const result = await service.ingest('user-1', 'I no longer want to learn COBOL');
+
+    expect(mockRepo.get).toHaveBeenCalledWith('mem-delete-id');
+    expect(mockRepo.update).toHaveBeenCalledWith('mem-delete-id', {
+      metadata: {
+        ...mockMetadata,
+        status: 'superseded',
+        timestamp: expect.any(String),
+        supersededAt: expect.any(String),
+      },
+    });
+    expect(result).toEqual([deletedMemory]);
+  });
+
+  it('should reject UPDATE / DELETE if memory does not belong to the user', async () => {
+    const foreignMemory: Memory = {
+      id: 'mem-foreign-id',
+      userId: 'attacker-user', // Different owner
+      type: 'FACT',
+      content: 'Secret facts',
+      metadata: mockMetadata,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    mockRepo.list.mockResolvedValueOnce([]); // Empty local list for our user
+    mockExtractor.reconcile.mockResolvedValueOnce([
+      {
+        action: 'UPDATE',
+        id: 'mem-foreign-id',
+        content: 'Malicious modification attempts',
+      },
+    ]);
+
+    mockRepo.get.mockResolvedValueOnce(foreignMemory);
+
+    const result = await service.ingest('user-1', 'Attempt to hijack');
+
+    expect(mockRepo.get).toHaveBeenCalledWith('mem-foreign-id');
+    expect(mockRepo.update).not.toHaveBeenCalled();
+    expect(result).toEqual([]);
+  });
+
+  it('should reject UPDATE / DELETE if memory ID does not exist', async () => {
+    mockRepo.list.mockResolvedValueOnce([]);
+    mockExtractor.reconcile.mockResolvedValueOnce([
+      {
+        action: 'UPDATE',
+        id: 'non-existent-id',
+        content: 'Reconcile non-existent',
+      },
+    ]);
+
+    mockRepo.get.mockResolvedValueOnce(null);
+
+    const result = await service.ingest('user-1', 'Update nonexistent');
+
+    expect(mockRepo.get).toHaveBeenCalledWith('non-existent-id');
+    expect(mockRepo.update).not.toHaveBeenCalled();
+    expect(result).toEqual([]);
+  });
+
+  it('should skip operation on NONE action', async () => {
+    const existingMemory: Memory = {
+      id: 'mem-none-id',
+      userId: 'user-1',
+      type: 'PREFERENCE',
+      content: 'Likes dark mode',
+      metadata: mockMetadata,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    mockRepo.list.mockResolvedValueOnce([existingMemory]);
+    mockExtractor.reconcile.mockResolvedValueOnce([
+      {
+        action: 'NONE',
+        id: 'mem-none-id',
+      },
+    ]);
+
+    mockRepo.get.mockResolvedValueOnce(existingMemory);
+
+    const result = await service.ingest('user-1', 'I still prefer dark mode');
+
+    expect(mockRepo.update).not.toHaveBeenCalled();
+    expect(mockRepo.create).not.toHaveBeenCalled();
+    expect(result).toEqual([existingMemory]);
+  });
+
+  it('should propagate repository errors gracefully', async () => {
+    mockRepo.list.mockRejectedValueOnce(new Error('Database breakdown'));
+
+    await expect(service.ingest('user-1', 'Fail repo')).rejects.toThrow('Database breakdown');
+  });
+});

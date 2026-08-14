@@ -20,8 +20,11 @@ export function isValidMemoryType(type: string): type is MemoryType {
 }
 
 export interface MemoryMetadata {
-  source?: string;
-  confidence?: number;
+  source: string;
+  confidence: number;
+  importance: number;
+  timestamp: string;
+  status?: 'active' | 'superseded';
   tags?: string[];
   [key: string]: unknown;
 }

@@ -12,6 +12,14 @@ vi.mock('@/db', () => {
   };
 });
 
+const mockMetadata = {
+  source: 'chat',
+  confidence: 0.9,
+  importance: 5,
+  timestamp: new Date().toISOString(),
+  status: 'active' as const,
+};
+
 describe('PgMemoryRepository', () => {
   let repository: PgMemoryRepository;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -29,7 +37,7 @@ describe('PgMemoryRepository', () => {
       userId: 'user-1',
       type: 'FACT' as const,
       content: 'Likes coffee',
-      metadata: { source: 'chat' },
+      metadata: mockMetadata,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -42,7 +50,7 @@ describe('PgMemoryRepository', () => {
       userId: 'user-1',
       type: 'FACT',
       content: 'Likes coffee',
-      metadata: { source: 'chat' },
+      metadata: mockMetadata,
     });
 
     expect(mockQuery).toHaveBeenCalledTimes(1);
@@ -55,7 +63,7 @@ describe('PgMemoryRepository', () => {
       userId: 'user-1',
       type: 'PREFERENCE' as const,
       content: 'Dark mode',
-      metadata: {},
+      metadata: mockMetadata,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -86,7 +94,7 @@ describe('PgMemoryRepository', () => {
       userId: 'user-1',
       type: 'FACT' as const,
       content: 'Likes espresso',
-      metadata: { source: 'chat' },
+      metadata: mockMetadata,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -126,7 +134,7 @@ describe('PgMemoryRepository', () => {
 
   it('should list memories with filters', async () => {
     const mockMemories = [
-      { id: '1', userId: 'user-1', type: 'GOAL', content: 'Learn Next.js', metadata: {} },
+      { id: '1', userId: 'user-1', type: 'GOAL' as const, content: 'Learn Next.js', metadata: mockMetadata, createdAt: new Date(), updatedAt: new Date() },
     ];
 
     mockQuery.mockResolvedValueOnce({
