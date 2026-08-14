@@ -38,6 +38,35 @@ interface ContextResult {
   tokenCount: number;
 }
 
+interface EvalScenarioMetrics {
+  retrievalRecall: number;
+  contextPrecision: number;
+  userIsolation: number;
+  deduplicationRate: number;
+  tokenCompliance: number;
+}
+
+interface EvalScenarioResult {
+  scenarioId: string;
+  name: string;
+  passed: boolean;
+  metrics: EvalScenarioMetrics;
+  latencyMs: number;
+  failureReason?: string;
+}
+
+interface EvalSummary {
+  total: number;
+  passed: number;
+  failed: number;
+  retrievalRecall: number;
+  contextPrecision: number;
+  isolationRate: number;
+  deduplicationRate: number;
+  tokenCompliance: number;
+  averageLatency: number;
+}
+
 interface HealthResponse {
   status: string;
   timestamp: string;
@@ -191,6 +220,41 @@ export default function Home() {
       setResponseError('An error occurred during response generation.');
     } finally {
       setResponseLoading(false);
+    }
+  };
+
+  // Evaluation State
+  const [evalSummary, setEvalSummary] = useState<EvalSummary | null>(null);
+  const [evalResults, setEvalResults] = useState<EvalScenarioResult[]>([]);
+  const [evalLoading, setEvalLoading] = useState(false);
+  const [evalError, setEvalError] = useState<string | null>(null);
+
+  const handleRunEvaluation = async () => {
+    setEvalLoading(true);
+    setEvalError(null);
+    setEvalSummary(null);
+    setEvalResults([]);
+
+    try {
+      const response = await fetch('/api/evaluation/run', { method: 'POST' });
+      const data = await response.json();
+      if (!response.ok) {
+        // Fallback to client-side evaluation if server route is restricted/disabled
+        console.warn('Server evaluation endpoint returned error. Running locally in browser...', data.error);
+        const { EvaluationRunner } = await import('@/evaluation/runner');
+        const runner = new EvaluationRunner();
+        const localResult = await runner.runAll();
+        setEvalSummary(localResult.summary);
+        setEvalResults(localResult.results);
+      } else {
+        setEvalSummary(data.summary);
+        setEvalResults(data.results);
+      }
+    } catch (err) {
+      console.error('Failed to execute evaluation:', err);
+      setEvalError('An unexpected error occurred during evaluation.');
+    } finally {
+      setEvalLoading(false);
     }
   };
 
@@ -933,6 +997,126 @@ export default function Home() {
                     ))}
                   </div>
                 )}
+              </div>
+
+            </div>
+          )}
+        </section>
+
+        {/* Evaluation & Observability Panel */}
+        <section className="card" style={{ marginTop: '2.5rem' }}>
+          <h3 className="card-title">📊 Evaluation & Observability</h3>
+          <p style={{ fontSize: '0.9rem', opacity: 0.7, marginBottom: '1.25rem' }}>
+            Run the 16-scenario synthetic benchmark suite to evaluate memory recall, user isolation boundaries, Jaccard/containment deduplication rates, and token compliance.
+          </p>
+
+          <button
+            onClick={handleRunEvaluation}
+            className="btn btn-primary"
+            style={{ marginBottom: '1.5rem' }}
+            disabled={evalLoading}
+          >
+            {evalLoading ? 'Running Benchmarks...' : 'Run Benchmark Evaluation'}
+          </button>
+
+          {evalError && (
+            <div style={{
+              padding: '0.75rem',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--error)',
+              backgroundColor: 'rgba(179, 74, 60, 0.1)',
+              color: 'var(--error)',
+              marginBottom: '1.25rem',
+              fontSize: '0.85rem'
+            }}>
+              {evalError}
+            </div>
+          )}
+
+          {evalLoading ? (
+            <div style={{ textAlign: 'center', padding: '2rem', opacity: 0.6 }}>Executing benchmark scenarios...</div>
+          ) : evalSummary && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              
+              {/* Summary Stats Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '1rem' }}>
+                <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.8rem', opacity: 0.6, textTransform: 'uppercase', fontWeight: 600 }}>Total Scenarios</div>
+                  <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--text)' }}>{evalSummary.total}</div>
+                </div>
+                <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'rgba(74, 117, 89, 0.1)', borderLeft: '4px solid var(--success)', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--success)', textTransform: 'uppercase', fontWeight: 600 }}>Passed</div>
+                  <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--success)' }}>{evalSummary.passed}</div>
+                </div>
+                <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'rgba(179, 74, 60, 0.1)', borderLeft: '4px solid var(--error)', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--error)', textTransform: 'uppercase', fontWeight: 600 }}>Failed</div>
+                  <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--error)' }}>{evalSummary.failed}</div>
+                </div>
+                <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.8rem', opacity: 0.6, textTransform: 'uppercase', fontWeight: 600 }}>Recall Rate</div>
+                  <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--text)' }}>{(evalSummary.retrievalRecall * 100).toFixed(0)}%</div>
+                </div>
+                <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.8rem', opacity: 0.6, textTransform: 'uppercase', fontWeight: 600 }}>Precision</div>
+                  <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--text)' }}>{(evalSummary.contextPrecision * 100).toFixed(0)}%</div>
+                </div>
+                <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.8rem', opacity: 0.6, textTransform: 'uppercase', fontWeight: 600 }}>Isolation</div>
+                  <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--success)' }}>{(evalSummary.isolationRate * 100).toFixed(0)}%</div>
+                </div>
+                <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.8rem', opacity: 0.6, textTransform: 'uppercase', fontWeight: 600 }}>Deduplication</div>
+                  <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--text)' }}>{(evalSummary.deduplicationRate * 100).toFixed(0)}%</div>
+                </div>
+                <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.8rem', opacity: 0.6, textTransform: 'uppercase', fontWeight: 600 }}>Avg Latency</div>
+                  <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--text)' }}>{evalSummary.averageLatency.toFixed(0)} ms</div>
+                </div>
+              </div>
+
+              {/* Scenario Sheet */}
+              <div>
+                <h4 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem' }}>📋 Scenario Benchmark Execution Sheet</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '400px', overflowY: 'auto', paddingRight: '0.25rem' }}>
+                  {evalResults.map((result) => (
+                    <div key={result.scenarioId} style={{
+                      padding: '0.75rem 1rem',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border)',
+                      backgroundColor: 'var(--surface)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: '0.95rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <span style={{ color: result.passed ? 'var(--success)' : 'var(--error)' }}>
+                            {result.passed ? '●' : '■'}
+                          </span>
+                          {result.name}
+                        </div>
+                        <div style={{ fontSize: '0.8rem', opacity: 0.6, marginTop: '0.25rem', display: 'flex', gap: '0.75rem' }}>
+                          <span>Latency: <strong>{result.latencyMs} ms</strong></span>
+                          <span>Recall: <strong>{(result.metrics.retrievalRecall * 100).toFixed(0)}%</strong></span>
+                          <span>Precision: <strong>{(result.metrics.contextPrecision * 100).toFixed(0)}%</strong></span>
+                        </div>
+                        {result.failureReason && (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--error)', marginTop: '0.25rem' }}>
+                            ⚠️ {result.failureReason}
+                          </div>
+                        )}
+                      </div>
+                      
+                      <span className="badge" style={{
+                        backgroundColor: result.passed ? 'rgba(74, 117, 89, 0.15)' : 'rgba(179, 74, 60, 0.15)',
+                        color: result.passed ? 'var(--success)' : 'var(--error)',
+                        fontWeight: 'bold'
+                      }}>
+                        {result.passed ? 'PASSED' : 'FAILED'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
 
             </div>
