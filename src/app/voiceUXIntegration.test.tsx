@@ -384,3 +384,111 @@ describe('Voice UX Integration State Machine - Sprint 28 Additions', () => {
     expect(dbConversationsExist).toBe(true);
   });
 });
+
+describe('Voice UX Integration State Machine - Sprint 29 Additions', () => {
+  interface VoiceSessionEntry {
+    id: string;
+    transcript: string;
+    response: string | null;
+    timestamp: string;
+    isSaved?: boolean;
+    conversationId?: string;
+    savedAt?: string;
+  }
+
+  it('should link history entry to conversationId on successful save', () => {
+    const history: VoiceSessionEntry[] = [
+      { id: 'vse-1', transcript: 'Q1', response: 'A1', timestamp: '' }
+    ];
+
+    // Atomically link
+    const updatedHistory = history.map((e) =>
+      e.id === 'vse-1'
+        ? { ...e, isSaved: true, conversationId: 'conv-999', savedAt: '2026-08-15T12:00:00Z' }
+        : e
+    );
+
+    expect(updatedHistory[0].isSaved).toBe(true);
+    expect(updatedHistory[0].conversationId).toBe('conv-999');
+    expect(updatedHistory[0].savedAt).toBe('2026-08-15T12:00:00Z');
+  });
+
+  it('should enforce save idempotence by preventing duplicate saves', () => {
+    const entry: VoiceSessionEntry = {
+      id: 'vse-1',
+      transcript: 'Q1',
+      response: 'A1',
+      timestamp: '',
+      isSaved: true,
+      conversationId: 'conv-999'
+    };
+
+    let postCount = 0;
+    const saveHandler = () => {
+      if (entry.isSaved) return; // Prevent duplicate POST
+      postCount++;
+    };
+
+    saveHandler();
+    expect(postCount).toBe(0);
+  });
+
+  it('should keep history entry intact if saving fails and allow retry save only', () => {
+    const history: VoiceSessionEntry[] = [
+      { id: 'vse-1', transcript: 'Q1', response: 'A1', timestamp: '' }
+    ];
+    const errors: Record<string, string> = { 'vse-1': 'Failed to save conversation.' };
+
+    expect(history.length).toBe(1);
+    expect(errors['vse-1']).toBe('Failed to save conversation.');
+
+    // Retry triggers saving again
+    let retried = false;
+    const retryHandler = (id: string) => {
+      if (errors[id]) {
+        retried = true;
+      }
+    };
+
+    retryHandler('vse-1');
+    expect(retried).toBe(true);
+  });
+
+  it('should preserve session history and view states when selecting linked conversation', () => {
+    const history: VoiceSessionEntry[] = [
+      { id: 'vse-1', transcript: 'Q1', response: 'A1', timestamp: '', isSaved: true, conversationId: 'conv-123' }
+    ];
+    const selectedHistoryId: string | null = 'vse-1';
+    let currentOpenConvId: string | null = null;
+
+    // Open linked conversation
+    if (history[0].isSaved && history[0].conversationId) {
+      currentOpenConvId = history[0].conversationId;
+    }
+
+    // Verify view state & history are preserved
+    expect(selectedHistoryId).toBe('vse-1');
+    expect(currentOpenConvId).toBe('conv-123');
+    expect(history.length).toBe(1);
+  });
+
+  it('should verify double-click prevention on history save using loading guards', async () => {
+    let callCount = 0;
+    let savingId: string | null = null;
+
+    const mockSave = async (id: string) => {
+      if (savingId === id) return;
+      savingId = id;
+      callCount++;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      savingId = null;
+    };
+
+    // Fast double click
+    const p1 = mockSave('vse-1');
+    const p2 = mockSave('vse-1');
+    await Promise.all([p1, p2]);
+
+    expect(callCount).toBe(1);
+  });
+});

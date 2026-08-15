@@ -240,6 +240,12 @@ export default function MemoryDashboard() {
     usedConversations: { id: string; conversationId?: string; createdAt: string; text: string; matchedSnippet?: string; similarity?: number }[];
     contextTokenCount: number;
     timestamp: string;
+    isSaved?: boolean;
+    conversationId?: string;
+    savedAt?: string;
+    startedAt?: string;
+    endedAt?: string;
+    durationSeconds?: number;
   }
 
   const [voiceHistory, setVoiceHistory] = useState<VoiceSessionEntry[]>([]);
@@ -324,6 +330,70 @@ export default function MemoryDashboard() {
     setActiveUsedConversations([]);
     setActiveContextTokenCount(0);
     setVoiceMode(mode);
+  };
+
+  const [historySavingId, setHistorySavingId] = useState<string | null>(null);
+  const [historySaveError, setHistorySaveError] = useState<Record<string, string>>({});
+
+  const handleSaveHistoryEntry = async (entryId: string) => {
+    const entry = voiceHistory.find((e) => e.id === entryId);
+    if (!entry) return;
+    if (entry.isSaved) return;
+
+    setHistorySavingId(entryId);
+    setHistorySaveError((prev) => ({ ...prev, [entryId]: '' }));
+
+    try {
+      const payload = {
+        userId: userId.trim(),
+        transcript: `Question: ${entry.transcript}\nAnswer: ${entry.response || ''}`,
+        startedAt: entry.startedAt || new Date(entry.timestamp).toISOString(),
+        endedAt: entry.endedAt || new Date(entry.timestamp).toISOString(),
+        durationSeconds: entry.durationSeconds || 0,
+      };
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (process.env.NEXT_PUBLIC_MNEMOS_API_KEY) {
+        headers['Authorization'] = `Bearer ${process.env.NEXT_PUBLIC_MNEMOS_API_KEY}`;
+      }
+
+      const response = await fetch('/api/v1/conversations', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.status === 'success') {
+        const conversationId = data.data.conversation.id;
+
+        // Atomically link to the history entry
+        setVoiceHistory((prev) =>
+          prev.map((e) =>
+            e.id === entryId
+              ? { ...e, isSaved: true, conversationId, savedAt: new Date().toISOString() }
+              : e
+          )
+        );
+
+        fetchConversations();
+      } else {
+        setHistorySaveError((prev) => ({
+          ...prev,
+          [entryId]: data.error || 'Failed to save conversation.'
+        }));
+      }
+    } catch (err) {
+      console.error('Failed to save history entry conversation:', err);
+      setHistorySaveError((prev) => ({
+        ...prev,
+        [entryId]: 'An unexpected error occurred while saving.'
+      }));
+    } finally {
+      setHistorySavingId(null);
+    }
   };
 
   const toggleCitation = (key: string) => {
@@ -412,6 +482,7 @@ export default function MemoryDashboard() {
         setVoiceSessionState('review');
 
         // Add to temporary session history
+        const durationSeconds = recordingStart && recordingEnd ? Math.max(0, Math.round((recordingEnd - recordingStart) / 1000)) : 0;
         const newEntry: VoiceSessionEntry = {
           id: 'vse-' + Math.random().toString(36).substring(2, 9),
           transcript: transcript.trim(),
@@ -420,6 +491,9 @@ export default function MemoryDashboard() {
           usedConversations: data.usedConversations || [],
           contextTokenCount: data.contextTokenCount || 0,
           timestamp: new Date().toISOString(),
+          startedAt: recordingStart ? new Date(recordingStart).toISOString() : new Date().toISOString(),
+          endedAt: recordingEnd ? new Date(recordingEnd).toISOString() : new Date().toISOString(),
+          durationSeconds,
         };
         setSelectedHistoryId(newEntry.id);
         setVoiceHistory((prev) => {
@@ -655,8 +729,32 @@ export default function MemoryDashboard() {
 
       const data = await response.json();
       if (response.ok && data.status === 'success') {
+        const conversationId = data.data.conversation.id;
         setSaveMessage({ type: 'success', text: `Conversation saved successfully!` });
         setVoiceSessionState('saved');
+
+        // Atomically link to current history entry
+        if (selectedHistoryId) {
+          setVoiceHistory((prev) =>
+            prev.map((e) =>
+              e.id === selectedHistoryId
+                ? { ...e, isSaved: true, conversationId, savedAt: new Date().toISOString() }
+                : e
+            )
+          );
+        } else if (voiceHistory.length > 0) {
+          const lastEntry = voiceHistory[voiceHistory.length - 1];
+          if (lastEntry && lastEntry.transcript === transcript) {
+            setVoiceHistory((prev) =>
+              prev.map((e, idx) =>
+                idx === prev.length - 1
+                  ? { ...e, isSaved: true, conversationId, savedAt: new Date().toISOString() }
+                  : e
+              )
+            );
+          }
+        }
+
         fetchConversations();
       } else {
         setSaveMessage({ type: 'error', text: data.error || 'Failed to save conversation. Please try again.' });
@@ -753,6 +851,29 @@ export default function MemoryDashboard() {
         setSavedConversationId(conversationId);
         setSaveMessage({ type: 'success', text: 'Conversation Saved' });
         setVoiceSessionState('saved');
+
+        // Atomically link to current history entry
+        if (selectedHistoryId) {
+          setVoiceHistory((prev) =>
+            prev.map((e) =>
+              e.id === selectedHistoryId
+                ? { ...e, isSaved: true, conversationId: conversationId!, savedAt: new Date().toISOString() }
+                : e
+            )
+          );
+        } else if (voiceHistory.length > 0) {
+          const lastEntry = voiceHistory[voiceHistory.length - 1];
+          if (lastEntry && lastEntry.transcript === transcript) {
+            setVoiceHistory((prev) =>
+              prev.map((e, idx) =>
+                idx === prev.length - 1
+                  ? { ...e, isSaved: true, conversationId: conversationId!, savedAt: new Date().toISOString() }
+                  : e
+              )
+            );
+          }
+        }
+
         fetchConversations();
       } else {
         setSaveMessage({ type: 'error', text: data.error || 'Failed to save conversation.' });
@@ -948,6 +1069,7 @@ export default function MemoryDashboard() {
           setVoiceSessionState('review');
 
           // Add to temporary session history
+          const durationSeconds = recordingStart && recordingEnd ? Math.max(0, Math.round((recordingEnd - recordingStart) / 1000)) : 0;
           const newEntry: VoiceSessionEntry = {
             id: 'vse-' + Math.random().toString(36).substring(2, 9),
             transcript: data.data.transcript,
@@ -956,6 +1078,9 @@ export default function MemoryDashboard() {
             usedConversations: data.data.usedConversations || [],
             contextTokenCount: data.data.contextTokenCount || 0,
             timestamp: new Date().toISOString(),
+            startedAt: recordingStart ? new Date(recordingStart).toISOString() : new Date().toISOString(),
+            endedAt: recordingEnd ? new Date(recordingEnd).toISOString() : new Date().toISOString(),
+            durationSeconds,
           };
           setSelectedHistoryId(newEntry.id);
           setVoiceHistory((prev) => {
@@ -2298,7 +2423,7 @@ export default function MemoryDashboard() {
                     </div>
                   )}
 
-                  {/* Current Session History (Sprint 28) */}
+                  {/* Current Session History (Sprint 28/29) */}
                   {voiceHistory.length > 0 && (
                     <div style={{ marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
@@ -2314,39 +2439,88 @@ export default function MemoryDashboard() {
                           Clear Session
                         </button>
                       </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '150px', overflowY: 'auto', paddingRight: '0.2rem' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '180px', overflowY: 'auto', paddingRight: '0.2rem' }}>
                         {voiceHistory.map((entry, idx) => {
                           const isSelected = selectedHistoryId === entry.id;
                           return (
-                            <button
+                            <div
                               key={entry.id}
-                              onClick={() => handleSelectHistoryEntry(entry.id)}
                               style={{
                                 display: 'flex',
                                 flexDirection: 'column',
-                                alignItems: 'flex-start',
-                                textAlign: 'left',
                                 padding: '0.5rem 0.6rem',
                                 backgroundColor: isSelected ? 'rgba(99, 102, 241, 0.08)' : 'var(--background)',
                                 border: `1px solid ${isSelected ? 'var(--primary)' : 'var(--border)'}`,
                                 borderRadius: 'var(--radius-sm)',
-                                cursor: 'pointer',
                                 width: '100%',
-                                fontSize: '0.75rem',
                                 transition: 'all 0.15s ease',
                               }}
-                              type="button"
                             >
-                              <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontWeight: 600, opacity: 0.9, marginBottom: '0.15rem' }}>
-                                <span>Q{idx + 1}: {entry.transcript.slice(0, 32)}{entry.transcript.length > 32 ? '...' : ''}</span>
-                                <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>
-                                  {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                              <button
+                                onClick={() => handleSelectHistoryEntry(entry.id)}
+                                style={{
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'flex-start',
+                                  textAlign: 'left',
+                                  background: 'none',
+                                  border: 'none',
+                                  padding: 0,
+                                  cursor: 'pointer',
+                                  width: '100%',
+                                  fontSize: '0.75rem',
+                                }}
+                                type="button"
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontWeight: 600, opacity: 0.9, marginBottom: '0.15rem' }}>
+                                  <span>
+                                    Q{idx + 1}: {entry.transcript.slice(0, 24)}{entry.transcript.length > 24 ? '...' : ''}
+                                    {entry.isSaved && (
+                                      <span style={{ marginLeft: '0.4rem', fontSize: '0.6rem', color: 'var(--success)', fontWeight: 'bold' }}>
+                                        ✓ Saved
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>
+                                    {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                  </span>
+                                </div>
+                                <span style={{ opacity: 0.7, fontSize: '0.7rem', color: 'var(--text)' }}>
+                                  {entry.response ? `${entry.response.slice(0, 40)}${entry.response.length > 40 ? '...' : ''}` : 'No response'}
                                 </span>
+                              </button>
+
+                              {/* Save/Open/Retry Actions Row */}
+                              <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.35rem', borderTop: '1px solid var(--border)', paddingTop: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                {entry.isSaved ? (
+                                  <button
+                                    onClick={() => handleSelectConversation(entry.conversationId!)}
+                                    className="premium-btn premium-btn-secondary"
+                                    style={{ padding: '0.15rem 0.35rem', fontSize: '0.65rem' }}
+                                    type="button"
+                                  >
+                                    📂 Open Conversation
+                                  </button>
+                                ) : (
+                                  <>
+                                    {historySaveError[entry.id] && (
+                                      <span style={{ fontSize: '0.65rem', color: 'var(--error)', alignSelf: 'center', marginRight: 'auto' }}>
+                                        Failed
+                                      </span>
+                                    )}
+                                    <button
+                                      onClick={() => handleSaveHistoryEntry(entry.id)}
+                                      className="premium-btn premium-btn-primary"
+                                      style={{ padding: '0.15rem 0.35rem', fontSize: '0.65rem' }}
+                                      disabled={historySavingId === entry.id}
+                                      type="button"
+                                    >
+                                      {historySavingId === entry.id ? 'Saving...' : historySaveError[entry.id] ? 'Retry Save' : '💾 Save'}
+                                    </button>
+                                  </>
+                                )}
                               </div>
-                              <span style={{ opacity: 0.7, fontSize: '0.7rem', color: 'var(--text)' }}>
-                                {entry.response ? `${entry.response.slice(0, 45)}${entry.response.length > 45 ? '...' : ''}` : 'No response'}
-                              </span>
-                            </button>
+                            </div>
                           );
                         })}
                       </div>
