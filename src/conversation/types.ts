@@ -5,5 +5,6 @@ export interface Conversation {
   endedAt?: Date;
   durationSeconds?: number;
   transcript: string;
+  summary?: string;
   createdAt: Date;
 }

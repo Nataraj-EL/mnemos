@@ -24,6 +24,14 @@ async function runMigration() {
       await pool.query(sql13);
     }
 
+    // 3. Sprint 15 summarization migration
+    const s15Path = path.join(__dirname, 'migration_sprint15.sql');
+    if (fs.existsSync(s15Path)) {
+      console.log('Executing Sprint 15 Migration...');
+      const sql15 = fs.readFileSync(s15Path, 'utf8');
+      await pool.query(sql15);
+    }
+
     console.log('Database migrations completed successfully!');
   } catch (error) {
     console.error('Migration failed:', error);

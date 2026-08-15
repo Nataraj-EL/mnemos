@@ -226,6 +226,63 @@ export default function MemoryDashboard() {
     }
   };
 
+  const [summarizeLoading, setSummarizeLoading] = useState(false);
+  const [summarizeError, setSummarizeError] = useState<string | null>(null);
+
+  const handleSummarizeConversation = async (id: string) => {
+    if (!userId.trim()) return;
+    setSummarizeLoading(true);
+    setSummarizeError(null);
+    const start = Date.now();
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (process.env.NEXT_PUBLIC_MNEMOS_API_KEY) {
+        headers['Authorization'] = `Bearer ${process.env.NEXT_PUBLIC_MNEMOS_API_KEY}`;
+      }
+
+      const response = await fetch(`/api/v1/conversations/${id}/summarize`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ userId: userId.trim() }),
+      });
+
+      const data = await response.json();
+      const latency = Date.now() - start;
+      const reqId = data.requestId || 'req-' + Math.random().toString(36).substring(2, 9);
+
+      setRequestMetrics((prev) => [
+        {
+          id: reqId,
+          timestamp: new Date().toISOString(),
+          endpoint: `POST /api/v1/conversations/${id}/summarize`,
+          latency,
+          status: response.ok ? '200 OK' : `${response.status} Error`,
+        },
+        ...prev,
+      ]);
+
+      if (response.ok && data.status === 'success') {
+        setSelectedConversation((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            summary: data.data.summary,
+          };
+        });
+        fetchConversations();
+      } else {
+        setSummarizeError(data.error || 'Failed to generate summary.');
+      }
+    } catch (err) {
+      console.error('Failed to generate summary:', err);
+      setSummarizeError('An unexpected error occurred.');
+    } finally {
+      setSummarizeLoading(false);
+    }
+  };
+
   // Timer effect for voice recording
   useEffect(() => {
     if (!isRecording) return;
@@ -2315,6 +2372,7 @@ export default function MemoryDashboard() {
                   setSelectedConversation(null);
                   setExtractError(null);
                   setExtractResult(null);
+                  setSummarizeError(null);
                 }}
                 className="premium-btn premium-btn-secondary"
                 style={{ padding: '0.2rem 0.4rem', minWidth: 'auto' }}
@@ -2331,6 +2389,66 @@ export default function MemoryDashboard() {
             <div style={{ flex: 1, overflowY: 'auto', padding: '0.75rem', backgroundColor: 'var(--background)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', lineHeight: '1.5', fontStyle: 'italic' }}>
               {selectedConversation.transcript}
             </div>
+
+            {selectedConversation.summary ? (
+              <div className="card" style={{
+                marginTop: '1rem',
+                padding: '0.8rem 1rem',
+                backgroundColor: 'rgba(212, 163, 89, 0.03)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-sm)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.4rem'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)' }}>✨ Conversation Summary</span>
+                  <button
+                    onClick={() => handleSummarizeConversation(selectedConversation.id)}
+                    className="premium-btn premium-btn-secondary"
+                    style={{ padding: '0.15rem 0.4rem', fontSize: '0.65rem', minWidth: 'auto' }}
+                    disabled={summarizeLoading}
+                  >
+                    {summarizeLoading ? renderSpinner() : '🔄 Regenerate'}
+                  </button>
+                </div>
+                <p style={{ fontSize: '0.8rem', lineHeight: '1.4', margin: 0, color: 'var(--text)' }}>
+                  {selectedConversation.summary}
+                </p>
+              </div>
+            ) : (
+              <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-start' }}>
+                <button
+                  onClick={() => handleSummarizeConversation(selectedConversation.id)}
+                  className="premium-btn premium-btn-primary"
+                  style={{ width: '100%' }}
+                  disabled={summarizeLoading}
+                >
+                  {summarizeLoading ? (
+                    <>
+                      {renderSpinner()}
+                      Generating Summary...
+                    </>
+                  ) : (
+                    '✨ Generate Summary'
+                  )}
+                </button>
+              </div>
+            )}
+
+            {summarizeError && (
+              <div style={{
+                marginTop: '0.5rem',
+                padding: '0.5rem 0.75rem',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '0.75rem',
+                border: '1px solid var(--error)',
+                backgroundColor: 'rgba(179, 74, 60, 0.05)',
+                color: 'var(--error)'
+              }}>
+                {summarizeError}
+              </div>
+            )}
 
             {extractResult && (
               <div style={{
@@ -2367,6 +2485,7 @@ export default function MemoryDashboard() {
                   setSelectedConversation(null);
                   setExtractError(null);
                   setExtractResult(null);
+                  setSummarizeError(null);
                 }} 
                 className="premium-btn premium-btn-secondary"
               >
