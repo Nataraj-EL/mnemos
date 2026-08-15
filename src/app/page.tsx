@@ -701,7 +701,6 @@ export default function MemoryDashboard() {
       {/* Navigation Bar */}
       <nav className="navbar">
         <div className="brand">
-          <div className="brand-logo">Mn</div>
           <div className="brand-text">
             <span className="brand-name">Mnemos</span>
             <span className="brand-tagline">Persistent AI Memory</span>
