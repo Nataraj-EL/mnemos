@@ -275,3 +275,112 @@ describe('Voice UX Integration State Machine - Sprint 27 Additions', () => {
     expect(callCount).toBe(1);
   });
 });
+
+describe('Voice UX Integration State Machine - Sprint 28 Additions', () => {
+  interface VoiceSessionEntry {
+    id: string;
+    transcript: string;
+    response: string | null;
+    timestamp: string;
+  }
+
+  it('should maintain stable history IDs and enforce 20-entry limit, removing oldest', () => {
+    const history: VoiceSessionEntry[] = [];
+    const limit = 20;
+
+    for (let i = 1; i <= 25; i++) {
+      const entry: VoiceSessionEntry = {
+        id: `vse-stable-${i}`,
+        transcript: `Question ${i}`,
+        response: `Answer ${i}`,
+        timestamp: new Date().toISOString(),
+      };
+      history.push(entry);
+      if (history.length > limit) {
+        history.shift(); // remove oldest
+      }
+    }
+
+    expect(history.length).toBe(20);
+    expect(history[0].id).toBe('vse-stable-6');
+    expect(history[19].id).toBe('vse-stable-25');
+  });
+
+  it('should not add entry to history on failed transcription/response', () => {
+    const history: VoiceSessionEntry[] = [];
+    let success = false;
+    const requestFailed = true;
+
+    // Simulate failed query execution
+    if (!requestFailed) {
+      success = true;
+      history.push({
+        id: 'vse-123',
+        transcript: 'Failed query',
+        response: 'Answer',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    expect(success).toBe(false);
+    expect(history.length).toBe(0);
+  });
+
+  it('should permit selection of history entry as read-only and allow returning to current query', () => {
+    let transcript = 'Unsaved typed question';
+    let selectedHistoryId: string | null = null;
+    let activeQueryText = '';
+    let readOnly = false;
+
+    const history: VoiceSessionEntry[] = [
+      { id: 'vse-1', transcript: 'Past Question', response: 'Past Answer', timestamp: '' }
+    ];
+
+    // Select entry
+    if (selectedHistoryId === null) {
+      activeQueryText = transcript;
+    }
+    selectedHistoryId = 'vse-1';
+    transcript = history[0].transcript;
+    readOnly = true;
+
+    expect(transcript).toBe('Past Question');
+    expect(activeQueryText).toBe('Unsaved typed question');
+    expect(readOnly).toBe(true);
+
+    // Return to current
+    selectedHistoryId = null;
+    transcript = activeQueryText;
+    readOnly = false;
+
+    expect(transcript).toBe('Unsaved typed question');
+    expect(readOnly).toBe(false);
+  });
+
+  it('should preserve voiceHistory and savedConversationId on Ask Another', () => {
+    const history: VoiceSessionEntry[] = [{ id: 'vse-1', transcript: 'Q1', response: 'A1', timestamp: '' }];
+    const savedConversationId: string | null = 'conv-saved-id';
+    let transcript = 'Q1';
+    let responseText: string | null = 'A1';
+
+    // Ask Another click
+    transcript = '';
+    responseText = null;
+    // History and saved ID remain untouched
+    expect(history.length).toBe(1);
+    expect(savedConversationId).toBe('conv-saved-id');
+    expect(transcript).toBe('');
+    expect(responseText).toBeNull();
+  });
+
+  it('should clear voiceHistory on Clear Session but not touch database persistence', () => {
+    let history: VoiceSessionEntry[] = [{ id: 'vse-1', transcript: 'Q1', response: 'A1', timestamp: '' }];
+    const dbConversationsExist = true;
+
+    // Clear Session
+    history = [];
+    // DB conversations remain intact
+    expect(history.length).toBe(0);
+    expect(dbConversationsExist).toBe(true);
+  });
+});

@@ -231,6 +231,101 @@ export default function MemoryDashboard() {
   
   const [expandedCitations, setExpandedCitations] = useState<Record<string, boolean>>({});
 
+  // Voice Session History States (Sprint 28)
+  interface VoiceSessionEntry {
+    id: string;
+    transcript: string;
+    response: string | null;
+    usedMemories: { id: string; type: string; similarity: number; score: number; content?: string; confidence?: number; lifecycleState?: string; conversationId?: string; sourceType?: string; sourceTimestamp?: string }[];
+    usedConversations: { id: string; conversationId?: string; createdAt: string; text: string; matchedSnippet?: string; similarity?: number }[];
+    contextTokenCount: number;
+    timestamp: string;
+  }
+
+  const [voiceHistory, setVoiceHistory] = useState<VoiceSessionEntry[]>([]);
+  const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
+  const [activeQueryText, setActiveQueryText] = useState('');
+  
+  const [activeResponseText, setActiveResponseText] = useState<string | null>(null);
+  const [activeUsedMemories, setActiveUsedMemories] = useState<{ id: string; type: string; similarity: number; score: number; content?: string; confidence?: number; lifecycleState?: string; conversationId?: string; sourceType?: string; sourceTimestamp?: string }[]>([]);
+  const [activeUsedConversations, setActiveUsedConversations] = useState<{ id: string; conversationId?: string; createdAt: string; text: string; matchedSnippet?: string; similarity?: number }[]>([]);
+  const [activeContextTokenCount, setActiveContextTokenCount] = useState<number>(0);
+
+  const handleSelectHistoryEntry = (id: string) => {
+    // Save current active state before switching
+    if (selectedHistoryId === null) {
+      setActiveQueryText(transcript);
+      setActiveResponseText(voiceResponseText);
+      setActiveUsedMemories(voiceUsedMemories);
+      setActiveUsedConversations(voiceUsedConversations);
+      setActiveContextTokenCount(voiceContextTokenCount);
+    }
+
+    const entry = voiceHistory.find((e) => e.id === id);
+    if (entry) {
+      setSelectedHistoryId(id);
+      setTranscript(entry.transcript);
+      setVoiceResponseText(entry.response);
+      setVoiceUsedMemories(entry.usedMemories);
+      setVoiceUsedConversations(entry.usedConversations);
+      setVoiceContextTokenCount(entry.contextTokenCount);
+      setVoiceSessionState('review');
+    }
+  };
+
+  const handleReturnToCurrentQuery = () => {
+    setSelectedHistoryId(null);
+    setTranscript(activeQueryText);
+    setVoiceResponseText(activeResponseText);
+    setVoiceUsedMemories(activeUsedMemories);
+    setVoiceUsedConversations(activeUsedConversations);
+    setVoiceContextTokenCount(activeContextTokenCount);
+
+    setActiveQueryText('');
+    setActiveResponseText(null);
+    setActiveUsedMemories([]);
+    setActiveUsedConversations([]);
+    setActiveContextTokenCount(0);
+
+    setVoiceSessionState('review');
+  };
+
+  const handleClearVoiceSessionWithWarning = () => {
+    const hasUnsavedWork = voiceHistory.length > 0 || (transcript && voiceSessionState !== 'saved');
+    if (hasUnsavedWork) {
+      if (!confirm('Are you sure you want to clear this voice session? All temporary session history and current transcription query will be lost.')) {
+        return;
+      }
+    }
+    resetVoiceSession();
+    setVoiceHistory([]);
+    setSelectedHistoryId(null);
+    setActiveQueryText('');
+    setActiveResponseText(null);
+    setActiveUsedMemories([]);
+    setActiveUsedConversations([]);
+    setActiveContextTokenCount(0);
+  };
+
+  const handleSwitchVoiceMode = (mode: 'transcribe' | 'ask') => {
+    if (voiceMode === mode) return;
+    const hasUnsavedWork = voiceHistory.length > 0 || (transcript && voiceSessionState !== 'saved');
+    if (hasUnsavedWork) {
+      if (!confirm('Are you sure you want to change voice modes? All temporary session history and current transcription query will be lost.')) {
+        return;
+      }
+    }
+    resetVoiceSession();
+    setVoiceHistory([]);
+    setSelectedHistoryId(null);
+    setActiveQueryText('');
+    setActiveResponseText(null);
+    setActiveUsedMemories([]);
+    setActiveUsedConversations([]);
+    setActiveContextTokenCount(0);
+    setVoiceMode(mode);
+  };
+
   const toggleCitation = (key: string) => {
     setExpandedCitations((prev) => ({
       ...prev,
@@ -245,6 +340,12 @@ export default function MemoryDashboard() {
     setVoiceUsedConversations([]);
     setVoiceContextTokenCount(0);
     setVoiceSessionState('idle');
+    setSelectedHistoryId(null);
+    setActiveQueryText('');
+    setActiveResponseText(null);
+    setActiveUsedMemories([]);
+    setActiveUsedConversations([]);
+    setActiveContextTokenCount(0);
   };
 
   const handleSubmitEditedVoiceQuery = async () => {
@@ -309,6 +410,25 @@ export default function MemoryDashboard() {
         setVoiceUsedConversations(data.usedConversations || []);
         setVoiceContextTokenCount(data.contextTokenCount || 0);
         setVoiceSessionState('review');
+
+        // Add to temporary session history
+        const newEntry: VoiceSessionEntry = {
+          id: 'vse-' + Math.random().toString(36).substring(2, 9),
+          transcript: transcript.trim(),
+          response: data.response,
+          usedMemories: data.usedMemories || [],
+          usedConversations: data.usedConversations || [],
+          contextTokenCount: data.contextTokenCount || 0,
+          timestamp: new Date().toISOString(),
+        };
+        setSelectedHistoryId(newEntry.id);
+        setVoiceHistory((prev) => {
+          const updated = [...prev, newEntry];
+          if (updated.length > 20) {
+            updated.shift();
+          }
+          return updated;
+        });
       }
     } catch (err) {
       console.error('Failed to submit edited voice query:', err);
@@ -826,6 +946,25 @@ export default function MemoryDashboard() {
           setVoiceUsedConversations(data.data.usedConversations || []);
           setVoiceContextTokenCount(data.data.contextTokenCount || 0);
           setVoiceSessionState('review');
+
+          // Add to temporary session history
+          const newEntry: VoiceSessionEntry = {
+            id: 'vse-' + Math.random().toString(36).substring(2, 9),
+            transcript: data.data.transcript,
+            response: data.data.response,
+            usedMemories: data.data.usedMemories || [],
+            usedConversations: data.data.usedConversations || [],
+            contextTokenCount: data.data.contextTokenCount || 0,
+            timestamp: new Date().toISOString(),
+          };
+          setSelectedHistoryId(newEntry.id);
+          setVoiceHistory((prev) => {
+            const updated = [...prev, newEntry];
+            if (updated.length > 20) {
+              updated.shift();
+            }
+            return updated;
+          });
         } else {
           setTranscript(data.data.text);
           setVoiceSessionState('review');
@@ -1626,10 +1765,7 @@ export default function MemoryDashboard() {
                   {/* Mode Selector */}
                   <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.25rem', backgroundColor: 'var(--background)', padding: '0.2rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
                     <button
-                      onClick={() => {
-                        setVoiceMode('transcribe');
-                        resetVoiceSession();
-                      }}
+                      onClick={() => handleSwitchVoiceMode('transcribe')}
                       className={`premium-btn ${voiceMode === 'transcribe' ? 'premium-btn-primary' : 'premium-btn-secondary'}`}
                       style={{ flex: 1, padding: '0.3rem', fontSize: '0.75rem', border: 'none', boxShadow: 'none' }}
                       type="button"
@@ -1638,10 +1774,7 @@ export default function MemoryDashboard() {
                       📝 Transcribe Only
                     </button>
                     <button
-                      onClick={() => {
-                        setVoiceMode('ask');
-                        resetVoiceSession();
-                      }}
+                      onClick={() => handleSwitchVoiceMode('ask')}
                       className={`premium-btn ${voiceMode === 'ask' ? 'premium-btn-primary' : 'premium-btn-secondary'}`}
                       style={{ flex: 1, padding: '0.3rem', fontSize: '0.75rem', border: 'none', boxShadow: 'none' }}
                       type="button"
@@ -1784,7 +1917,7 @@ export default function MemoryDashboard() {
                             setVoiceSessionState('review');
                           }
                         }}
-                        readOnly={voiceSessionState === 'saving' || voiceSessionState === 'saved' || extractionState === 'extracting' || (voiceMode === 'ask' && transcribeLoading)}
+                        readOnly={selectedHistoryId !== null || voiceSessionState === 'saving' || voiceSessionState === 'saved' || extractionState === 'extracting' || (voiceMode === 'ask' && transcribeLoading)}
                         style={{
                           width: '100%',
                           minHeight: '120px',
@@ -1804,7 +1937,18 @@ export default function MemoryDashboard() {
                         Characters: {transcript.length} / 10,000 ({Math.max(0, 10000 - transcript.length)} remaining)
                       </div>
 
-                      {voiceMode === 'ask' ? (
+                      {selectedHistoryId !== null ? (
+                        <div style={{ display: 'flex', gap: '0.5rem', width: '100%', marginTop: '0.25rem' }}>
+                          <button
+                            onClick={handleReturnToCurrentQuery}
+                            className="premium-btn premium-btn-primary"
+                            style={{ width: '100%' }}
+                            type="button"
+                          >
+                            ✍️ Return to Current Query
+                          </button>
+                        </div>
+                      ) : voiceMode === 'ask' ? (
                         <div style={{ display: 'flex', gap: '0.5rem', width: '100%', marginTop: '0.25rem' }}>
                           <button
                             onClick={resetVoiceSession}
@@ -2126,15 +2270,15 @@ export default function MemoryDashboard() {
                           style={{ flex: 1 }}
                           type="button"
                         >
-                          🔄 Ask Again
+                          🔄 Ask Another
                         </button>
                         <button
-                          onClick={resetVoiceSession}
+                          onClick={handleClearVoiceSessionWithWarning}
                           className="premium-btn premium-btn-secondary"
                           style={{ flex: 1 }}
                           type="button"
                         >
-                          ❌ Reset Session
+                          ❌ Clear Session
                         </button>
                       </div>
                     </div>
@@ -2151,6 +2295,61 @@ export default function MemoryDashboard() {
                       color: saveMessage.type === 'success' ? 'var(--success)' : 'var(--error)'
                     }}>
                       {saveMessage.text}
+                    </div>
+                  )}
+
+                  {/* Current Session History (Sprint 28) */}
+                  {voiceHistory.length > 0 && (
+                    <div style={{ marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                        <h4 style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--primary)', margin: 0 }}>
+                          Current Session ({voiceHistory.length})
+                        </h4>
+                        <button
+                          onClick={handleClearVoiceSessionWithWarning}
+                          className="premium-btn premium-btn-secondary"
+                          style={{ padding: '0.15rem 0.35rem', fontSize: '0.65rem', border: 'none', boxShadow: 'none' }}
+                          type="button"
+                        >
+                          Clear Session
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '150px', overflowY: 'auto', paddingRight: '0.2rem' }}>
+                        {voiceHistory.map((entry, idx) => {
+                          const isSelected = selectedHistoryId === entry.id;
+                          return (
+                            <button
+                              key={entry.id}
+                              onClick={() => handleSelectHistoryEntry(entry.id)}
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'flex-start',
+                                textAlign: 'left',
+                                padding: '0.5rem 0.6rem',
+                                backgroundColor: isSelected ? 'rgba(99, 102, 241, 0.08)' : 'var(--background)',
+                                border: `1px solid ${isSelected ? 'var(--primary)' : 'var(--border)'}`,
+                                borderRadius: 'var(--radius-sm)',
+                                cursor: 'pointer',
+                                width: '100%',
+                                fontSize: '0.75rem',
+                                transition: 'all 0.15s ease',
+                              }}
+                              type="button"
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontWeight: 600, opacity: 0.9, marginBottom: '0.15rem' }}>
+                                <span>Q{idx + 1}: {entry.transcript.slice(0, 32)}{entry.transcript.length > 32 ? '...' : ''}</span>
+                                <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>
+                                  {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                </span>
+                              </div>
+                              <span style={{ opacity: 0.7, fontSize: '0.7rem', color: 'var(--text)' }}>
+                                {entry.response ? `${entry.response.slice(0, 45)}${entry.response.length > 45 ? '...' : ''}` : 'No response'}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
 
