@@ -171,6 +171,25 @@ export default function MemoryDashboard() {
   const [saveLoading, setSaveLoading] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Sprint 17 unified session state
+  const [voiceSessionState, setVoiceSessionState] = useState<'idle' | 'recording' | 'transcribing' | 'review' | 'saving' | 'saved' | 'error'>('idle');
+
+  const resetVoiceSession = () => {
+    setTranscript('');
+    setIsRecording(false);
+    setMediaRecorder(null);
+    setRecordingTime(0);
+    setRecordingStart(0);
+    setRecordingEnd(0);
+    setTranscribeLoading(false);
+    setTranscribeError(null);
+    setVoiceResponseText(null);
+    setVoiceUsedMemories([]);
+    setVoiceContextTokenCount(0);
+    setSaveMessage(null);
+    setVoiceSessionState('idle');
+  };
+
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
@@ -324,7 +343,10 @@ export default function MemoryDashboard() {
   };
 
   const handleSaveConversation = async () => {
-    if (!transcript || !userId.trim()) return;
+    if (!transcript || !transcript.trim() || !userId.trim()) return;
+    if (voiceSessionState === 'saving' || voiceSessionState === 'saved') return;
+
+    setVoiceSessionState('saving');
     setSaveLoading(true);
     setSaveMessage(null);
     try {
@@ -353,15 +375,17 @@ export default function MemoryDashboard() {
 
       const data = await response.json();
       if (response.ok && data.status === 'success') {
-        setSaveMessage({ type: 'success', text: `Saved conversation!` });
-        setTranscript('');
+        setSaveMessage({ type: 'success', text: `Conversation saved successfully!` });
+        setVoiceSessionState('saved');
         fetchConversations();
       } else {
-        setSaveMessage({ type: 'error', text: data.error || 'Failed to save conversation.' });
+        setSaveMessage({ type: 'error', text: data.error || 'Failed to save conversation. Please try again.' });
+        setVoiceSessionState('error');
       }
     } catch (err) {
       console.error('Failed to save conversation:', err);
-      setSaveMessage({ type: 'error', text: 'An unexpected error occurred.' });
+      setSaveMessage({ type: 'error', text: 'An unexpected error occurred while saving. Please retry.' });
+      setVoiceSessionState('error');
     } finally {
       setSaveLoading(false);
     }
@@ -387,11 +411,18 @@ export default function MemoryDashboard() {
   };
 
   const startRecording = async () => {
+    if (transcribeLoading || saveLoading || voiceSessionState === 'saving' || voiceSessionState === 'transcribing') {
+      return;
+    }
     setTranscribeError(null);
     setTranscript('');
     setSaveMessage(null);
+    setVoiceResponseText(null);
+    setVoiceUsedMemories([]);
+    setVoiceContextTokenCount(0);
     setRecordingStart(Date.now());
     setRecordingEnd(0);
+    setVoiceSessionState('recording');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream);
@@ -417,6 +448,7 @@ export default function MemoryDashboard() {
     } catch (err: unknown) {
       console.error('Failed to start recording:', err);
       setTranscribeError('Could not access microphone. Please check permissions.');
+      setVoiceSessionState('error');
     }
   };
 
@@ -429,6 +461,7 @@ export default function MemoryDashboard() {
 
   const uploadAudio = async (blob: Blob) => {
     setTranscribeLoading(true);
+    setVoiceSessionState('transcribing');
     setTranscribeError(null);
     setVoiceResponseText(null);
     setVoiceUsedMemories([]);
@@ -470,19 +503,23 @@ export default function MemoryDashboard() {
 
       if (!response.ok) {
         setTranscribeError(data.error || 'Failed to process voice action.');
+        setVoiceSessionState('error');
       } else {
         if (voiceMode === 'ask') {
           setTranscript(data.data.transcript);
           setVoiceResponseText(data.data.response);
           setVoiceUsedMemories(data.data.usedMemories || []);
           setVoiceContextTokenCount(data.data.contextTokenCount || 0);
+          setVoiceSessionState('review');
         } else {
           setTranscript(data.data.text);
+          setVoiceSessionState('review');
         }
       }
     } catch (err: unknown) {
       console.error('Voice processing upload failed:', err);
       setTranscribeError('An error occurred during voice upload.');
+      setVoiceSessionState('error');
     } finally {
       setTranscribeLoading(false);
     }
@@ -1263,78 +1300,121 @@ export default function MemoryDashboard() {
                     <button
                       onClick={() => {
                         setVoiceMode('transcribe');
-                        setVoiceResponseText(null);
-                        setVoiceUsedMemories([]);
-                        setVoiceContextTokenCount(0);
+                        resetVoiceSession();
                       }}
                       className={`premium-btn ${voiceMode === 'transcribe' ? 'premium-btn-primary' : 'premium-btn-secondary'}`}
                       style={{ flex: 1, padding: '0.3rem', fontSize: '0.75rem', border: 'none', boxShadow: 'none' }}
                       type="button"
+                      disabled={voiceSessionState === 'recording' || voiceSessionState === 'transcribing' || voiceSessionState === 'saving'}
                     >
                       📝 Transcribe Only
                     </button>
                     <button
                       onClick={() => {
                         setVoiceMode('ask');
-                        setTranscript('');
-                        setVoiceResponseText(null);
-                        setVoiceUsedMemories([]);
-                        setVoiceContextTokenCount(0);
+                        resetVoiceSession();
                       }}
                       className={`premium-btn ${voiceMode === 'ask' ? 'premium-btn-primary' : 'premium-btn-secondary'}`}
                       style={{ flex: 1, padding: '0.3rem', fontSize: '0.75rem', border: 'none', boxShadow: 'none' }}
                       type="button"
+                      disabled={voiceSessionState === 'recording' || voiceSessionState === 'transcribing' || voiceSessionState === 'saving'}
                     >
                       💬 Ask by Voice
                     </button>
                   </div>
 
-                  {isRecording ? (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 0.75rem', backgroundColor: 'rgba(219, 91, 91, 0.05)', border: '1px solid #db5b5b', borderRadius: 'var(--radius-sm)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                        <span className="status-dot error pulse" style={{ width: '8px', height: '8px' }}></span>
-                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--error)' }}>Recording Audio</span>
-                      </div>
-                      <span style={{ fontFamily: 'monospace', fontSize: '0.85rem', fontWeight: 600 }}>
-                        {Math.floor(recordingTime / 60).toString().padStart(2, '0')}:
-                        {(recordingTime % 60).toString().padStart(2, '0')}
-                      </span>
-                    </div>
-                  ) : transcribeLoading ? (
-                    <div style={{ padding: '0.5rem 0.75rem', border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', opacity: 0.8, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      {renderSpinner()}
-                      <span>{voiceMode === 'ask' ? 'Processing grounded query...' : 'Transcribing recording file...'}</span>
-                    </div>
-                  ) : null}
-
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    {isRecording ? (
-                      <button
-                        onClick={stopRecording}
-                        className="premium-btn"
-                        style={{ backgroundColor: 'var(--error)', borderColor: '#db5b5b', color: '#fff', width: '100%' }}
-                      >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '0.25rem' }}>
-                          <rect x="4" y="4" width="16" height="16" rx="2" />
-                        </svg>
-                        Stop Recording
-                      </button>
-                    ) : (
-                      <button
-                        onClick={startRecording}
-                        className="premium-btn premium-btn-primary"
-                        style={{ width: '100%' }}
-                        disabled={transcribeLoading}
-                      >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '0.25rem' }}>
+                  {/* Pulsing microphone recording indicator */}
+                  {voiceSessionState === 'recording' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', padding: '1rem', backgroundColor: 'rgba(219, 91, 91, 0.03)', border: '1px dashed #db5b5b', borderRadius: 'var(--radius-sm)', position: 'relative', overflow: 'hidden' }}>
+                      <style>{`
+                        @keyframes voicePulse {
+                          0% { transform: scale(0.85); opacity: 0.5; }
+                          50% { transform: scale(1.15); opacity: 0.15; }
+                          100% { transform: scale(0.85); opacity: 0.5; }
+                        }
+                      `}</style>
+                      <div style={{
+                        position: 'absolute',
+                        width: '80px',
+                        height: '80px',
+                        borderRadius: '50%',
+                        backgroundColor: 'rgba(219, 91, 91, 0.1)',
+                        animation: 'voicePulse 1.5s infinite ease-in-out',
+                        zIndex: 0
+                      }}></div>
+                      <div style={{
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '50%',
+                        backgroundColor: '#db5b5b',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#fff',
+                        zIndex: 1,
+                        boxShadow: '0 0 12px rgba(219, 91, 91, 0.4)'
+                      }}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
                           <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                           <line x1="12" x2="12" y1="19" y2="22" />
                         </svg>
-                        {voiceMode === 'ask' ? 'Ask by Voice' : 'Start Recording'}
-                      </button>
-                    )}
-                  </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', zIndex: 1, marginTop: '0.25rem' }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--error)' }}>Capturing Audio...</span>
+                      </div>
+                      <span style={{ fontFamily: 'monospace', fontSize: '1rem', fontWeight: 600, color: 'var(--text)', zIndex: 1 }}>
+                        {Math.floor(recordingTime / 60).toString().padStart(2, '0')}:
+                        {(recordingTime % 60).toString().padStart(2, '0')}
+                      </span>
+                    </div>
+                  )}
+
+                  {voiceSessionState === 'transcribing' && (
+                    <div style={{ padding: '0.5rem 0.75rem', border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', opacity: 0.8, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      {renderSpinner()}
+                      <span>{voiceMode === 'ask' ? 'Processing grounded query...' : 'Transcribing recording file...'}</span>
+                    </div>
+                  )}
+
+                  {voiceSessionState === 'saving' && (
+                    <div style={{ padding: '0.5rem 0.75rem', border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', opacity: 0.8, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      {renderSpinner()}
+                      <span>Saving conversation details...</span>
+                    </div>
+                  )}
+
+                  {/* Audio trigger controls */}
+                  {voiceSessionState !== 'transcribing' && voiceSessionState !== 'saving' && (
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      {voiceSessionState === 'recording' ? (
+                        <button
+                          onClick={stopRecording}
+                          className="premium-btn"
+                          style={{ backgroundColor: 'var(--error)', borderColor: '#db5b5b', color: '#fff', width: '100%' }}
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '0.25rem' }}>
+                            <rect x="4" y="4" width="16" height="16" rx="2" />
+                          </svg>
+                          Stop Recording
+                        </button>
+                      ) : (
+                        <button
+                          onClick={startRecording}
+                          className="premium-btn premium-btn-primary"
+                          style={{ width: '100%' }}
+                          disabled={false}
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '0.25rem' }}>
+                            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                            <line x1="12" x2="12" y1="19" y2="22" />
+                          </svg>
+                          {voiceMode === 'ask' ? 'Ask by Voice' : 'Start Recording'}
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   {transcribeError && (
                     <div style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--error)', backgroundColor: 'rgba(179, 74, 60, 0.05)', color: 'var(--error)', fontSize: '0.75rem' }}>
@@ -1342,7 +1422,8 @@ export default function MemoryDashboard() {
                     </div>
                   )}
 
-                  {voiceMode === 'transcribe' && transcript && (
+                  {/* Transcript editable card */}
+                  {voiceMode === 'transcribe' && (voiceSessionState === 'review' || voiceSessionState === 'saving' || voiceSessionState === 'saved' || voiceSessionState === 'error') && transcript !== undefined && (
                     <div style={{ marginTop: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)' }}>Transcript Output</span>
@@ -1350,35 +1431,99 @@ export default function MemoryDashboard() {
                           onClick={() => setContentInput(transcript)}
                           className="premium-btn premium-btn-secondary"
                           style={{ padding: '0.2rem 0.4rem', fontSize: '0.7rem' }}
+                          disabled={voiceSessionState === 'saving'}
                         >
                           📋 Copy to Ingest Form
                         </button>
                       </div>
-                      <div style={{ padding: '0.6rem 0.8rem', backgroundColor: 'var(--background)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', lineHeight: '1.4', fontStyle: 'italic', color: 'var(--text)' }}>
-                        {transcript}
+                      
+                      <textarea
+                        value={transcript}
+                        onChange={(e) => {
+                          setTranscript(e.target.value);
+                          if (voiceSessionState === 'error') {
+                            setVoiceSessionState('review');
+                          }
+                        }}
+                        readOnly={voiceSessionState === 'saving' || voiceSessionState === 'saved'}
+                        style={{
+                          width: '100%',
+                          minHeight: '120px',
+                          padding: '0.6rem 0.8rem',
+                          backgroundColor: 'var(--background)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 'var(--radius-sm)',
+                          fontSize: '0.8rem',
+                          lineHeight: '1.45',
+                          color: 'var(--text)',
+                          fontFamily: 'inherit',
+                          resize: 'vertical'
+                        }}
+                      />
+
+                      <div style={{ fontSize: '0.65rem', opacity: 0.6, alignSelf: 'flex-end', marginTop: '-0.25rem' }}>
+                        Characters: {transcript.length} / 10,000 ({Math.max(0, 10000 - transcript.length)} remaining)
                       </div>
-                      <button
-                        onClick={handleSaveConversation}
-                        className="premium-btn premium-btn-primary"
-                        disabled={saveLoading}
-                        style={{ width: '100%', marginTop: '0.25rem' }}
-                      >
-                        {saveLoading ? (
-                          <>
-                            {renderSpinner()}
-                            Saving Conversation...
-                          </>
-                        ) : (
-                          <>
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '0.25rem' }}>
-                              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                              <polyline points="17 21 17 13 7 13 7 21" />
-                              <polyline points="7 3 7 8 15 8" />
-                            </svg>
-                            Save Conversation
-                          </>
-                        )}
-                      </button>
+
+                      {voiceSessionState === 'saved' ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%', marginTop: '0.25rem' }}>
+                          <div style={{
+                            padding: '0.5rem 0.75rem',
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: '0.75rem',
+                            border: '1px solid var(--success)',
+                            backgroundColor: 'rgba(91, 138, 82, 0.05)',
+                            color: 'var(--success)',
+                            textAlign: 'center',
+                            fontWeight: 600
+                          }}>
+                            ✓ Conversation saved successfully!
+                          </div>
+                          <button
+                            onClick={resetVoiceSession}
+                            className="premium-btn premium-btn-secondary"
+                            style={{ width: '100%' }}
+                            type="button"
+                          >
+                            Clear & Start New Recording
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: '0.5rem', width: '100%', marginTop: '0.25rem' }}>
+                          <button
+                            onClick={resetVoiceSession}
+                            className="premium-btn premium-btn-secondary"
+                            style={{ flex: 1 }}
+                            disabled={voiceSessionState === 'saving'}
+                            type="button"
+                          >
+                            ✕ Clear
+                          </button>
+                          <button
+                            onClick={handleSaveConversation}
+                            className="premium-btn premium-btn-primary"
+                            disabled={saveLoading || !transcript || !transcript.trim() || voiceSessionState === 'saving'}
+                            style={{ flex: 2 }}
+                            type="button"
+                          >
+                            {voiceSessionState === 'saving' ? (
+                              <>
+                                {renderSpinner()}
+                                Saving...
+                              </>
+                            ) : (
+                              <>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '0.25rem' }}>
+                                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                                  <polyline points="17 21 17 13 7 13 7 21" />
+                                  <polyline points="7 3 7 8 15 8" />
+                                </svg>
+                                Save Conversation
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1416,15 +1561,10 @@ export default function MemoryDashboard() {
                       )}
 
                       <button
-                        onClick={() => {
-                          setTranscript('');
-                          setVoiceResponseText(null);
-                          setVoiceUsedMemories([]);
-                          setVoiceContextTokenCount(0);
-                          setTranscribeError(null);
-                        }}
+                        onClick={resetVoiceSession}
                         className="premium-btn premium-btn-secondary"
                         style={{ width: '100%', marginTop: '0.25rem' }}
+                        type="button"
                       >
                         🔄 Ask Another Question
                       </button>
