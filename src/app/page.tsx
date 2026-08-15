@@ -213,10 +213,13 @@ export default function MemoryDashboard() {
         headers['Authorization'] = `Bearer ${process.env.NEXT_PUBLIC_MNEMOS_API_KEY}`;
       }
 
-      const response = await fetch(`/api/v1/conversations/${id}/extract-memories`, {
+      const response = await fetch(`/api/v1/conversations/${id}/intelligence`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ userId: userId.trim() }),
+        body: JSON.stringify({
+          userId: userId.trim(),
+          operation: 'extract-memories'
+        }),
       });
 
       const data = await response.json();
@@ -227,7 +230,7 @@ export default function MemoryDashboard() {
         {
           id: reqId,
           timestamp: new Date().toISOString(),
-          endpoint: `POST /api/v1/conversations/${id}/extract-memories`,
+          endpoint: `POST /api/v1/conversations/${id}/intelligence (extract-memories)`,
           latency,
           status: response.ok ? '200 OK' : `${response.status} Error`,
         },
@@ -267,10 +270,13 @@ export default function MemoryDashboard() {
         headers['Authorization'] = `Bearer ${process.env.NEXT_PUBLIC_MNEMOS_API_KEY}`;
       }
 
-      const response = await fetch(`/api/v1/conversations/${id}/summarize`, {
+      const response = await fetch(`/api/v1/conversations/${id}/intelligence`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ userId: userId.trim() }),
+        body: JSON.stringify({
+          userId: userId.trim(),
+          operation: 'summarize'
+        }),
       });
 
       const data = await response.json();
@@ -281,7 +287,7 @@ export default function MemoryDashboard() {
         {
           id: reqId,
           timestamp: new Date().toISOString(),
-          endpoint: `POST /api/v1/conversations/${id}/summarize`,
+          endpoint: `POST /api/v1/conversations/${id}/intelligence (summarize)`,
           latency,
           status: response.ok ? '200 OK' : `${response.status} Error`,
         },
@@ -2629,93 +2635,104 @@ export default function MemoryDashboard() {
               {selectedConversation.transcript}
             </div>
 
-            {selectedConversation.summary ? (
-              <div className="card" style={{
-                marginTop: '1rem',
-                padding: '0.8rem 1rem',
-                backgroundColor: 'rgba(212, 163, 89, 0.03)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-sm)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.4rem'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)' }}>✨ Conversation Summary</span>
-                  <button
-                    onClick={() => handleSummarizeConversation(selectedConversation.id)}
-                    className="premium-btn premium-btn-secondary"
-                    style={{ padding: '0.15rem 0.4rem', fontSize: '0.65rem', minWidth: 'auto' }}
-                    disabled={summarizeLoading}
-                  >
-                    {summarizeLoading ? renderSpinner() : '🔄 Regenerate'}
-                  </button>
-                </div>
-                <p style={{ fontSize: '0.8rem', lineHeight: '1.4', margin: 0, color: 'var(--text)' }}>
-                  {selectedConversation.summary}
-                </p>
-              </div>
-            ) : (
-              <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-start' }}>
+            {/* AI Intelligence Section */}
+            <div style={{ marginTop: '1.25rem', borderTop: '1px solid var(--border)', paddingTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <h4 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--primary)', margin: 0 }}>🧠 AI Intelligence Operations</h4>
+              
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {/* Summarize button */}
                 <button
                   onClick={() => handleSummarizeConversation(selectedConversation.id)}
                   className="premium-btn premium-btn-primary"
-                  style={{ width: '100%' }}
+                  style={{ flex: 1 }}
                   disabled={summarizeLoading}
                 >
                   {summarizeLoading ? (
                     <>
                       {renderSpinner()}
-                      Generating Summary...
+                      Summarizing...
                     </>
+                  ) : selectedConversation.summary ? (
+                    '🔄 Regenerate Summary'
                   ) : (
                     '✨ Generate Summary'
                   )}
                 </button>
-              </div>
-            )}
 
-            {summarizeError && (
-              <div style={{
-                marginTop: '0.5rem',
-                padding: '0.5rem 0.75rem',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: '0.75rem',
-                border: '1px solid var(--error)',
-                backgroundColor: 'rgba(179, 74, 60, 0.05)',
-                color: 'var(--error)'
-              }}>
-                {summarizeError}
+                {/* Extract Memories button */}
+                <button
+                  onClick={() => handleExtractMemories(selectedConversation.id)}
+                  className="premium-btn premium-btn-primary"
+                  style={{ flex: 1 }}
+                  disabled={extractLoading}
+                >
+                  {extractLoading ? (
+                    <>
+                      {renderSpinner()}
+                      Extracting...
+                    </>
+                  ) : (
+                    '🧠 Extract Memories'
+                  )}
+                </button>
               </div>
-            )}
 
-            {extractResult && (
-              <div style={{
-                marginTop: '0.75rem',
-                padding: '0.5rem 0.75rem',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: '0.75rem',
-                border: '1px solid var(--success)',
-                backgroundColor: 'rgba(91, 138, 82, 0.05)',
-                color: 'var(--success)'
-              }}>
-                {extractResult.message}
-              </div>
-            )}
+              {/* Status and output alerts */}
+              {summarizeError && (
+                <div style={{
+                  padding: '0.5rem 0.75rem',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.75rem',
+                  border: '1px solid var(--error)',
+                  backgroundColor: 'rgba(179, 74, 60, 0.05)',
+                  color: 'var(--error)'
+                }}>
+                  {summarizeError}
+                </div>
+              )}
 
-            {extractError && (
-              <div style={{
-                marginTop: '0.75rem',
-                padding: '0.5rem 0.75rem',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: '0.75rem',
-                border: '1px solid var(--error)',
-                backgroundColor: 'rgba(179, 74, 60, 0.05)',
-                color: 'var(--error)'
-              }}>
-                {extractError}
-              </div>
-            )}
+              {extractError && (
+                <div style={{
+                  padding: '0.5rem 0.75rem',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.75rem',
+                  border: '1px solid var(--error)',
+                  backgroundColor: 'rgba(179, 74, 60, 0.05)',
+                  color: 'var(--error)'
+                }}>
+                  {extractError}
+                </div>
+              )}
+
+              {extractResult && (
+                <div style={{
+                  padding: '0.5rem 0.75rem',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.75rem',
+                  border: '1px solid var(--success)',
+                  backgroundColor: 'rgba(91, 138, 82, 0.05)',
+                  color: 'var(--success)'
+                }}>
+                  {extractResult.message}
+                </div>
+              )}
+
+              {/* Display existing summary card if available */}
+              {selectedConversation.summary && (
+                <div className="card" style={{
+                  padding: '0.8rem 1rem',
+                  backgroundColor: 'rgba(212, 163, 89, 0.03)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.8rem',
+                  lineHeight: '1.45',
+                  color: 'var(--text)'
+                }}>
+                  <strong style={{ display: 'block', fontSize: '0.75rem', color: 'var(--primary)', marginBottom: '0.25rem' }}>✨ Current Summary:</strong>
+                  {selectedConversation.summary}
+                </div>
+              )}
+            </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' }}>
               <button 
@@ -2729,23 +2746,6 @@ export default function MemoryDashboard() {
                 className="premium-btn premium-btn-secondary"
               >
                 📋 Copy to Ingest Form
-              </button>
-
-              <button
-                onClick={() => handleExtractMemories(selectedConversation.id)}
-                className="premium-btn premium-btn-primary"
-                disabled={extractLoading}
-              >
-                {extractLoading ? (
-                  <>
-                    {renderSpinner()}
-                    Extracting...
-                  </>
-                ) : (
-                  <>
-                    🧠 Extract Memories
-                  </>
-                )}
               </button>
             </div>
           </div>
