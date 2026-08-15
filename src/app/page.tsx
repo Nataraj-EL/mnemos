@@ -169,6 +169,63 @@ export default function MemoryDashboard() {
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
 
+  // Extraction UI States
+  const [extractLoading, setExtractLoading] = useState(false);
+  const [extractResult, setExtractResult] = useState<{ count: number; message: string } | null>(null);
+  const [extractError, setExtractError] = useState<string | null>(null);
+
+  const handleExtractMemories = async (id: string) => {
+    if (!userId.trim()) return;
+    setExtractLoading(true);
+    setExtractError(null);
+    setExtractResult(null);
+    const start = Date.now();
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (process.env.NEXT_PUBLIC_MNEMOS_API_KEY) {
+        headers['Authorization'] = `Bearer ${process.env.NEXT_PUBLIC_MNEMOS_API_KEY}`;
+      }
+
+      const response = await fetch(`/api/v1/conversations/${id}/extract-memories`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ userId: userId.trim() }),
+      });
+
+      const data = await response.json();
+      const latency = Date.now() - start;
+      const reqId = data.requestId || 'req-' + Math.random().toString(36).substring(2, 9);
+
+      setRequestMetrics((prev) => [
+        {
+          id: reqId,
+          timestamp: new Date().toISOString(),
+          endpoint: `POST /api/v1/conversations/${id}/extract-memories`,
+          latency,
+          status: response.ok ? '200 OK' : `${response.status} Error`,
+        },
+        ...prev,
+      ]);
+
+      if (response.ok && data.status === 'success') {
+        setExtractResult({
+          count: data.data.extractedCount,
+          message: `Successfully extracted ${data.data.extractedCount} candidate memories!`,
+        });
+        fetchMemories();
+      } else {
+        setExtractError(data.error || 'Failed to extract memories.');
+      }
+    } catch (err) {
+      console.error('Failed to extract memories:', err);
+      setExtractError('An unexpected error occurred.');
+    } finally {
+      setExtractLoading(false);
+    }
+  };
+
   // Timer effect for voice recording
   useEffect(() => {
     if (!isRecording) return;
@@ -2254,7 +2311,11 @@ export default function MemoryDashboard() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
               <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--primary)', margin: 0 }}>Conversation Details</h3>
               <button 
-                onClick={() => setSelectedConversation(null)}
+                onClick={() => {
+                  setSelectedConversation(null);
+                  setExtractError(null);
+                  setExtractResult(null);
+                }}
                 className="premium-btn premium-btn-secondary"
                 style={{ padding: '0.2rem 0.4rem', minWidth: 'auto' }}
               >
@@ -2271,15 +2332,62 @@ export default function MemoryDashboard() {
               {selectedConversation.transcript}
             </div>
 
+            {extractResult && (
+              <div style={{
+                marginTop: '0.75rem',
+                padding: '0.5rem 0.75rem',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '0.75rem',
+                border: '1px solid var(--success)',
+                backgroundColor: 'rgba(91, 138, 82, 0.05)',
+                color: 'var(--success)'
+              }}>
+                {extractResult.message}
+              </div>
+            )}
+
+            {extractError && (
+              <div style={{
+                marginTop: '0.75rem',
+                padding: '0.5rem 0.75rem',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '0.75rem',
+                border: '1px solid var(--error)',
+                backgroundColor: 'rgba(179, 74, 60, 0.05)',
+                color: 'var(--error)'
+              }}>
+                {extractError}
+              </div>
+            )}
+
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' }}>
               <button 
                 onClick={() => {
                   setContentInput(selectedConversation.transcript);
                   setSelectedConversation(null);
+                  setExtractError(null);
+                  setExtractResult(null);
                 }} 
-                className="premium-btn premium-btn-primary"
+                className="premium-btn premium-btn-secondary"
               >
                 📋 Copy to Ingest Form
+              </button>
+
+              <button
+                onClick={() => handleExtractMemories(selectedConversation.id)}
+                className="premium-btn premium-btn-primary"
+                disabled={extractLoading}
+              >
+                {extractLoading ? (
+                  <>
+                    {renderSpinner()}
+                    Extracting...
+                  </>
+                ) : (
+                  <>
+                    🧠 Extract Memories
+                  </>
+                )}
               </button>
             </div>
           </div>
