@@ -178,3 +178,77 @@ describe('Telemetry Logging Privacy Redaction', () => {
     consoleSpy.mockRestore();
   });
 });
+
+describe('EvaluationRunner Grounding Additions - Sprint 33', () => {
+  let runner: EvaluationRunner;
+
+  beforeEach(() => {
+    runner = new EvaluationRunner();
+  });
+
+  const mockMemory = (
+    id: string,
+    userId: string,
+    content: string
+  ): Memory => ({
+    id,
+    userId,
+    type: 'FACT' as const,
+    content,
+    metadata: {
+      source: 'chat',
+      confidence: 0.9,
+      importance: 8,
+      timestamp: new Date().toISOString(),
+      status: 'active',
+    },
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  it('should run new grounding metrics calculation correctly', async () => {
+    const scenario: EvalScenario = {
+      scenarioId: 'scen-test-grounding',
+      name: 'Tea Grounding Test',
+      userId: 'user-1',
+      query: 'What tea do I like?',
+      inputMemories: [mockMemory('mem-1', 'user-1', 'I love Matcha')],
+      expectedRelevantIds: ['mem-1'],
+      maxTokens: 1000,
+      isPersonal: true,
+    };
+
+    const res = await runner.runScenario(scenario);
+    expect(res.passed).toBe(true);
+    expect(res.metrics.relevance).toBe(1.0);
+    expect(res.metrics.faithfulness).toBe(1.0);
+    expect(res.metrics.citationCorrectness).toBe(1.0);
+    expect(res.metrics.contextUtilization).toBe(1.0);
+  });
+
+  it('should flag citation mismatch failure and isolate the score', async () => {
+    const scenario: EvalScenario = {
+      scenarioId: 'scen-test-mismatch',
+      name: 'Work Citation Mismatch',
+      userId: 'user-1',
+      query: 'Where do I work? (mismatch query with fake citation)',
+      inputMemories: [],
+      expectedRelevantIds: [],
+      maxTokens: 1000,
+      isPersonal: true,
+    };
+
+    const res = await runner.runScenario(scenario);
+    expect(res.passed).toBe(false);
+    expect(res.metrics.citationCorrectness).toBe(0.0);
+  });
+
+  it('should aggregate scores correctly over all scenario executions', async () => {
+    const report = await runner.runAll();
+    expect(report.summary.total).toBeGreaterThan(16);
+    expect(report.summary.relevance).toBeDefined();
+    expect(report.summary.faithfulness).toBeDefined();
+    expect(report.summary.citationCorrectness).toBeDefined();
+    expect(report.summary.contextUtilization).toBeDefined();
+  });
+});

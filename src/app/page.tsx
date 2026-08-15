@@ -48,6 +48,10 @@ interface EvalScenarioMetrics {
   userIsolation: number;
   deduplicationRate: number;
   tokenCompliance: number;
+  relevance?: number;
+  faithfulness?: number;
+  citationCorrectness?: number;
+  contextUtilization?: number;
 }
 
 interface EvalScenarioResult {
@@ -57,6 +61,12 @@ interface EvalScenarioResult {
   metrics: EvalScenarioMetrics;
   latencyMs: number;
   failureReason?: string;
+  evaluation?: {
+    relevance: number;
+    faithfulness: number;
+    citationCorrectness: number;
+    contextUtilization: number;
+  };
 }
 
 interface EvalSummary {
@@ -68,6 +78,10 @@ interface EvalSummary {
   isolationRate: number;
   deduplicationRate: number;
   tokenCompliance: number;
+  relevance?: number;
+  faithfulness?: number;
+  citationCorrectness?: number;
+  contextUtilization?: number;
   averageLatency: number;
 }
 
@@ -3927,6 +3941,18 @@ export default function MemoryDashboard() {
                       <span style={{ opacity: 0.6, display: 'block' }}>Isolation</span>
                       <strong>{(evalSummary.isolationRate * 100).toFixed(0)}%</strong>
                     </div>
+                    <div style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)' }}>
+                      <span style={{ opacity: 0.6, display: 'block' }}>Relevance</span>
+                      <strong>{((evalSummary.relevance ?? 1) * 100).toFixed(0)}%</strong>
+                    </div>
+                    <div style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)' }}>
+                      <span style={{ opacity: 0.6, display: 'block' }}>Faithfulness</span>
+                      <strong>{((evalSummary.faithfulness ?? 1) * 100).toFixed(0)}%</strong>
+                    </div>
+                    <div style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)' }}>
+                      <span style={{ opacity: 0.6, display: 'block' }}>Citations</span>
+                      <strong>{((evalSummary.citationCorrectness ?? 1) * 100).toFixed(0)}%</strong>
+                    </div>
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '250px', overflowY: 'auto' }}>
@@ -3935,7 +3961,7 @@ export default function MemoryDashboard() {
                         <div>
                           <strong>{result.name}</strong>
                           <div style={{ opacity: 0.6, fontSize: '0.65rem', marginTop: '0.1rem' }}>
-                            Recall: {(result.metrics.retrievalRecall * 100).toFixed(0)}% | Latency: {result.latencyMs} ms
+                            Recall: {(result.metrics.retrievalRecall * 100).toFixed(0)}% | Grounding: {((result.metrics.faithfulness ?? 1) * 100).toFixed(0)}% | Citation: {((result.metrics.citationCorrectness ?? 1) * 100).toFixed(0)}% | Latency: {result.latencyMs} ms
                           </div>
                         </div>
                         <span style={{ color: result.passed ? 'var(--success)' : 'var(--error)', fontWeight: 600 }}>

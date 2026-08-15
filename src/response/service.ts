@@ -31,6 +31,12 @@ export interface ContextualResponseResult {
     similarity?: number;
   }[];
   governance?: ContextResult['governance'];
+  evaluation?: {
+    relevance: number;
+    faithfulness: number;
+    citationCorrectness: number;
+    contextUtilization: number;
+  };
 }
 
 export class ResponseService {
@@ -64,7 +70,7 @@ export class ResponseService {
   async respond(
     userId: string,
     query: string,
-    options?: { limit?: number; maxTokens?: number; includeHistorical?: boolean }
+    options?: { limit?: number; maxTokens?: number; includeHistorical?: boolean; evaluationRun?: boolean }
   ): Promise<ContextualResponseResult> {
     if (!userId || !userId.trim()) {
       throw new Error('User ID is required.');
@@ -308,12 +314,47 @@ export class ResponseService {
         usedConversations
       );
 
+      let evaluation = undefined;
+      if (options?.evaluationRun) {
+        const isPersonalQuery = /\b(my|me|i|myself|mine)\b/i.test(query.toLowerCase());
+        const hasContext = usedMemories.length > 0 || usedConversations.length > 0;
+        const relevance = (isPersonalQuery && !hasContext)
+          ? (validation.isValid ? 1.0 : 0.0)
+          : 1.0;
+        const faithfulness = validation.isValid ? 1.0 : 0.0;
+
+        let citationCorrectness = 1.0;
+        const citMatches = generatorResult.text.match(/\[MEMORY\s+([a-zA-Z0-9_-]+)\]|\[PAST\s+CONVERSATION\s+([a-zA-Z0-9_-]+)\]/gi);
+        if (citMatches) {
+          for (const cit of citMatches) {
+            const idM = cit.match(/\[(?:MEMORY|PAST\s+CONVERSATION)\s+([a-zA-Z0-9_-]+)\]/i);
+            if (idM) {
+              const citId = idM[1];
+              const ok = usedMemories.some(m => m.id === citId) || usedConversations.some(c => c.conversationId === citId);
+              if (!ok) {
+                citationCorrectness = 0.0;
+              }
+            }
+          }
+        }
+
+        const contextUtilization = (hasContext && validation.isValid) ? 1.0 : 0.0;
+
+        evaluation = {
+          relevance,
+          faithfulness,
+          citationCorrectness,
+          contextUtilization
+        };
+      }
+
       return {
         response: validation.refinedResponse,
         usedMemories,
         contextTokenCount: finalTokenCount,
         usedConversations,
         governance: assemblyResult.governance,
+        evaluation,
       };
     } catch (error: unknown) {
       const totalLatencyMs = Date.now() - startTime;

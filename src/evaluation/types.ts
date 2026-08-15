@@ -19,6 +19,10 @@ export interface EvalScenarioMetrics {
   userIsolation: number;
   deduplicationRate: number;
   tokenCompliance: number;
+  relevance: number;
+  faithfulness: number;
+  citationCorrectness: number;
+  contextUtilization: number;
 }
 
 export interface EvalScenarioResult {
@@ -28,6 +32,12 @@ export interface EvalScenarioResult {
   metrics: EvalScenarioMetrics;
   latencyMs: number;
   failureReason?: string;
+  evaluation?: {
+    relevance: number;
+    faithfulness: number;
+    citationCorrectness: number;
+    contextUtilization: number;
+  };
 }
 
 export interface EvalSummary {
@@ -39,5 +49,9 @@ export interface EvalSummary {
   isolationRate: number;
   deduplicationRate: number;
   tokenCompliance: number;
+  relevance: number;
+  faithfulness: number;
+  citationCorrectness: number;
+  contextUtilization: number;
   averageLatency: number;
 }

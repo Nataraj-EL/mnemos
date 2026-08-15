@@ -2,6 +2,7 @@ import { EvalScenario, EvalScenarioResult, EvalSummary } from './types';
 import { EVAL_DATASET } from './dataset';
 import { ContextAssembler } from '@/context/assembler';
 import { ResponseGenerator } from '@/response/generator';
+import { ResponseService } from '@/response/service';
 
 export class EvaluationRunner {
   private assembler: ContextAssembler;
@@ -33,6 +34,21 @@ export class EvaluationRunner {
           if (lowerQuery.includes('sky')) {
             return { text: 'The sky is blue on a clear day.' };
           }
+          if (lowerQuery.includes('yesterday') && context.includes('PostgreSQL')) {
+            return { text: 'We talked about PostgreSQL database setups [PAST CONVERSATION conv-999].' };
+          }
+          if (lowerQuery.includes('combined')) {
+            return { text: 'You prefer Matcha green tea and PostgreSQL setups [MEMORY mem-1] [PAST CONVERSATION conv-999].' };
+          }
+          if (lowerQuery.includes('movie')) {
+            return { text: 'I do not know your favorite movie as it is not in my memories.' };
+          }
+          if (lowerQuery.includes('pet name')) {
+            return { text: 'Your pet name is Rusty.' };
+          }
+          if (lowerQuery.includes('work') && lowerQuery.includes('citation')) {
+            return { text: 'You work at a startup [MEMORY mem-999].' };
+          }
           return { text: 'This is a mocked general response.' };
         },
       };
@@ -52,21 +68,51 @@ export class EvaluationRunner {
         })
         .filter((c) => c.similarity >= 0.7);
 
-      // 2. Assemble context
-      const assemblyResult = this.assembler.assemble(scenario.query, candidates, scenario.maxTokens);
+      // Setup ConversationRetriever mock
+      const mockConvRetriever = {
+        retrieveSnippets: async (_uid: string, q: string) => {
+          const lq = q.toLowerCase();
+          if (lq.includes('yesterday') || lq.includes('combined')) {
+            return [
+              {
+                conversationId: 'conv-999',
+                createdAt: new Date(),
+                text: 'We talked about PostgreSQL database setups.',
+                matchedSnippet: 'We talked about PostgreSQL database setups.',
+                similarity: 0.95
+              }
+            ];
+          }
+          return [];
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any;
 
-      // 3. Generate response
-      const responseResult = await this.generator.generateResponse(
-        scenario.query,
-        assemblyResult.context
+      // Instantiate ResponseService
+      const mockRetriever = {
+        retrieve: async () => candidates
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any;
+
+      const responseService = new ResponseService(
+        mockRetriever,
+        this.assembler,
+        this.generator,
+        undefined,
+        mockConvRetriever
       );
+
+      // Execute response generation
+      const serviceResult = await responseService.respond(scenario.userId, scenario.query, {
+        maxTokens: scenario.maxTokens,
+        evaluationRun: true
+      });
 
       const latencyMs = Date.now() - startTime;
 
-      // 4. Calculate deterministic metrics
       const expectedIds = scenario.expectedRelevantIds;
+      const selectedIds = serviceResult.usedMemories.map((m) => m.id);
       const retrievedIds = candidates.map((c) => c.memory.id);
-      const selectedIds = assemblyResult.items.map((item) => item.id);
 
       // Retrieval Recall
       const retrievedExpected = expectedIds.filter((id) => retrievedIds.includes(id));
@@ -78,7 +124,7 @@ export class EvaluationRunner {
       const contextPrecision =
         selectedIds.length > 0 ? selectedExpected.length / selectedIds.length : 1.0;
 
-      // User Isolation: verify no cross-user memories are retrieved or selected
+      // User Isolation
       const crossUserMemories = scenario.inputMemories
         .filter((m) => m.userId !== scenario.userId)
         .map((m) => m.id);
@@ -87,16 +133,23 @@ export class EvaluationRunner {
       const userIsolation =
         retrievedCrossUser.length === 0 && selectedCrossUser.length === 0 ? 1.0 : 0.0;
 
-      // Deduplication Rate: verify no expected excluded IDs are present in selection
+      // Deduplication Rate
       const excludedIds = scenario.expectedExcludedIds || [];
       const hasExcluded = excludedIds.some((id) => selectedIds.includes(id));
       const deduplicationRate = hasExcluded ? 0.0 : 1.0;
 
       // Token Compliance
-      const tokenCompliance = assemblyResult.tokenCount <= scenario.maxTokens ? 1.0 : 0.0;
+      const tokenCompliance = serviceResult.contextTokenCount <= scenario.maxTokens ? 1.0 : 0.0;
+
+      const evaluation = serviceResult.evaluation || {
+        relevance: 1.0,
+        faithfulness: 1.0,
+        citationCorrectness: 1.0,
+        contextUtilization: 1.0
+      };
 
       // Grounding Check
-      let groundingPass = true;
+      let groundingPass = evaluation.faithfulness === 1.0;
       let failureReason = '';
 
       if (scenario.expectedResponsePattern) {
@@ -105,13 +158,13 @@ export class EvaluationRunner {
           scenario.expectedResponsePattern.endsWith('$')
         ) {
           const regex = new RegExp(scenario.expectedResponsePattern);
-          if (!regex.test(responseResult.text)) {
+          if (!regex.test(serviceResult.response)) {
             groundingPass = false;
             failureReason = `Response text failed injection pattern check.`;
           }
         } else {
           const pattern = scenario.expectedResponsePattern.toLowerCase();
-          if (!responseResult.text.toLowerCase().includes(pattern)) {
+          if (!serviceResult.response.toLowerCase().includes(pattern)) {
             groundingPass = false;
             failureReason = `Response text missing expected grounding keyword.`;
           }
@@ -124,7 +177,10 @@ export class EvaluationRunner {
         userIsolation === 1.0 &&
         deduplicationRate === 1.0 &&
         tokenCompliance === 1.0 &&
-        groundingPass;
+        groundingPass &&
+        evaluation.relevance === 1.0 &&
+        evaluation.faithfulness === 1.0 &&
+        evaluation.citationCorrectness === 1.0;
 
       if (!passed && !failureReason) {
         const failures: string[] = [];
@@ -133,6 +189,9 @@ export class EvaluationRunner {
         if (userIsolation !== 1.0) failures.push(`Isolation fail`);
         if (deduplicationRate !== 1.0) failures.push(`Deduplication fail`);
         if (tokenCompliance !== 1.0) failures.push(`Token compliance fail`);
+        if (evaluation.relevance !== 1.0) failures.push(`Relevance fail`);
+        if (evaluation.faithfulness !== 1.0) failures.push(`Faithfulness fail`);
+        if (evaluation.citationCorrectness !== 1.0) failures.push(`Citation correctness fail`);
         failureReason = `Metric failures: [${failures.join(', ')}]`;
       }
 
@@ -146,8 +205,13 @@ export class EvaluationRunner {
           userIsolation,
           deduplicationRate,
           tokenCompliance,
+          relevance: evaluation.relevance,
+          faithfulness: evaluation.faithfulness,
+          citationCorrectness: evaluation.citationCorrectness,
+          contextUtilization: evaluation.contextUtilization,
         },
         latencyMs,
+        evaluation,
         ...(failureReason ? { failureReason } : {}),
       };
     } catch (error: unknown) {
@@ -161,6 +225,10 @@ export class EvaluationRunner {
           userIsolation: 0,
           deduplicationRate: 0,
           tokenCompliance: 0,
+          relevance: 0,
+          faithfulness: 0,
+          citationCorrectness: 0,
+          contextUtilization: 0,
         },
         latencyMs: Date.now() - startTime,
         failureReason: error instanceof Error ? error.message : 'Unknown execution error',
@@ -189,6 +257,10 @@ export class EvaluationRunner {
     const sumIsolation = results.reduce((acc, r) => acc + r.metrics.userIsolation, 0);
     const sumDeduplication = results.reduce((acc, r) => acc + r.metrics.deduplicationRate, 0);
     const sumToken = results.reduce((acc, r) => acc + r.metrics.tokenCompliance, 0);
+    const sumRelevance = results.reduce((acc, r) => acc + r.metrics.relevance, 0);
+    const sumFaith = results.reduce((acc, r) => acc + r.metrics.faithfulness, 0);
+    const sumCitation = results.reduce((acc, r) => acc + r.metrics.citationCorrectness, 0);
+    const sumUtil = results.reduce((acc, r) => acc + r.metrics.contextUtilization, 0);
 
     return {
       results,
@@ -201,6 +273,10 @@ export class EvaluationRunner {
         isolationRate: sumIsolation / total,
         deduplicationRate: sumDeduplication / total,
         tokenCompliance: sumToken / total,
+        relevance: sumRelevance / total,
+        faithfulness: sumFaith / total,
+        citationCorrectness: sumCitation / total,
+        contextUtilization: sumUtil / total,
         averageLatency: totalLatency / total,
       },
     };
