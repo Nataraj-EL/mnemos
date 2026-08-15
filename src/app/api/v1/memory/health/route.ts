@@ -17,6 +17,9 @@ export async function GET() {
       service: 'healthy',
       database: dbConnected ? 'healthy' : 'unhealthy',
       provider: hasGeminiKey ? 'healthy' : 'unhealthy',
+      authEnabled: process.env.MNEMOS_AUTH_ENABLED === 'true',
+      rateLimitMax: Number(process.env.RATE_LIMIT_MAX_REQUESTS || '100'),
+      rateLimitWindow: Number(process.env.RATE_LIMIT_WINDOW_SECONDS || '60'),
     };
 
     if (!dbConnected) {

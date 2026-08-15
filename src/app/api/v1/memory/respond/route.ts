@@ -6,6 +6,12 @@ import { GeminiResponseGenerator } from '@/response/geminiGenerator';
 import { ResponseService } from '@/response/service';
 import { GeminiEmbeddingProvider } from '@/memory/geminiEmbedding';
 import { logTelemetry } from '@/core/logger';
+import {
+  authenticate,
+  checkRateLimit,
+  checkRequestSize,
+  validateQueryInput,
+} from '@/memory/security';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +23,47 @@ export async function POST(request: Request) {
   const startTime = Date.now();
 
   try {
+    // 1. Defend content size limits
+    if (!checkRequestSize(request.headers, 100 * 1024)) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          error: 'Payload Too Large: Request body size limit of 100 KB exceeded.',
+          requestId,
+        },
+        { status: 413 }
+      );
+    }
+
+    // 2. Authentication check
+    const authResult = authenticate(request.headers);
+    if (!authResult.authenticated) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          error: authResult.error || 'Unauthorized: Missing or invalid API key.',
+          requestId,
+        },
+        { status: 401 }
+      );
+    }
+
+    // 3. Rate limiting
+    const rateLimitMax = Number(process.env.RATE_LIMIT_MAX_REQUESTS || '100');
+    const rateLimitWindow = Number(process.env.RATE_LIMIT_WINDOW_SECONDS || '60');
+    const clientIp = request.headers.get('x-forwarded-for') || '127.0.0.1';
+    const rateLimitResult = checkRateLimit(clientIp, rateLimitMax, rateLimitWindow);
+    if (!rateLimitResult.allowed) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          error: 'Too Many Requests: Rate limit exceeded. Try again later.',
+          requestId,
+        },
+        { status: 429 }
+      );
+    }
+
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== 'object') {
       return NextResponse.json(
@@ -25,43 +72,19 @@ export async function POST(request: Request) {
       );
     }
 
-    const { userId, query, limit: limitInput, maxTokens: maxTokensInput, includeHistorical } = body;
-    if (!userId || typeof userId !== 'string' || !userId.trim()) {
+    const { userId, query, limit, maxTokens, includeHistorical } = body;
+
+    // 4. Input validation
+    const validation = validateQueryInput(userId, query, limit, maxTokens);
+    if (!validation.valid) {
       return NextResponse.json(
-        { status: 'error', error: 'Missing parameter: userId is required.', requestId },
-        { status: 400 }
-      );
-    }
-    if (!query || typeof query !== 'string' || !query.trim()) {
-      return NextResponse.json(
-        { status: 'error', error: 'Missing parameter: query is required.', requestId },
+        { status: 'error', error: validation.error, requestId },
         { status: 400 }
       );
     }
 
-    const limit = limitInput !== undefined ? parseInt(limitInput, 10) : 10;
-    if (isNaN(limit) || limit <= 0 || limit > 100) {
-      return NextResponse.json(
-        {
-          status: 'error',
-          error: 'Invalid parameter: limit must be an integer between 1 and 100.',
-          requestId,
-        },
-        { status: 400 }
-      );
-    }
-
-    const maxTokens = maxTokensInput !== undefined ? parseInt(maxTokensInput, 10) : 1500;
-    if (isNaN(maxTokens) || maxTokens <= 0 || maxTokens > 100000) {
-      return NextResponse.json(
-        {
-          status: 'error',
-          error: 'Invalid parameter: maxTokens must be an integer between 1 and 100000.',
-          requestId,
-        },
-        { status: 400 }
-      );
-    }
+    const resolvedLimit = limit !== undefined ? Number(limit) : 10;
+    const resolvedMaxTokens = maxTokens !== undefined ? Number(maxTokens) : 1500;
 
     const repository = new PgMemoryRepository();
     const embeddingProvider = new GeminiEmbeddingProvider();
@@ -71,8 +94,8 @@ export async function POST(request: Request) {
     const service = new ResponseService(retriever, assembler, generator, repository);
 
     const result = await service.respond(userId.trim(), query.trim(), {
-      limit,
-      maxTokens,
+      limit: resolvedLimit,
+      maxTokens: resolvedMaxTokens,
       includeHistorical: includeHistorical !== undefined ? !!includeHistorical : undefined,
     });
 
