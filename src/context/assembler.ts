@@ -184,6 +184,9 @@ export class ContextAssembler {
         governanceReasons: gov.reasons,
         confidence: metadata.confidence,
         lifecycleState: deriveLifecycleState(memory),
+        conversationId: metadata.conversationId,
+        sourceType: metadata.sourceType,
+        sourceTimestamp: metadata.sourceTimestamp,
       });
     }
 

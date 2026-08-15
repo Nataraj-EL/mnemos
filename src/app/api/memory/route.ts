@@ -7,6 +7,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId');
+    const conversationId = searchParams.get('conversationId');
 
     if (!userId || !userId.trim()) {
       return NextResponse.json(
@@ -16,7 +17,11 @@ export async function GET(request: Request) {
     }
 
     const repository = new PgMemoryRepository();
-    const memories = await repository.list({ userId });
+    const filter: { userId?: string; conversationId?: string } = { userId: userId.trim() };
+    if (conversationId && conversationId.trim()) {
+      filter.conversationId = conversationId.trim();
+    }
+    const memories = await repository.list(filter);
 
     return NextResponse.json({
       status: 'success',

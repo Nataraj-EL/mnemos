@@ -35,6 +35,9 @@ export interface MemoryMetadata {
   reinforcementCount?: number;
   lifecycleUpdatedAt?: string;
   consolidatedFrom?: string[];
+  conversationId?: string;
+  sourceType?: string;
+  sourceTimestamp?: string;
   [key: string]: unknown;
 }
 
@@ -56,6 +59,9 @@ export function normalizeMetadata(metadata?: Partial<MemoryMetadata>, createdAtF
     reinforcementCount: typeof metadata?.reinforcementCount === 'number' ? metadata.reinforcementCount : 0,
     lifecycleUpdatedAt: typeof metadata?.lifecycleUpdatedAt === 'string' ? metadata.lifecycleUpdatedAt : timestamp,
     consolidatedFrom: Array.isArray(metadata?.consolidatedFrom) ? (metadata.consolidatedFrom as string[]) : undefined,
+    conversationId: metadata?.conversationId,
+    sourceType: metadata?.sourceType,
+    sourceTimestamp: metadata?.sourceTimestamp,
   };
 }
 

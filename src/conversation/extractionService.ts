@@ -30,6 +30,10 @@ export class ConversationMemoryExtractionService {
       throw new Error('Empty transcript: No memories can be extracted from this conversation.');
     }
 
-    return this.memoryIngestionService.ingest(userId, transcript);
+    return this.memoryIngestionService.ingest(userId, transcript, {
+      conversationId: conversation.id,
+      sourceType: 'conversation',
+      sourceTimestamp: conversation.createdAt.toISOString(),
+    });
   }
 }

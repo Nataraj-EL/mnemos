@@ -178,6 +178,23 @@ export default function MemoryDashboard() {
     }
   };
 
+  const formatProvenanceDate = (timestamp?: string) => {
+    if (!timestamp) return '';
+    try {
+      const d = new Date(timestamp);
+      return d.toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      });
+    } catch {
+      return '';
+    }
+  };
+
   // Navigation & Workspace State Tabs
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<'workspace' | 'developer'>('workspace');
   const [activeIntelligenceTab, setActiveIntelligenceTab] = useState<'ask' | 'search' | 'context'>('ask');
@@ -193,7 +210,7 @@ export default function MemoryDashboard() {
   // Voice Grounded Query States
   const [voiceMode, setVoiceMode] = useState<'transcribe' | 'ask'>('transcribe');
   const [voiceResponseText, setVoiceResponseText] = useState<string | null>(null);
-  const [voiceUsedMemories, setVoiceUsedMemories] = useState<{ id: string; type: string; similarity: number; score: number; content?: string; confidence?: number; lifecycleState?: string }[]>([]);
+  const [voiceUsedMemories, setVoiceUsedMemories] = useState<{ id: string; type: string; similarity: number; score: number; content?: string; confidence?: number; lifecycleState?: string; conversationId?: string; sourceType?: string; sourceTimestamp?: string }[]>([]);
   const [voiceUsedConversations, setVoiceUsedConversations] = useState<{ id: string; conversationId?: string; createdAt: string; text: string; matchedSnippet?: string; similarity?: number }[]>([]);
   const [voiceContextTokenCount, setVoiceContextTokenCount] = useState<number>(0);
 
@@ -255,6 +272,9 @@ export default function MemoryDashboard() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
+  const [selectedConvTab, setSelectedConvTab] = useState<'transcript' | 'summary' | 'memories'>('transcript');
+  const [conversationMemories, setConversationMemories] = useState<Memory[]>([]);
+  const [loadingConversationMemories, setLoadingConversationMemories] = useState(false);
 
   // Extraction UI States
   const [extractLoading, setExtractLoading] = useState(false);
@@ -305,6 +325,7 @@ export default function MemoryDashboard() {
           message: `Successfully extracted ${data.data.extractedCount} candidate memories!`,
         });
         fetchMemories();
+        fetchConversationMemories(id);
       } else {
         setExtractError(data.error || 'Failed to extract memories.');
       }
@@ -569,6 +590,26 @@ export default function MemoryDashboard() {
     await performExtraction(savedConversationId);
   };
 
+  const fetchConversationMemories = async (convId: string) => {
+    if (!userId.trim() || !convId) return;
+    setLoadingConversationMemories(true);
+    try {
+      const response = await fetch(`/api/memory?userId=${encodeURIComponent(userId.trim())}&conversationId=${encodeURIComponent(convId)}`);
+      const data = await response.json();
+      if (response.ok && data.status === 'success') {
+        // Safety: Enforce both user ID and conversation ID match expected values
+        const verifiedMemories = (data.memories || []).filter((m: Memory) => 
+          m.userId === userId.trim() && m.metadata.conversationId === convId
+        );
+        setConversationMemories(verifiedMemories);
+      }
+    } catch (err) {
+      console.error('Failed to fetch conversation memories:', err);
+    } finally {
+      setLoadingConversationMemories(false);
+    }
+  };
+
   const handleSelectConversation = async (id: string) => {
     if (!userId.trim()) return;
     try {
@@ -582,6 +623,8 @@ export default function MemoryDashboard() {
       const data = await response.json();
       if (response.ok && data.status === 'success') {
         setSelectedConversation(data.data.conversation);
+        setSelectedConvTab('transcript');
+        fetchConversationMemories(id);
       }
     } catch (err) {
       console.error('Failed to fetch conversation details:', err);
@@ -908,7 +951,7 @@ export default function MemoryDashboard() {
   const [responseMaxTokens, setResponseMaxTokens] = useState(1500);
   const [responseResult, setResponseResult] = useState<{
     response: string;
-    usedMemories: { id: string; type: string; similarity: number; score: number; content?: string; confidence?: number; lifecycleState?: string }[];
+    usedMemories: { id: string; type: string; similarity: number; score: number; content?: string; confidence?: number; lifecycleState?: string; conversationId?: string; sourceType?: string; sourceTimestamp?: string }[];
     contextTokenCount: number;
     usedConversations?: { id: string; conversationId?: string; createdAt: string; text: string; matchedSnippet?: string; similarity?: number }[];
     governance?: {
@@ -1887,6 +1930,29 @@ export default function MemoryDashboard() {
                                         <span>Confidence: <strong>{((m.confidence || 0.9) * 100).toFixed(0)}%</strong></span>
                                         <span>Lifecycle: <strong style={{ textTransform: 'capitalize' }}>{m.lifecycleState || 'stable'}</strong></span>
                                       </div>
+                                      {m.conversationId && m.sourceType === 'conversation' && m.sourceTimestamp && (
+                                        <div style={{ marginTop: '0.4rem', borderTop: '1px dashed var(--border)', paddingTop: '0.4rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                          <span style={{ fontSize: '0.65rem', opacity: 0.8 }}>
+                                            From conversation · {formatProvenanceDate(m.sourceTimestamp)}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleSelectConversation(m.conversationId!)}
+                                            style={{
+                                              fontSize: '0.65rem',
+                                              color: 'var(--primary)',
+                                              background: 'none',
+                                              border: 'none',
+                                              cursor: 'pointer',
+                                              padding: 0,
+                                              textDecoration: 'underline',
+                                              fontWeight: 600,
+                                            }}
+                                          >
+                                            View Source Conversation
+                                          </button>
+                                        </div>
+                                      )}
                                     </div>
                                   )}
                                 </div>
@@ -2322,6 +2388,29 @@ export default function MemoryDashboard() {
                                         <span>Confidence: <strong>{((used.confidence || 0.9) * 100).toFixed(0)}%</strong></span>
                                         <span>Lifecycle: <strong style={{ textTransform: 'capitalize' }}>{used.lifecycleState || 'stable'}</strong></span>
                                       </div>
+                                      {used.conversationId && used.sourceType === 'conversation' && used.sourceTimestamp && (
+                                        <div style={{ marginTop: '0.4rem', borderTop: '1px dashed var(--border)', paddingTop: '0.4rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                          <span style={{ fontSize: '0.65rem', opacity: 0.8 }}>
+                                            From conversation · {formatProvenanceDate(used.sourceTimestamp)}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleSelectConversation(used.conversationId!)}
+                                            style={{
+                                              fontSize: '0.65rem',
+                                              color: 'var(--primary)',
+                                              background: 'none',
+                                              border: 'none',
+                                              cursor: 'pointer',
+                                              padding: 0,
+                                              textDecoration: 'underline',
+                                              fontWeight: 600,
+                                            }}
+                                          >
+                                            View Source Conversation
+                                          </button>
+                                        </div>
+                                      )}
                                     </div>
                                   )}
                                 </div>
@@ -3123,123 +3212,205 @@ export default function MemoryDashboard() {
               <div><strong>Duration:</strong> {selectedConversation.durationSeconds || 0}s</div>
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto', padding: '0.75rem', backgroundColor: 'var(--background)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', lineHeight: '1.5', fontStyle: 'italic' }}>
-              {selectedConversation.transcript}
-            </div>
-
-            {/* AI Intelligence Section */}
-            <div style={{ marginTop: '1.25rem', borderTop: '1px solid var(--border)', paddingTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <h4 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--primary)', margin: 0 }}>🧠 AI Intelligence Operations</h4>
-              
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                {/* Summarize button */}
-                <button
-                  onClick={() => handleSummarizeConversation(selectedConversation.id)}
-                  className="premium-btn premium-btn-primary"
-                  style={{ flex: 1 }}
-                  disabled={summarizeLoading}
-                >
-                  {summarizeLoading ? (
-                    <>
-                      {renderSpinner()}
-                      Summarizing...
-                    </>
-                  ) : selectedConversation.summary ? (
-                    '🔄 Regenerate Summary'
-                  ) : (
-                    '✨ Generate Summary'
-                  )}
-                </button>
-
-                {/* Extract Memories button */}
-                <button
-                  onClick={() => handleExtractMemories(selectedConversation.id)}
-                  className="premium-btn premium-btn-primary"
-                  style={{ flex: 1 }}
-                  disabled={extractLoading}
-                >
-                  {extractLoading ? (
-                    <>
-                      {renderSpinner()}
-                      Extracting...
-                    </>
-                  ) : (
-                    '🧠 Extract Memories'
-                  )}
-                </button>
-              </div>
-
-              {/* Status and output alerts */}
-              {summarizeError && (
-                <div style={{
-                  padding: '0.5rem 0.75rem',
-                  borderRadius: 'var(--radius-sm)',
-                  fontSize: '0.75rem',
-                  border: '1px solid var(--error)',
-                  backgroundColor: 'rgba(179, 74, 60, 0.05)',
-                  color: 'var(--error)'
-                }}>
-                  {summarizeError}
-                </div>
-              )}
-
-              {extractError && (
-                <div style={{
-                  padding: '0.5rem 0.75rem',
-                  borderRadius: 'var(--radius-sm)',
-                  fontSize: '0.75rem',
-                  border: '1px solid var(--error)',
-                  backgroundColor: 'rgba(179, 74, 60, 0.05)',
-                  color: 'var(--error)'
-                }}>
-                  {extractError}
-                </div>
-              )}
-
-              {extractResult && (
-                <div style={{
-                  padding: '0.5rem 0.75rem',
-                  borderRadius: 'var(--radius-sm)',
-                  fontSize: '0.75rem',
-                  border: '1px solid var(--success)',
-                  backgroundColor: 'rgba(91, 138, 82, 0.05)',
-                  color: 'var(--success)'
-                }}>
-                  {extractResult.message}
-                </div>
-              )}
-
-              {/* Display existing summary card if available */}
-              {selectedConversation.summary && (
-                <div className="card" style={{
-                  padding: '0.8rem 1rem',
-                  backgroundColor: 'rgba(212, 163, 89, 0.03)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-sm)',
-                  fontSize: '0.8rem',
-                  lineHeight: '1.45',
-                  color: 'var(--text)'
-                }}>
-                  <strong style={{ display: 'block', fontSize: '0.75rem', color: 'var(--primary)', marginBottom: '0.25rem' }}>✨ Current Summary:</strong>
-                  {selectedConversation.summary}
-                </div>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' }}>
-              <button 
-                onClick={() => {
-                  setContentInput(selectedConversation.transcript);
-                  setSelectedConversation(null);
-                  setExtractError(null);
-                  setExtractResult(null);
-                  setSummarizeError(null);
-                }} 
-                className="premium-btn premium-btn-secondary"
+            {/* Tab Selector */}
+            <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '1rem' }}>
+              <button
+                type="button"
+                onClick={() => setSelectedConvTab('transcript')}
+                style={{
+                  padding: '0.5rem 1rem',
+                  border: 'none',
+                  background: 'none',
+                  color: selectedConvTab === 'transcript' ? 'var(--primary)' : 'var(--text)',
+                  borderBottom: selectedConvTab === 'transcript' ? '2px solid var(--primary)' : 'none',
+                  fontWeight: selectedConvTab === 'transcript' ? 'bold' : 'normal',
+                  cursor: 'pointer',
+                  fontSize: '0.8rem'
+                }}
               >
-                📋 Copy to Ingest Form
+                📝 Transcript
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedConvTab('summary')}
+                style={{
+                  padding: '0.5rem 1rem',
+                  border: 'none',
+                  background: 'none',
+                  color: selectedConvTab === 'summary' ? 'var(--primary)' : 'var(--text)',
+                  borderBottom: selectedConvTab === 'summary' ? '2px solid var(--primary)' : 'none',
+                  fontWeight: selectedConvTab === 'summary' ? 'bold' : 'normal',
+                  cursor: 'pointer',
+                  fontSize: '0.8rem'
+                }}
+              >
+                ✨ Summary
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedConvTab('memories')}
+                style={{
+                  padding: '0.5rem 1rem',
+                  border: 'none',
+                  background: 'none',
+                  color: selectedConvTab === 'memories' ? 'var(--primary)' : 'var(--text)',
+                  borderBottom: selectedConvTab === 'memories' ? '2px solid var(--primary)' : 'none',
+                  fontWeight: selectedConvTab === 'memories' ? 'bold' : 'normal',
+                  cursor: 'pointer',
+                  fontSize: '0.8rem'
+                }}
+              >
+                🧠 Extracted Memories ({conversationMemories.length})
               </button>
             </div>
+
+            {selectedConvTab === 'transcript' && (
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+                <div style={{ flex: 1, overflowY: 'auto', padding: '0.75rem', backgroundColor: 'var(--background)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', lineHeight: '1.5', fontStyle: 'italic', marginBottom: '1rem' }}>
+                  {selectedConversation.transcript}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button 
+                    onClick={() => {
+                      setContentInput(selectedConversation.transcript);
+                      setSelectedConversation(null);
+                      setExtractError(null);
+                      setExtractResult(null);
+                      setSummarizeError(null);
+                    }} 
+                    className="premium-btn premium-btn-secondary"
+                    style={{ width: '100%' }}
+                  >
+                    📋 Copy to Ingest Form
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {selectedConvTab === 'summary' && (
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', gap: '0.75rem' }}>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    onClick={() => handleSummarizeConversation(selectedConversation.id)}
+                    className="premium-btn premium-btn-primary"
+                    style={{ flex: 1 }}
+                    disabled={summarizeLoading}
+                  >
+                    {summarizeLoading ? (
+                      <>
+                        {renderSpinner()}
+                        Summarizing...
+                      </>
+                    ) : selectedConversation.summary ? (
+                      '🔄 Regenerate Summary'
+                    ) : (
+                      '✨ Generate Summary'
+                    )}
+                  </button>
+                </div>
+
+                {summarizeError && (
+                  <div style={{
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '0.75rem',
+                    border: '1px solid var(--error)',
+                    backgroundColor: 'rgba(179, 74, 60, 0.05)',
+                    color: 'var(--error)'
+                  }}>
+                    {summarizeError}
+                  </div>
+                )}
+
+                <div style={{ flex: 1, overflowY: 'auto', padding: '0.75rem', backgroundColor: 'var(--background)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', lineHeight: '1.5' }}>
+                  {selectedConversation.summary ? (
+                    selectedConversation.summary
+                  ) : (
+                    <div style={{ textAlign: 'center', opacity: 0.5, padding: '2rem 0' }}>No summary generated yet.</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {selectedConvTab === 'memories' && (
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', gap: '0.75rem' }}>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    onClick={() => handleExtractMemories(selectedConversation.id)}
+                    className="premium-btn premium-btn-primary"
+                    style={{ flex: 1 }}
+                    disabled={extractLoading}
+                  >
+                    {extractLoading ? (
+                      <>
+                        {renderSpinner()}
+                        Extracting...
+                      </>
+                    ) : (
+                      '🧠 Extract Memories'
+                    )}
+                  </button>
+                </div>
+
+                {extractError && (
+                  <div style={{
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '0.75rem',
+                    border: '1px solid var(--error)',
+                    backgroundColor: 'rgba(179, 74, 60, 0.05)',
+                    color: 'var(--error)'
+                  }}>
+                    {extractError}
+                  </div>
+                )}
+
+                {extractResult && (
+                  <div style={{
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '0.75rem',
+                    border: '1px solid var(--success)',
+                    backgroundColor: 'rgba(91, 138, 82, 0.05)',
+                    color: 'var(--success)'
+                  }}>
+                    {extractResult.message}
+                  </div>
+                )}
+
+                <div style={{ flex: 1, overflowY: 'auto', padding: '0.5rem', backgroundColor: 'var(--background)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {loadingConversationMemories ? (
+                    <div style={{ textAlign: 'center', padding: '2rem 0', fontSize: '0.8rem', opacity: 0.6 }}>
+                      {renderSpinner()} Loading extracted memories...
+                    </div>
+                  ) : conversationMemories.length > 0 ? (
+                    conversationMemories.map((m, idx) => (
+                      <div key={idx} style={{
+                        padding: '0.5rem 0.75rem',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border)',
+                        backgroundColor: 'var(--surface)',
+                        fontSize: '0.75rem'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+                          <span className="badge" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', fontSize: '0.65rem', fontWeight: 600 }}>
+                            {m.type}
+                          </span>
+                          <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>
+                            Confidence: <strong>{((m.metadata.confidence || 0.9) * 100).toFixed(0)}%</strong>
+                          </span>
+                        </div>
+                        <p style={{ fontWeight: 500, margin: 0, color: 'var(--text)' }}>{m.content}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ textAlign: 'center', opacity: 0.5, padding: '2rem 0', fontSize: '0.8rem' }}>
+                      No memories extracted from this conversation yet.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

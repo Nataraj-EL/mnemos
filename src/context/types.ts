@@ -13,6 +13,9 @@ export interface ContextItem {
   governanceReasons?: string[];
   confidence?: number;
   lifecycleState?: 'core' | 'stable' | 'fading' | 'historical';
+  conversationId?: string;
+  sourceType?: string;
+  sourceTimestamp?: string;
 }
 
 export interface ContextRequest {

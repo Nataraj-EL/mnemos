@@ -66,7 +66,15 @@ describe('ConversationMemoryExtractionService', () => {
 
     const result = await service.extract('conv-1', 'user-1');
     expect(mockGetById).toHaveBeenCalledWith('conv-1');
-    expect(mockIngest).toHaveBeenCalledWith('user-1', mockConv.transcript);
+    expect(mockIngest).toHaveBeenCalledWith(
+      'user-1',
+      mockConv.transcript,
+      {
+        conversationId: 'conv-1',
+        sourceType: 'conversation',
+        sourceTimestamp: expect.any(String),
+      }
+    );
     expect(result).toEqual(mockMemories);
   });
 

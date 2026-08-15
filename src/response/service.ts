@@ -15,6 +15,11 @@ export interface ContextualResponseResult {
     similarity: number;
     score: number;
     content?: string;
+    confidence?: number;
+    lifecycleState?: string;
+    conversationId?: string;
+    sourceType?: string;
+    sourceTimestamp?: string;
   }[];
   contextTokenCount: number;
   usedConversations?: {
@@ -221,6 +226,9 @@ export class ResponseService {
         content: item.content,
         confidence: item.confidence !== undefined ? item.confidence : 0.9,
         lifecycleState: item.lifecycleState || 'stable',
+        conversationId: item.conversationId,
+        sourceType: item.sourceType,
+        sourceTimestamp: item.sourceTimestamp,
       }));
 
       const usedConversations = finalConversationSnippets.map((s) => ({

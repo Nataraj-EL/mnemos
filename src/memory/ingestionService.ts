@@ -14,7 +14,11 @@ export class MemoryIngestionService {
    * Ingests raw conversation content, extracts structured memories, reconciles them with existing
    * user candidate memories, generates embeddings for active candidates, and persists changes.
    */
-  async ingest(userId: string, content: string): Promise<Memory[]> {
+  async ingest(
+    userId: string,
+    content: string,
+    provenance?: { conversationId: string; sourceType: string; sourceTimestamp: string }
+  ): Promise<Memory[]> {
     if (!userId || !userId.trim()) {
       throw new Error('User ID is required.');
     }
@@ -58,6 +62,11 @@ export class MemoryIngestionService {
             lastAccessedAt: new Date().toISOString(),
             reinforcementCount: 0,
             lifecycleUpdatedAt: new Date().toISOString(),
+            ...(provenance ? {
+              conversationId: provenance.conversationId,
+              sourceType: provenance.sourceType,
+              sourceTimestamp: provenance.sourceTimestamp,
+            } : {}),
           },
         });
 
@@ -112,6 +121,15 @@ export class MemoryIngestionService {
             lastAccessedAt: nowStr,
             reinforcementCount: 0,
             lifecycleUpdatedAt: nowStr,
+            ...(provenance ? {
+              conversationId: provenance.conversationId,
+              sourceType: provenance.sourceType,
+              sourceTimestamp: provenance.sourceTimestamp,
+            } : (existingMemory.metadata.conversationId ? {
+              conversationId: existingMemory.metadata.conversationId as string,
+              sourceType: existingMemory.metadata.sourceType as string,
+              sourceTimestamp: existingMemory.metadata.sourceTimestamp as string,
+            } : {})),
           },
         });
 

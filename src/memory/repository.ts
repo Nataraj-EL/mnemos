@@ -6,7 +6,7 @@ export interface MemoryRepository {
   get(id: string): Promise<Memory | null>;
   update(id: string, updates: Partial<Omit<Memory, 'id' | 'createdAt' | 'updatedAt'>>): Promise<Memory>;
   delete(id: string): Promise<boolean>;
-  list(filter: { userId?: string; type?: MemoryType }): Promise<Memory[]>;
+  list(filter: { userId?: string; type?: MemoryType; conversationId?: string }): Promise<Memory[]>;
 }
 
 // Helper to parse pgvector string representation (e.g., "[0.1,0.2,-0.3]") into a number array
@@ -134,7 +134,7 @@ export class PgMemoryRepository implements MemoryRepository {
     return (result.rowCount ?? 0) > 0;
   }
 
-  async list(filter: { userId?: string; type?: MemoryType }): Promise<Memory[]> {
+  async list(filter: { userId?: string; type?: MemoryType; conversationId?: string }): Promise<Memory[]> {
     const pool = getDbPool();
     const clauses: string[] = [];
     const values: unknown[] = [];
@@ -147,6 +147,10 @@ export class PgMemoryRepository implements MemoryRepository {
     if (filter.type) {
       clauses.push('type = $' + paramIndex++);
       values.push(filter.type);
+    }
+    if (filter.conversationId) {
+      clauses.push("metadata->>'conversationId' = $" + paramIndex++);
+      values.push(filter.conversationId);
     }
 
     const whereClause = clauses.length > 0 ? 'WHERE ' + clauses.join(' AND ') : '';
