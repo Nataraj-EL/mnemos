@@ -537,6 +537,7 @@ export default function MemoryDashboard() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [timelineSearch, setTimelineSearch] = useState('');
+  const [timelineFilterMode, setTimelineFilterMode] = useState<'all' | 'has-summary' | 'has-memories' | 'recent'>('all');
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [selectedConvTab, setSelectedConvTab] = useState<'transcript' | 'summary' | 'memories'>('transcript');
   const [conversationMemories, setConversationMemories] = useState<Memory[]>([]);
@@ -2528,15 +2529,192 @@ export default function MemoryDashboard() {
                     </div>
                   )}
 
-                  {/* Conversation Timeline (Sprint 30) */}
+                  {/* Conversation Timeline & Intelligence (Sprint 30/31) */}
                   <div style={{ marginTop: '1.25rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                    
+                    {/* Intelligence Summary Panel */}
+                    {(() => {
+                      const now = new Date();
+                      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                      const calendarWindowStart = new Date(startOfToday.getTime() - 6 * 24 * 60 * 60 * 1000);
+
+                      const totalSaved = conversations.length;
+                      const hasSummary = conversations.filter(c => c.summary).length;
+                      const hasMemories = conversations.filter(c => memories.some(m => m.metadata?.conversationId === c.id)).length;
+                      const recentActivity = conversations.filter(c => new Date(c.createdAt) >= calendarWindowStart).length;
+
+                      // Sparkline activity (last 7 days)
+                      const last7Days = Array.from({ length: 7 }, (_, i) => {
+                        const d = new Date(startOfToday.getTime());
+                        d.setDate(d.getDate() - (6 - i));
+                        return d;
+                      });
+
+                      const dailyCounts = last7Days.map((dayDate) => {
+                        const nextDay = new Date(dayDate.getTime() + 24 * 60 * 60 * 1000);
+                        const count = conversations.filter((c) => {
+                          const cDate = new Date(c.createdAt);
+                          return cDate >= dayDate && cDate < nextDay;
+                        }).length;
+                        return { date: dayDate, count };
+                      });
+
+                      const maxCount = Math.max(...dailyCounts.map(d => d.count), 1);
+                      const totalActivityCount = dailyCounts.reduce((acc, curr) => acc + curr.count, 0);
+
+                      // Memory growth rate
+                      const hasTimestamps = memories.length > 0 && memories.every(m => m.createdAt || m.metadata?.timestamp);
+                      const newMemoriesCount = hasTimestamps ? memories.filter(m => new Date(m.createdAt || m.metadata?.timestamp) >= calendarWindowStart).length : 0;
+                      const growthText = hasTimestamps ? `+${newMemoriesCount} new` : '—';
+
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '0.75rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h4 style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--primary)', margin: 0 }}>
+                              Conversation Intelligence
+                            </h4>
+                          </div>
+
+                          {/* Stats Grid */}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.4rem' }}>
+                            <button
+                              onClick={() => setTimelineFilterMode(timelineFilterMode === 'all' ? 'all' : 'all')}
+                              className="premium-btn"
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                padding: '0.4rem',
+                                borderRadius: 'var(--radius-sm)',
+                                backgroundColor: timelineFilterMode === 'all' ? 'rgba(99, 102, 241, 0.08)' : 'var(--background)',
+                                border: `1px solid ${timelineFilterMode === 'all' ? 'var(--primary)' : 'var(--border)'}`,
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                              }}
+                              type="button"
+                            >
+                              <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>Saved Available</span>
+                              <strong style={{ fontSize: '0.95rem' }}>{totalSaved}</strong>
+                            </button>
+
+                            <button
+                              onClick={() => setTimelineFilterMode(timelineFilterMode === 'has-summary' ? 'all' : 'has-summary')}
+                              className="premium-btn"
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                padding: '0.4rem',
+                                borderRadius: 'var(--radius-sm)',
+                                backgroundColor: timelineFilterMode === 'has-summary' ? 'rgba(99, 102, 241, 0.08)' : 'var(--background)',
+                                border: `1px solid ${timelineFilterMode === 'has-summary' ? 'var(--primary)' : 'var(--border)'}`,
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                              }}
+                              type="button"
+                            >
+                              <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>Has Summary</span>
+                              <strong style={{ fontSize: '0.95rem' }}>{hasSummary}</strong>
+                            </button>
+
+                            <button
+                              onClick={() => setTimelineFilterMode(timelineFilterMode === 'has-memories' ? 'all' : 'has-memories')}
+                              className="premium-btn"
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                padding: '0.4rem',
+                                borderRadius: 'var(--radius-sm)',
+                                backgroundColor: timelineFilterMode === 'has-memories' ? 'rgba(99, 102, 241, 0.08)' : 'var(--background)',
+                                border: `1px solid ${timelineFilterMode === 'has-memories' ? 'var(--primary)' : 'var(--border)'}`,
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                              }}
+                              type="button"
+                            >
+                              <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>Extracted</span>
+                              <strong style={{ fontSize: '0.95rem' }}>{hasMemories}</strong>
+                            </button>
+
+                            <button
+                              onClick={() => setTimelineFilterMode(timelineFilterMode === 'recent' ? 'all' : 'recent')}
+                              className="premium-btn"
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                padding: '0.4rem',
+                                borderRadius: 'var(--radius-sm)',
+                                backgroundColor: timelineFilterMode === 'recent' ? 'rgba(99, 102, 241, 0.08)' : 'var(--background)',
+                                border: `1px solid ${timelineFilterMode === 'recent' ? 'var(--primary)' : 'var(--border)'}`,
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                              }}
+                              type="button"
+                            >
+                              <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>Recent (7d)</span>
+                              <strong style={{ fontSize: '0.95rem' }}>{recentActivity}</strong>
+                            </button>
+                          </div>
+
+                          {/* Visualization row: Activity & Memory Growth */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.4rem 0.5rem', backgroundColor: 'var(--background)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', gap: '0.5rem' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                              <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>Memory Growth (7d)</span>
+                              <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: hasTimestamps ? 'var(--success)' : 'inherit' }}>
+                                {growthText}
+                              </span>
+                            </div>
+                            
+                            {/* Activity Sparkline */}
+                            <div
+                              aria-label={`Recent activity chart: ${totalActivityCount} conversations in last 7 days`}
+                              style={{ display: 'flex', gap: '0.2rem', alignItems: 'flex-end', height: '24px', paddingLeft: '0.5rem', borderLeft: '1px solid var(--border)' }}
+                            >
+                              {dailyCounts.map((d, i) => {
+                                const heightPercent = (d.count / maxCount) * 100;
+                                return (
+                                  <div
+                                    key={i}
+                                    title={`${d.date.toLocaleDateString()}: ${d.count} conversations`}
+                                    style={{
+                                      width: '6px',
+                                      height: `${Math.max(15, heightPercent)}%`,
+                                      backgroundColor: d.count > 0 ? 'var(--primary)' : 'var(--border)',
+                                      borderRadius: '1px',
+                                      transition: 'height 0.15s ease',
+                                    }}
+                                  />
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Timeline Input & List block */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '0.6rem' }}>
                       <h4 style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--primary)', margin: 0 }}>
                         Conversation Timeline
                       </h4>
-                      <span className="badge" style={{ fontSize: '0.65rem', padding: '0.1rem 0.3rem' }}>
-                        Total: {conversations.length}
-                      </span>
+                      {timelineFilterMode !== 'all' && (
+                        <button
+                          onClick={() => setTimelineFilterMode('all')}
+                          style={{
+                            fontSize: '0.6rem',
+                            color: 'var(--primary)',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: 0,
+                          }}
+                          type="button"
+                        >
+                          ✕ Clear Filter ({timelineFilterMode})
+                        </button>
+                      )}
                     </div>
 
                     <input
@@ -2558,18 +2736,31 @@ export default function MemoryDashboard() {
                     />
 
                     {(() => {
-                      const filtered = conversations.filter((conv) => {
-                        if (!timelineSearch.trim()) return true;
-                        const q = timelineSearch.toLowerCase();
-                        return (
-                          (conv.transcript && conv.transcript.toLowerCase().includes(q)) ||
-                          (conv.summary && conv.summary.toLowerCase().includes(q))
-                        );
-                      });
-
                       const now = new Date();
                       const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
                       const startOfYesterday = new Date(startOfToday.getTime() - 24 * 60 * 60 * 1000);
+                      const calendarWindowStart = new Date(startOfToday.getTime() - 6 * 24 * 60 * 60 * 1000);
+
+                      const filtered = conversations.filter((conv) => {
+                        // 1. Text Search Filter Composed
+                        if (timelineSearch.trim()) {
+                          const q = timelineSearch.toLowerCase();
+                          const matchesText = (conv.transcript && conv.transcript.toLowerCase().includes(q)) ||
+                                              (conv.summary && conv.summary.toLowerCase().includes(q));
+                          if (!matchesText) return false;
+                        }
+                        // 2. Metric Filter Composed
+                        if (timelineFilterMode === 'has-summary') {
+                          return !!conv.summary;
+                        }
+                        if (timelineFilterMode === 'has-memories') {
+                          return memories.some((m) => m.metadata?.conversationId === conv.id);
+                        }
+                        if (timelineFilterMode === 'recent') {
+                          return new Date(conv.createdAt) >= calendarWindowStart;
+                        }
+                        return true;
+                      });
 
                       const today: Conversation[] = [];
                       const yesterday: Conversation[] = [];

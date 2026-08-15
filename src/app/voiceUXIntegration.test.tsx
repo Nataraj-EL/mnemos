@@ -586,3 +586,96 @@ describe('Voice UX Integration State Machine - Sprint 30 Additions', () => {
     expect(voiceSessionState).toBe('review');
   });
 });
+
+describe('Voice UX Integration State Machine - Sprint 31 Additions', () => {
+  interface ConversationMock {
+    id: string;
+    transcript: string;
+    summary?: string;
+    createdAt: string;
+  }
+
+  interface MemoryMock {
+    id: string;
+    createdAt?: string;
+    metadata?: {
+      timestamp?: string;
+      conversationId?: string;
+    };
+  }
+
+  it('should calculate conversation stats and filter composition correctly', () => {
+    const list: ConversationMock[] = [
+      { id: 'c1', transcript: 'T1', summary: 'Summary 1', createdAt: new Date().toISOString() },
+      { id: 'c2', transcript: 'T2', createdAt: new Date().toISOString() }
+    ];
+
+    const memories: MemoryMock[] = [
+      { id: 'm1', metadata: { conversationId: 'c1' } }
+    ];
+
+    // Calculations
+    const totalSaved = list.length;
+    const hasSummary = list.filter(c => c.summary).length;
+    const hasMemories = list.filter(c => memories.some(m => m.metadata?.conversationId === c.id)).length;
+
+    expect(totalSaved).toBe(2);
+    expect(hasSummary).toBe(1);
+    expect(hasMemories).toBe(1);
+
+    // Filter composure: search +has-summary
+    const searchVal = 'T1';
+    const filterMode = 'has-summary';
+
+    const composed = list.filter((c) => {
+      if (searchVal && !c.transcript.includes(searchVal)) return false;
+      if (filterMode === 'has-summary' && !c.summary) return false;
+      return true;
+    });
+
+    expect(composed.length).toBe(1);
+    expect(composed[0].id).toBe('c1');
+  });
+
+  it('should handle memory growth fallback correctly when timestamps are missing/incomplete', () => {
+    // Timestamps missing
+    const memoriesWithoutTime: MemoryMock[] = [
+      { id: 'm1' }
+    ];
+
+    const hasTimestamps = memoriesWithoutTime.length > 0 && memoriesWithoutTime.every(m => m.createdAt || m.metadata?.timestamp);
+    const growthVal = hasTimestamps ? 'some-value' : '—';
+
+    expect(growthVal).toBe('—');
+  });
+
+  it('should toggle active filter state on timeline filter button clicks', () => {
+    let activeFilter = 'has-summary';
+
+    // Click active filter again -> toggle to 'all'
+    const clickHandler = (clicked: string) => {
+      if (activeFilter === clicked) {
+        activeFilter = 'all';
+      } else {
+        activeFilter = clicked;
+      }
+    };
+
+    clickHandler('has-summary');
+    expect(activeFilter).toBe('all');
+  });
+
+  it('should group activity count based on calendar boundaries over last 7 days', () => {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const start6DaysAgo = new Date(startOfToday.getTime() - 6 * 24 * 60 * 60 * 1000);
+
+    const c1: ConversationMock = { id: 'c1', transcript: '', createdAt: new Date(startOfToday.getTime() + 1000).toISOString() };
+    const c2: ConversationMock = { id: 'c2', transcript: '', createdAt: new Date(startOfToday.getTime() - 8 * 24 * 60 * 60 * 1000).toISOString() }; // older
+
+    const list = [c1, c2];
+    const recentCount = list.filter(c => new Date(c.createdAt) >= start6DaysAgo).length;
+
+    expect(recentCount).toBe(1);
+  });
+});
