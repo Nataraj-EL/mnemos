@@ -163,7 +163,7 @@ export default function MemoryDashboard() {
   const [voiceMode, setVoiceMode] = useState<'transcribe' | 'ask'>('transcribe');
   const [voiceResponseText, setVoiceResponseText] = useState<string | null>(null);
   const [voiceUsedMemories, setVoiceUsedMemories] = useState<{ id: string; type: string; similarity: number; score: number }[]>([]);
-  const [voiceUsedConversations, setVoiceUsedConversations] = useState<{ id: string; createdAt: string; text: string }[]>([]);
+  const [voiceUsedConversations, setVoiceUsedConversations] = useState<{ id: string; createdAt: string; text: string; similarity?: number }[]>([]);
   const [voiceContextTokenCount, setVoiceContextTokenCount] = useState<number>(0);
 
   // Conversation persistence states
@@ -847,7 +847,7 @@ export default function MemoryDashboard() {
     response: string;
     usedMemories: { id: string; type: string; similarity: number; score: number }[];
     contextTokenCount: number;
-    usedConversations?: { id: string; createdAt: string; text: string }[];
+    usedConversations?: { id: string; createdAt: string; text: string; similarity?: number }[];
     governance?: {
       allowedCount: number;
       downrankedCount: number;
@@ -1759,7 +1759,7 @@ export default function MemoryDashboard() {
                         <div style={{ marginTop: '0.25rem' }}>
                           <span style={{ fontSize: '0.65rem', fontWeight: 600, opacity: 0.7 }}>Retrieved Conversations:</span>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginTop: '0.2rem' }}>
-                            {voiceUsedConversations.map((c, idx) => (
+                            {voiceUsedConversations.map((c: { id: string; createdAt: string; text: string; similarity?: number }, idx: number) => (
                               <div key={idx} style={{ padding: '0.4rem 0.6rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', backgroundColor: 'var(--background)' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', opacity: 0.6, fontSize: '0.65rem', marginBottom: '0.15rem' }}>
                                   <span style={{ color: 'var(--primary)', fontWeight: 600 }}>Past Conversation</span>
@@ -2099,7 +2099,7 @@ export default function MemoryDashboard() {
                         <div style={{ marginTop: '0.25rem' }}>
                           <h4 style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.4rem' }}>💬 Supporting Conversation Sources</h4>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.5rem' }}>
-                            {responseResult.usedConversations.map((used: { id: string; createdAt: string; text: string }, index: number) => (
+                            {responseResult.usedConversations.map((used: { id: string; createdAt: string; text: string; similarity?: number }, index: number) => (
                               <div key={used.id + '-' + index} style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', fontSize: '0.75rem' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
                                   <span className="badge" style={{ backgroundColor: 'var(--background)', color: 'var(--primary)', fontSize: '0.65rem' }}>

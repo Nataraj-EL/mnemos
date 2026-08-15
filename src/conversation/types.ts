@@ -7,4 +7,5 @@ export interface Conversation {
   transcript: string;
   summary?: string;
   createdAt: Date;
+  embedding?: number[];
 }

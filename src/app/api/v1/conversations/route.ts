@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { PgConversationRepository } from '@/conversation/repository';
 import { logTelemetry } from '@/core/logger';
+import { GeminiEmbeddingProvider } from '@/memory/geminiEmbedding';
 import {
   authenticate,
   checkRateLimit,
@@ -130,6 +131,14 @@ export async function POST(request: Request) {
     }
 
     // 6. DB Interaction
+    let embedding: number[] | undefined = undefined;
+    try {
+      const embeddingProvider = new GeminiEmbeddingProvider();
+      embedding = await embeddingProvider.generateEmbedding(transcript.trim());
+    } catch (embedErr) {
+      console.warn('Embedding generation failed for conversation transcript:', embedErr);
+    }
+
     const repo = new PgConversationRepository();
     const created = await repo.create({
       userId: userId.trim(),
@@ -137,6 +146,7 @@ export async function POST(request: Request) {
       startedAt: parsedStartedAt,
       endedAt: parsedEndedAt,
       durationSeconds: parsedDuration,
+      embedding,
     });
 
     const latency = Date.now() - startTime;

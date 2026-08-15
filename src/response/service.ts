@@ -20,6 +20,7 @@ export interface ContextualResponseResult {
     id: string;
     createdAt: string;
     text: string;
+    similarity?: number;
   }[];
   governance?: ContextResult['governance'];
 }
@@ -157,7 +158,7 @@ export class ResponseService {
       estimatedContextTokens = assemblyResult.tokenCount;
 
       // Sprint 20 Conversation Snippet Retrieval
-      let conversationSnippets: { conversationId: string; createdAt: Date; text: string }[] = [];
+      let conversationSnippets: { conversationId: string; createdAt: Date; text: string; similarity?: number }[] = [];
       if (this.conversationRetriever) {
         try {
           conversationSnippets = await this.conversationRetriever.retrieveSnippets(userId, query);
@@ -204,6 +205,7 @@ export class ResponseService {
         id: s.conversationId,
         createdAt: s.createdAt.toISOString(),
         text: s.text,
+        similarity: s.similarity,
       }));
 
       // 5.5 Reinforce memories actually included in the final context

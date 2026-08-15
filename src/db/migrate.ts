@@ -32,6 +32,14 @@ async function runMigration() {
       await pool.query(sql15);
     }
 
+    // 4. Sprint 21 semantic search migration
+    const s21Path = path.join(__dirname, 'migration_sprint21.sql');
+    if (fs.existsSync(s21Path)) {
+      console.log('Executing Sprint 21 Migration...');
+      const sql21 = fs.readFileSync(s21Path, 'utf8');
+      await pool.query(sql21);
+    }
+
     console.log('Database migrations completed successfully!');
   } catch (error) {
     console.error('Migration failed:', error);
