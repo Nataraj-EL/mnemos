@@ -1397,7 +1397,7 @@ export default function MemoryDashboard() {
                       </div>
 
                       <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
-                        <h4 style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.4rem', color: 'var(--primary)' }}>🔥 Top Reinforced Memories</h4>
+                        <h4 style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.4rem', color: 'var(--primary)' }}>Top Reinforced Memories</h4>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                           {topReinforced.map((m) => (
                             <div key={m.id} style={{ padding: '0.4rem 0.6rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--background)', fontSize: '0.75rem' }}>
