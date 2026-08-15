@@ -554,8 +554,150 @@ export default function MemoryDashboard() {
   const isDbConnected = health?.services.database === 'connected';
   const isAppHealthy = health?.status === 'healthy';
 
+  const renderSpinner = () => (
+    <svg className="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ marginRight: '0.35rem', display: 'inline-block', verticalAlign: 'middle' }}>
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" style={{ opacity: 0.25 }} />
+      <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+    </svg>
+  );
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            @keyframes spin {
+              from { transform: rotate(0deg); }
+              to { transform: rotate(360deg); }
+            }
+            .animate-spin {
+              animation: spin 1s linear infinite;
+            }
+            .premium-btn {
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              gap: 0.4rem;
+              padding: 0.45rem 0.9rem;
+              font-size: 0.8rem;
+              font-weight: 600;
+              border-radius: var(--radius-sm);
+              border: 1px solid rgba(161, 70, 28, 0.25);
+              cursor: pointer;
+              transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+              box-shadow: 0 1px 2px rgba(161, 70, 28, 0.05);
+              font-family: inherit;
+              user-select: none;
+            }
+            .premium-btn-primary {
+              background-color: var(--primary);
+              color: #ffffff;
+              border-color: var(--primary-hover);
+            }
+            .premium-btn-primary:hover:not(:disabled) {
+              background-color: var(--primary-hover);
+              transform: translateY(-1px);
+              box-shadow: 0 4px 10px rgba(161, 70, 28, 0.15);
+            }
+            .premium-btn-primary:active:not(:disabled) {
+              transform: translateY(1px);
+              box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+            }
+            .premium-btn-primary:focus-visible {
+              outline: none;
+              box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--primary);
+            }
+            .premium-btn:disabled {
+              opacity: 0.5;
+              cursor: not-allowed;
+              transform: none !important;
+              box-shadow: none !important;
+            }
+            .premium-btn-secondary {
+              background-color: var(--surface);
+              color: var(--text);
+              border-color: var(--border);
+            }
+            .premium-btn-secondary:hover:not(:disabled) {
+              background-color: var(--muted);
+              border-color: var(--border);
+              transform: translateY(-1px);
+            }
+            .premium-btn-secondary:active:not(:disabled) {
+              transform: translateY(1px);
+            }
+            .premium-btn-secondary:focus-visible {
+              outline: none;
+              box-shadow: 0 0 0 2px var(--background), 0 0 0 3px var(--border);
+            }
+            .toggle-container {
+              display: flex;
+              gap: 0.25rem;
+              background-color: var(--muted);
+              padding: 0.25rem;
+              border-radius: var(--radius-sm);
+              border: 1px solid var(--border);
+            }
+            .toggle-button {
+              padding: 0.4rem 0.8rem;
+              border: none;
+              background-color: transparent;
+              color: var(--text);
+              font-weight: 500;
+              border-radius: var(--radius-xs);
+              font-size: 0.8rem;
+              cursor: pointer;
+              transition: all 150ms ease;
+              user-select: none;
+              display: inline-flex;
+              align-items: center;
+              gap: 0.35rem;
+            }
+            .toggle-button:hover:not(.active) {
+              background-color: rgba(38, 30, 26, 0.05);
+            }
+            .toggle-button.active {
+              background-color: var(--surface);
+              color: var(--primary);
+              font-weight: 600;
+              box-shadow: var(--shadow-sm);
+            }
+            .tabs-container {
+              display: flex;
+              gap: 0.25rem;
+              background-color: var(--muted);
+              padding: 0.25rem;
+              border-radius: var(--radius-sm);
+              border: 1px solid var(--border);
+            }
+            .tab-button {
+              padding: 0.45rem 1rem;
+              border: none;
+              background-color: transparent;
+              color: var(--text);
+              font-weight: 500;
+              border-radius: var(--radius-xs);
+              font-size: 0.8rem;
+              cursor: pointer;
+              transition: all 150ms ease;
+              user-select: none;
+              display: inline-flex;
+              align-items: center;
+              gap: 0.35rem;
+            }
+            .tab-button:hover:not(.active) {
+              background-color: rgba(38, 30, 26, 0.05);
+            }
+            .tab-button.active {
+              background-color: var(--surface);
+              color: var(--primary);
+              font-weight: 600;
+              box-shadow: var(--shadow-sm);
+            }
+          `,
+        }}
+      />
+
       {/* Navigation Bar */}
       <nav className="navbar">
         <div className="brand">
@@ -567,35 +709,23 @@ export default function MemoryDashboard() {
         </div>
 
         {/* View Toggle */}
-        <div style={{ display: 'flex', gap: '0.25rem', backgroundColor: 'var(--muted)', padding: '0.25rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+        <div className="toggle-container">
           <button
             onClick={() => setActiveWorkspaceTab('workspace')}
-            style={{
-              padding: '0.35rem 0.75rem',
-              border: 'none',
-              backgroundColor: activeWorkspaceTab === 'workspace' ? 'var(--surface)' : 'transparent',
-              color: activeWorkspaceTab === 'workspace' ? 'var(--primary)' : 'var(--text)',
-              fontWeight: activeWorkspaceTab === 'workspace' ? 600 : 400,
-              borderRadius: 'var(--radius-sm)',
-              fontSize: '0.8rem',
-              cursor: 'pointer',
-            }}
+            className={`toggle-button ${activeWorkspaceTab === 'workspace' ? 'active' : ''}`}
           >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+              <rect width="18" height="18" x="3" y="3" rx="2" /><path d="M3 9h18" />
+            </svg>
             Product Workspace
           </button>
           <button
             onClick={() => setActiveWorkspaceTab('developer')}
-            style={{
-              padding: '0.35rem 0.75rem',
-              border: 'none',
-              backgroundColor: activeWorkspaceTab === 'developer' ? 'var(--surface)' : 'transparent',
-              color: activeWorkspaceTab === 'developer' ? 'var(--primary)' : 'var(--text)',
-              fontWeight: activeWorkspaceTab === 'developer' ? 600 : 400,
-              borderRadius: 'var(--radius-sm)',
-              fontSize: '0.8rem',
-              cursor: 'pointer',
-            }}
+            className={`toggle-button ${activeWorkspaceTab === 'developer' ? 'active' : ''}`}
           >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+              <polyline points="4 17 10 11 4 5" /><line x1="12" x2="20" y1="19" y2="19" />
+            </svg>
             Developer Console
           </button>
         </div>
@@ -688,11 +818,22 @@ export default function MemoryDashboard() {
                   </div>
                   <button
                     type="submit"
-                    className="btn btn-primary"
-                    style={{ fontSize: '0.8rem', padding: '0.4rem 0.75rem' }}
+                    className="premium-btn premium-btn-primary"
                     disabled={!mounted || ingestLoading || !contentInput.trim()}
                   >
-                    {ingestLoading ? 'Processing...' : 'Submit to Memory'}
+                    {ingestLoading ? (
+                      <>
+                        {renderSpinner()}
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+                          <path d="M5 12h14M12 5v14"/>
+                        </svg>
+                        Submit to Memory
+                      </>
+                    )}
                   </button>
 
                   {ingestMessage && (
@@ -790,54 +931,33 @@ export default function MemoryDashboard() {
             {/* 2. MEMORY INTELLIGENCE */}
             <div className="card" style={{ padding: '1.25rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <div className="tabs-container">
                   <button
                     onClick={() => setActiveIntelligenceTab('ask')}
-                    style={{
-                      padding: '0.4rem 0.8rem',
-                      border: 'none',
-                      backgroundColor: activeIntelligenceTab === 'ask' ? 'var(--primary)' : 'transparent',
-                      color: activeIntelligenceTab === 'ask' ? '#fff' : 'var(--text)',
-                      fontWeight: 600,
-                      borderRadius: 'var(--radius-sm)',
-                      fontSize: '0.8rem',
-                      cursor: 'pointer',
-                      boxShadow: activeIntelligenceTab === 'ask' ? 'var(--shadow-sm)' : 'none',
-                    }}
+                    className={`tab-button ${activeIntelligenceTab === 'ask' ? 'active' : ''}`}
                   >
-                    💬 Ask Mnemos (Grounded Response)
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                    </svg>
+                    Ask Mnemos
                   </button>
                   <button
                     onClick={() => setActiveIntelligenceTab('search')}
-                    style={{
-                      padding: '0.4rem 0.8rem',
-                      border: 'none',
-                      backgroundColor: activeIntelligenceTab === 'search' ? 'var(--surface)' : 'transparent',
-                      color: activeIntelligenceTab === 'search' ? 'var(--primary)' : 'var(--text)',
-                      fontWeight: activeIntelligenceTab === 'search' ? 600 : 400,
-                      borderRadius: 'var(--radius-sm)',
-                      fontSize: '0.8rem',
-                      cursor: 'pointer',
-                      borderBottom: activeIntelligenceTab === 'search' ? '2px solid var(--primary)' : 'none',
-                    }}
+                    className={`tab-button ${activeIntelligenceTab === 'search' ? 'active' : ''}`}
                   >
-                    🔍 Semantic Search
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+                      <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
+                    </svg>
+                    Semantic Search
                   </button>
                   <button
                     onClick={() => setActiveIntelligenceTab('context')}
-                    style={{
-                      padding: '0.4rem 0.8rem',
-                      border: 'none',
-                      backgroundColor: activeIntelligenceTab === 'context' ? 'var(--surface)' : 'transparent',
-                      color: activeIntelligenceTab === 'context' ? 'var(--primary)' : 'var(--text)',
-                      fontWeight: activeIntelligenceTab === 'context' ? 600 : 400,
-                      borderRadius: 'var(--radius-sm)',
-                      fontSize: '0.8rem',
-                      cursor: 'pointer',
-                      borderBottom: activeIntelligenceTab === 'context' ? '2px solid var(--primary)' : 'none',
-                    }}
+                    className={`tab-button ${activeIntelligenceTab === 'context' ? 'active' : ''}`}
                   >
-                    🧩 Context Assembly
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+                      <path d="m12 3-10 9h18Z" /><path d="m2 17 10 4 10-4" /><path d="m2 12 10 4 10-4" />
+                    </svg>
+                    Context Assembly
                   </button>
                 </div>
                 <span className="badge" style={{ backgroundColor: 'rgba(161, 70, 28, 0.1)', color: 'var(--primary)', fontSize: '0.7rem' }}>
@@ -891,11 +1011,22 @@ export default function MemoryDashboard() {
                     </div>
                     <button
                       type="submit"
-                      className="btn btn-primary"
-                      style={{ alignSelf: 'flex-start', fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
+                      className="premium-btn premium-btn-primary"
                       disabled={!mounted || responseLoading || !responseQuery.trim()}
                     >
-                      {responseLoading ? 'Synthesizing...' : 'Generate Grounded Answer'}
+                      {responseLoading ? (
+                        <>
+                          {renderSpinner()}
+                          Synthesizing...
+                        </>
+                      ) : (
+                        <>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+                            <polygon points="12 2 2 22 12 17 22 22 12 2"/>
+                          </svg>
+                          Generate Grounded Answer
+                        </>
+                      )}
                     </button>
                   </form>
 
@@ -973,7 +1104,7 @@ export default function MemoryDashboard() {
                   <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
                     <input
                       type="text"
-                      placeholder="e.g. staging database staging preferences..."
+                      placeholder="e.g. database staging preferences..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       style={{ flexGrow: 1, minWidth: '220px', padding: '0.4rem 0.75rem', fontSize: '0.8rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
@@ -981,11 +1112,22 @@ export default function MemoryDashboard() {
                     />
                     <button
                       type="submit"
-                      className="btn btn-primary"
-                      style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
+                      className="premium-btn premium-btn-primary"
                       disabled={!mounted || searchLoading || !searchQuery.trim()}
                     >
-                      {searchLoading ? 'Searching...' : 'Search Context'}
+                      {searchLoading ? (
+                        <>
+                          {renderSpinner()}
+                          Searching...
+                        </>
+                      ) : (
+                        <>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+                            <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
+                          </svg>
+                          Search Context
+                        </>
+                      )}
                     </button>
                   </form>
 
@@ -1018,7 +1160,7 @@ export default function MemoryDashboard() {
                           <p style={{ fontWeight: 500, margin: '0.25rem 0' }}>{result.memory.content}</p>
                           <div style={{ display: 'flex', justifyContent: 'space-between', opacity: 0.5, fontSize: '0.7rem' }}>
                             <span>Source: {result.memory.metadata.source}</span>
-                            <span>Observed: {new Date(result.memory.metadata.timestamp || result.memory.createdAt).toLocaleDateString()}</span>
+                            <span>Observed: {new Date((result.memory.metadata.timestamp as string) || result.memory.createdAt).toLocaleDateString()}</span>
                           </div>
                         </div>
                       ))}
@@ -1073,11 +1215,22 @@ export default function MemoryDashboard() {
                     </div>
                     <button
                       type="submit"
-                      className="btn btn-primary"
-                      style={{ alignSelf: 'flex-start', fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
+                      className="premium-btn premium-btn-primary"
                       disabled={!mounted || contextLoading || !contextQuery.trim()}
                     >
-                      {contextLoading ? 'Assembling...' : 'Assemble Prompt Context'}
+                      {contextLoading ? (
+                        <>
+                          {renderSpinner()}
+                          Assembling...
+                        </>
+                      ) : (
+                        <>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+                            <path d="m12 3-10 9h18Z" /><path d="m2 17 10 4 10-4" /><path d="m2 12 10 4 10-4" />
+                          </svg>
+                          Assemble Prompt Context
+                        </>
+                      )}
                     </button>
                   </form>
 
@@ -1122,7 +1275,7 @@ export default function MemoryDashboard() {
                                   </span>
                                 </div>
                                 <p style={{ fontWeight: 500, margin: '0.2rem 0' }}>{item.content}</p>
-                                <div style={{ fontSize: '0.7rem', color: 'var(--primary)', opacity: 0.9, borderTop: '1px dotted var(--border)', paddingTop: '0.2rem', marginTop: '0.2rem' }}>
+                                <div style={{ fontSize: '0.7rem', color: 'var(--primary)', opacity: 0.9, borderTop: '1px dotted var(--border)', paddingTop: '0.2, marginTop: 0.2rem' }}>
                                   ℹ️ {item.reason}
                                 </div>
                               </div>
@@ -1145,11 +1298,23 @@ export default function MemoryDashboard() {
                   <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 0 }}>📊 Memory Health & Analytics</h3>
                   <button
                     onClick={handleConsolidate}
-                    className="btn btn-primary"
+                    className="premium-btn premium-btn-primary"
                     disabled={loadingConsolidate || memories.length === 0}
-                    style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem' }}
+                    style={{ padding: '0.35rem 0.7rem', fontSize: '0.75rem' }}
                   >
-                    {loadingConsolidate ? 'Consolidating...' : '⚡ Consolidate Duplicates'}
+                    {loadingConsolidate ? (
+                      <>
+                        {renderSpinner()}
+                        Consolidating...
+                      </>
+                    ) : (
+                      <>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+                          <path d="m12 3-10 9h18Z" /><path d="M12 12v9" />
+                        </svg>
+                        Consolidate Duplicates
+                      </>
+                    )}
                   </button>
                 </div>
                 <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
@@ -1541,11 +1706,22 @@ export default function MemoryDashboard() {
               
               <button
                 onClick={handleRunEvaluation}
-                className="btn btn-primary"
-                style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem', marginBottom: '1rem' }}
+                className="premium-btn premium-btn-primary"
                 disabled={evalLoading}
               >
-                {evalLoading ? 'Executing Benchmarks...' : 'Run Scenario Benchmarks'}
+                {evalLoading ? (
+                  <>
+                    {renderSpinner()}
+                    Executing...
+                  </>
+                ) : (
+                  <>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+                      <path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>
+                    </svg>
+                    Run Scenario Benchmarks
+                  </>
+                )}
               </button>
 
               {evalError && (
@@ -1558,6 +1734,7 @@ export default function MemoryDashboard() {
                 <div style={{ textAlign: 'center', padding: '1.5rem', fontSize: '0.8rem', opacity: 0.6 }}>Executing benchmark scenarios...</div>
               ) : evalSummary && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {/* Summary Stats */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.75rem', fontSize: '0.75rem', textAlign: 'center' }}>
                     <div style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)' }}>
                       <span style={{ opacity: 0.6, display: 'block' }}>Total Scenarios</span>
