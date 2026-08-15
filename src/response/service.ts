@@ -5,6 +5,7 @@ import { ContextResult } from '@/context/types';
 import { ResponseGenerator } from './generator';
 import { PgMemoryRepository } from '@/memory/repository';
 import { logTelemetry } from '@/core/logger';
+import { ConversationRetriever } from '@/conversation/retriever';
 
 export interface ContextualResponseResult {
   response: string;
@@ -15,6 +16,11 @@ export interface ContextualResponseResult {
     score: number;
   }[];
   contextTokenCount: number;
+  usedConversations?: {
+    id: string;
+    createdAt: string;
+    text: string;
+  }[];
   governance?: ContextResult['governance'];
 }
 
@@ -23,7 +29,8 @@ export class ResponseService {
     private retriever: MemoryRetriever,
     private assembler: ContextAssembler,
     private generator: ResponseGenerator,
-    private repository?: PgMemoryRepository
+    private repository?: PgMemoryRepository,
+    private conversationRetriever?: ConversationRetriever
   ) {}
 
   private isTemporalQuery(query: string): boolean {
@@ -149,11 +156,38 @@ export class ResponseService {
       selectedCount = finalItems.length;
       estimatedContextTokens = assemblyResult.tokenCount;
 
+      // Sprint 20 Conversation Snippet Retrieval
+      let conversationSnippets: { conversationId: string; createdAt: Date; text: string }[] = [];
+      if (this.conversationRetriever) {
+        try {
+          conversationSnippets = await this.conversationRetriever.retrieveSnippets(userId, query);
+        } catch (snippetErr) {
+          console.error('Failed to retrieve conversation snippets:', snippetErr);
+        }
+      }
+
+      let combinedContext = assemblyResult.context;
+      let finalTokenCount = assemblyResult.tokenCount;
+
+      if (conversationSnippets.length > 0) {
+        const memoryLines = assemblyResult.context ? assemblyResult.context.split('\n').filter(Boolean) : [];
+        const formattedMemoryLines = memoryLines.map(line => `[MEMORY] ${line}`);
+        
+        const formattedConversationLines = conversationSnippets.map(
+          s => `[PAST CONVERSATION] [Date: ${s.createdAt.toISOString().split('T')[0]}] ${s.text}`
+        );
+
+        combinedContext = [...formattedMemoryLines, ...formattedConversationLines].join('\n');
+        finalTokenCount = Math.ceil(combinedContext.length / 4);
+      }
+
+      estimatedContextTokens = finalTokenCount;
+
       // 4. Generate grounded response
       const genStart = Date.now();
       const generatorResult = await this.generator.generateResponse(
         query,
-        assemblyResult.context
+        combinedContext
       );
       const generationLatencyMs = Date.now() - genStart;
       const totalLatencyMs = Date.now() - startTime;
@@ -164,6 +198,12 @@ export class ResponseService {
         type: item.type,
         similarity: item.similarity,
         score: item.score,
+      }));
+
+      const usedConversations = conversationSnippets.map((s) => ({
+        id: s.conversationId,
+        createdAt: s.createdAt.toISOString(),
+        text: s.text,
       }));
 
       // 5.5 Reinforce memories actually included in the final context
@@ -228,7 +268,8 @@ export class ResponseService {
       return {
         response: generatorResult.text,
         usedMemories,
-        contextTokenCount: assemblyResult.tokenCount,
+        contextTokenCount: finalTokenCount,
+        usedConversations,
         governance: assemblyResult.governance,
       };
     } catch (error: unknown) {

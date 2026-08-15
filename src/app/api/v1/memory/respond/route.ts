@@ -6,6 +6,7 @@ import { GeminiResponseGenerator } from '@/response/geminiGenerator';
 import { ResponseService } from '@/response/service';
 import { GeminiEmbeddingProvider } from '@/memory/geminiEmbedding';
 import { logTelemetry } from '@/core/logger';
+import { ConversationRetriever } from '@/conversation/retriever';
 import {
   authenticate,
   checkRateLimit,
@@ -91,7 +92,8 @@ export async function POST(request: Request) {
     const retriever = new MemoryRetriever(embeddingProvider);
     const assembler = new ContextAssembler();
     const generator = new GeminiResponseGenerator();
-    const service = new ResponseService(retriever, assembler, generator, repository);
+    const conversationRetriever = new ConversationRetriever();
+    const service = new ResponseService(retriever, assembler, generator, repository, conversationRetriever);
 
     const result = await service.respond(userId.trim(), query.trim(), {
       limit: resolvedLimit,

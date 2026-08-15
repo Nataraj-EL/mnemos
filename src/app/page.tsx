@@ -163,6 +163,7 @@ export default function MemoryDashboard() {
   const [voiceMode, setVoiceMode] = useState<'transcribe' | 'ask'>('transcribe');
   const [voiceResponseText, setVoiceResponseText] = useState<string | null>(null);
   const [voiceUsedMemories, setVoiceUsedMemories] = useState<{ id: string; type: string; similarity: number; score: number }[]>([]);
+  const [voiceUsedConversations, setVoiceUsedConversations] = useState<{ id: string; createdAt: string; text: string }[]>([]);
   const [voiceContextTokenCount, setVoiceContextTokenCount] = useState<number>(0);
 
   // Conversation persistence states
@@ -191,6 +192,7 @@ export default function MemoryDashboard() {
     setTranscribeError(null);
     setVoiceResponseText(null);
     setVoiceUsedMemories([]);
+    setVoiceUsedConversations([]);
     setVoiceContextTokenCount(0);
     setSaveMessage(null);
     setVoiceSessionState('idle');
@@ -545,6 +547,7 @@ export default function MemoryDashboard() {
     setSaveMessage(null);
     setVoiceResponseText(null);
     setVoiceUsedMemories([]);
+    setVoiceUsedConversations([]);
     setVoiceContextTokenCount(0);
     setSavedConversationId(null);
     setExtractionState('idle');
@@ -639,6 +642,7 @@ export default function MemoryDashboard() {
           setTranscript(data.data.transcript);
           setVoiceResponseText(data.data.response);
           setVoiceUsedMemories(data.data.usedMemories || []);
+          setVoiceUsedConversations(data.data.usedConversations || []);
           setVoiceContextTokenCount(data.data.contextTokenCount || 0);
           setVoiceSessionState('review');
         } else {
@@ -843,6 +847,7 @@ export default function MemoryDashboard() {
     response: string;
     usedMemories: { id: string; type: string; similarity: number; score: number }[];
     contextTokenCount: number;
+    usedConversations?: { id: string; createdAt: string; text: string }[];
     governance?: {
       allowedCount: number;
       downrankedCount: number;
@@ -1739,12 +1744,29 @@ export default function MemoryDashboard() {
 
                       {voiceUsedMemories.length > 0 && (
                         <div>
-                          <span style={{ fontSize: '0.65rem', fontWeight: 600, opacity: 0.7 }}>Retrieved Context ({voiceContextTokenCount} tokens):</span>
+                          <span style={{ fontSize: '0.65rem', fontWeight: 600, opacity: 0.7 }}>Retrieved Memories ({voiceContextTokenCount} tokens):</span>
                           <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
                             {voiceUsedMemories.map((m, idx) => (
                               <span key={idx} className="badge" style={{ fontSize: '0.6rem', padding: '0.15rem 0.35rem', backgroundColor: 'rgba(212, 163, 89, 0.05)', border: '1px solid var(--border)' }}>
                                 [{m.type}] similarity: {m.similarity.toFixed(2)}
                               </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {voiceUsedConversations && voiceUsedConversations.length > 0 && (
+                        <div style={{ marginTop: '0.25rem' }}>
+                          <span style={{ fontSize: '0.65rem', fontWeight: 600, opacity: 0.7 }}>Retrieved Conversations:</span>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginTop: '0.2rem' }}>
+                            {voiceUsedConversations.map((c, idx) => (
+                              <div key={idx} style={{ padding: '0.4rem 0.6rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', backgroundColor: 'var(--background)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', opacity: 0.6, fontSize: '0.65rem', marginBottom: '0.15rem' }}>
+                                  <span style={{ color: 'var(--primary)', fontWeight: 600 }}>Past Conversation</span>
+                                  <span>{new Date(c.createdAt).toLocaleDateString()} {new Date(c.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                </div>
+                                <div style={{ fontStyle: 'italic', fontSize: '0.75rem', color: 'var(--text)' }}>&ldquo;{c.text}&rdquo;</div>
+                              </div>
                             ))}
                           </div>
                         </div>
@@ -2072,6 +2094,29 @@ export default function MemoryDashboard() {
                           </div>
                         )}
                       </div>
+
+                      {responseResult.usedConversations && responseResult.usedConversations.length > 0 && (
+                        <div style={{ marginTop: '0.25rem' }}>
+                          <h4 style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.4rem' }}>💬 Supporting Conversation Sources</h4>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.5rem' }}>
+                            {responseResult.usedConversations.map((used: { id: string; createdAt: string; text: string }, index: number) => (
+                              <div key={used.id + '-' + index} style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', fontSize: '0.75rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+                                  <span className="badge" style={{ backgroundColor: 'var(--background)', color: 'var(--primary)', fontSize: '0.65rem' }}>
+                                    Past Conversation
+                                  </span>
+                                  <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>
+                                    {new Date(used.createdAt).toLocaleDateString()} {new Date(used.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </div>
+                                <div style={{ fontStyle: 'italic', fontSize: '0.75rem', color: 'var(--text)', borderLeft: '2px solid var(--primary)', paddingLeft: '0.4rem', marginTop: '0.25rem' }}>
+                                  &ldquo;{used.text}&rdquo;
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

@@ -5,6 +5,7 @@ import { ContextAssembler } from '@/context/assembler';
 import { GeminiResponseGenerator } from '@/response/geminiGenerator';
 import { ResponseService } from '@/response/service';
 import { PgMemoryRepository } from '@/memory/repository';
+import { ConversationRetriever } from '@/conversation/retriever';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,7 +58,8 @@ export async function POST(request: Request) {
     const assembler = new ContextAssembler();
     const generator = new GeminiResponseGenerator();
     const repository = new PgMemoryRepository();
-    const service = new ResponseService(retriever, assembler, generator, repository);
+    const conversationRetriever = new ConversationRetriever();
+    const service = new ResponseService(retriever, assembler, generator, repository, conversationRetriever);
 
     const result = await service.respond(userId, query, {
       limit,

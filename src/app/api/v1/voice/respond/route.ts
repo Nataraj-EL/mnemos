@@ -7,6 +7,7 @@ import { GeminiResponseGenerator } from '@/response/geminiGenerator';
 import { ResponseService } from '@/response/service';
 import { PgMemoryRepository } from '@/memory/repository';
 import { logTelemetry } from '@/core/logger';
+import { ConversationRetriever } from '@/conversation/retriever';
 import {
   authenticate,
   checkRateLimit,
@@ -170,7 +171,8 @@ export async function POST(request: Request) {
     const assembler = new ContextAssembler();
     const generator = new GeminiResponseGenerator();
     const repository = new PgMemoryRepository();
-    const responseService = new ResponseService(retriever, assembler, generator, repository);
+    const conversationRetriever = new ConversationRetriever();
+    const responseService = new ResponseService(retriever, assembler, generator, repository, conversationRetriever);
 
     const groundedResult = await responseService.respond(userId, transcript);
 
@@ -189,6 +191,7 @@ export async function POST(request: Request) {
         response: groundedResult.response,
         usedMemories: groundedResult.usedMemories,
         contextTokenCount: groundedResult.contextTokenCount,
+        usedConversations: groundedResult.usedConversations,
       },
       requestId,
     });
