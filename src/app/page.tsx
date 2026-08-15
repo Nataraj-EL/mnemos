@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { deriveLifecycleState } from '@/core/types';
 import type { Memory as PackageMemory } from '@/core/types';
+import type { Conversation } from '@/conversation/types';
 
 interface MemoryMetadata {
   source: string;
@@ -158,6 +159,16 @@ export default function MemoryDashboard() {
   const [transcript, setTranscript] = useState('');
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
 
+  // Conversation persistence states
+  const [recordingStart, setRecordingStart] = useState<number>(0);
+  const [recordingEnd, setRecordingEnd] = useState<number>(0);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [loadingConversations, setLoadingConversations] = useState(false);
+  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
+
   // Timer effect for voice recording
   useEffect(() => {
     if (!isRecording) return;
@@ -170,9 +181,97 @@ export default function MemoryDashboard() {
     };
   }, [isRecording]);
 
+  const fetchConversations = async () => {
+    if (!userId.trim()) return;
+    setLoadingConversations(true);
+    try {
+      const headers: Record<string, string> = {};
+      if (process.env.NEXT_PUBLIC_MNEMOS_API_KEY) {
+        headers['Authorization'] = `Bearer ${process.env.NEXT_PUBLIC_MNEMOS_API_KEY}`;
+      }
+      const response = await fetch(`/api/v1/conversations?userId=${encodeURIComponent(userId.trim())}`, {
+        headers
+      });
+      const data = await response.json();
+      if (response.ok && data.status === 'success') {
+        setConversations(data.data.conversations || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch conversations:', err);
+    } finally {
+      setLoadingConversations(false);
+    }
+  };
+
+  const handleSaveConversation = async () => {
+    if (!transcript || !userId.trim()) return;
+    setSaveLoading(true);
+    setSaveMessage(null);
+    try {
+      const durationSeconds = recordingStart && recordingEnd ? Math.max(0, Math.round((recordingEnd - recordingStart) / 1000)) : 0;
+      
+      const payload = {
+        userId: userId.trim(),
+        transcript: transcript.trim(),
+        startedAt: recordingStart ? new Date(recordingStart).toISOString() : new Date().toISOString(),
+        endedAt: recordingEnd ? new Date(recordingEnd).toISOString() : new Date().toISOString(),
+        durationSeconds,
+      };
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (process.env.NEXT_PUBLIC_MNEMOS_API_KEY) {
+        headers['Authorization'] = `Bearer ${process.env.NEXT_PUBLIC_MNEMOS_API_KEY}`;
+      }
+
+      const response = await fetch('/api/v1/conversations', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.status === 'success') {
+        setSaveMessage({ type: 'success', text: `Saved conversation!` });
+        setTranscript('');
+        fetchConversations();
+      } else {
+        setSaveMessage({ type: 'error', text: data.error || 'Failed to save conversation.' });
+      }
+    } catch (err) {
+      console.error('Failed to save conversation:', err);
+      setSaveMessage({ type: 'error', text: 'An unexpected error occurred.' });
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
+  const handleSelectConversation = async (id: string) => {
+    if (!userId.trim()) return;
+    try {
+      const headers: Record<string, string> = {};
+      if (process.env.NEXT_PUBLIC_MNEMOS_API_KEY) {
+        headers['Authorization'] = `Bearer ${process.env.NEXT_PUBLIC_MNEMOS_API_KEY}`;
+      }
+      const response = await fetch(`/api/v1/conversations/${id}?userId=${encodeURIComponent(userId.trim())}`, {
+        headers
+      });
+      const data = await response.json();
+      if (response.ok && data.status === 'success') {
+        setSelectedConversation(data.data.conversation);
+      }
+    } catch (err) {
+      console.error('Failed to fetch conversation details:', err);
+    }
+  };
+
   const startRecording = async () => {
     setTranscribeError(null);
     setTranscript('');
+    setSaveMessage(null);
+    setRecordingStart(Date.now());
+    setRecordingEnd(0);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream);
@@ -185,6 +284,8 @@ export default function MemoryDashboard() {
       };
 
       recorder.onstop = async () => {
+        const endTime = Date.now();
+        setRecordingEnd(endTime);
         const audioBlob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
         stream.getTracks().forEach((track) => track.stop());
         await uploadAudio(audioBlob);
@@ -627,6 +728,7 @@ export default function MemoryDashboard() {
   useEffect(() => {
     setTimeout(() => {
       fetchMemories();
+      fetchConversations();
     }, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
@@ -1077,8 +1179,8 @@ export default function MemoryDashboard() {
                   )}
 
                   {transcript && (
-                    <div style={{ marginTop: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                    <div style={{ marginTop: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)' }}>Transcript Output</span>
                         <button
                           onClick={() => setContentInput(transcript)}
@@ -1091,8 +1193,100 @@ export default function MemoryDashboard() {
                       <div style={{ padding: '0.6rem 0.8rem', backgroundColor: 'var(--background)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', lineHeight: '1.4', fontStyle: 'italic', color: 'var(--text)' }}>
                         {transcript}
                       </div>
+                      <button
+                        onClick={handleSaveConversation}
+                        className="premium-btn premium-btn-primary"
+                        disabled={saveLoading}
+                        style={{ width: '100%', marginTop: '0.25rem' }}
+                      >
+                        {saveLoading ? (
+                          <>
+                            {renderSpinner()}
+                            Saving Conversation...
+                          </>
+                        ) : (
+                          <>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '0.25rem' }}>
+                              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                              <polyline points="17 21 17 13 7 13 7 21" />
+                              <polyline points="7 3 7 8 15 8" />
+                            </svg>
+                            Save Conversation
+                          </>
+                        )}
+                      </button>
                     </div>
                   )}
+
+                  {saveMessage && (
+                    <div style={{
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: 'var(--radius-sm)',
+                      fontSize: '0.75rem',
+                      border: '1px solid',
+                      borderColor: saveMessage.type === 'success' ? 'var(--success)' : 'var(--error)',
+                      backgroundColor: saveMessage.type === 'success' ? 'rgba(91, 138, 82, 0.05)' : 'rgba(179, 74, 60, 0.05)',
+                      color: saveMessage.type === 'success' ? 'var(--success)' : 'var(--error)'
+                    }}>
+                      {saveMessage.text}
+                    </div>
+                  )}
+
+                  {/* Recent Conversations history list */}
+                  <div style={{ marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                      <h4 style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--primary)', margin: 0 }}>
+                        Recent Conversations
+                      </h4>
+                      <span className="badge" style={{ fontSize: '0.65rem', padding: '0.1rem 0.3rem' }}>
+                        Count: {conversations.length}
+                      </span>
+                    </div>
+
+                    {loadingConversations && conversations.length === 0 ? (
+                      <div style={{ fontSize: '0.75rem', opacity: 0.6, padding: '0.5rem 0', textAlign: 'center' }}>
+                        Loading history...
+                      </div>
+                    ) : conversations.length === 0 ? (
+                      <div style={{ fontSize: '0.75rem', opacity: 0.6, padding: '0.75rem 0', textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)' }}>
+                        No saved conversations yet.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '180px', overflowY: 'auto', paddingRight: '0.15rem' }}>
+                        {conversations.map((conv) => (
+                          <div
+                            key={conv.id}
+                            onClick={() => handleSelectConversation(conv.id)}
+                            style={{
+                              padding: '0.4rem 0.6rem',
+                              border: '1px solid var(--border)',
+                              borderRadius: 'var(--radius-sm)',
+                              backgroundColor: 'var(--background)',
+                              cursor: 'pointer',
+                              transition: 'all 150ms ease',
+                              fontSize: '0.75rem'
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--primary)'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem', fontWeight: 600, opacity: 0.9 }}>
+                              <span>{new Date(conv.createdAt).toLocaleDateString()}</span>
+                              <span>{conv.durationSeconds || 0}s</span>
+                            </div>
+                            <div style={{
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              opacity: 0.7,
+                              fontStyle: 'italic'
+                            }}>
+                              {conv.transcript}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -2029,6 +2223,68 @@ export default function MemoryDashboard() {
           </div>
         )}
       </main>
+
+      {/* Conversation Detail Modal Overlay */}
+      {selectedConversation && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.4)',
+          backdropFilter: 'blur(3px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: '1.5rem'
+        }}>
+          <div className="card" style={{
+            width: '100%',
+            maxWidth: '550px',
+            maxHeight: '80vh',
+            display: 'flex',
+            flexDirection: 'column',
+            padding: '1.5rem',
+            backgroundColor: 'var(--surface)',
+            border: '1px solid var(--border)',
+            boxShadow: 'var(--shadow-lg)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--primary)', margin: 0 }}>Conversation Details</h3>
+              <button 
+                onClick={() => setSelectedConversation(null)}
+                className="premium-btn premium-btn-secondary"
+                style={{ padding: '0.2rem 0.4rem', minWidth: 'auto' }}
+              >
+                ✕ Close
+              </button>
+            </div>
+            
+            <div style={{ display: 'flex', gap: '1rem', fontSize: '0.75rem', color: 'var(--text)', opacity: 0.8, marginBottom: '1rem' }}>
+              <div><strong>Recorded:</strong> {new Date(selectedConversation.createdAt).toLocaleDateString()}</div>
+              <div><strong>Duration:</strong> {selectedConversation.durationSeconds || 0}s</div>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0.75rem', backgroundColor: 'var(--background)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', lineHeight: '1.5', fontStyle: 'italic' }}>
+              {selectedConversation.transcript}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' }}>
+              <button 
+                onClick={() => {
+                  setContentInput(selectedConversation.transcript);
+                  setSelectedConversation(null);
+                }} 
+                className="premium-btn premium-btn-primary"
+              >
+                📋 Copy to Ingest Form
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="footer" style={{ padding: '1.5rem', textAlign: 'center', borderTop: '1px solid var(--border)', fontSize: '0.8rem', opacity: 0.8 }}>
