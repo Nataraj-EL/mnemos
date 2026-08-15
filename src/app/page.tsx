@@ -789,7 +789,7 @@ export default function MemoryDashboard() {
               
               {/* Ingestion Form */}
               <div className="card" style={{ padding: '1.25rem' }}>
-                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>📥 Ingest Raw Interaction</h3>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>Ingest Raw Interaction</h3>
                 <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
                   Submit texts to extract, index, and reconcile new persistent memories.
                 </p>
@@ -854,7 +854,7 @@ export default function MemoryDashboard() {
               {/* Persisted Memories */}
               <div className="card" style={{ padding: '1.25rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                  <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 0 }}>🗃️ Persisted Memories</h3>
+                  <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 0 }}>Persisted Memories</h3>
                   <span className="badge" style={{ fontSize: '0.7rem' }}>Count: {memories.length}</span>
                 </div>
                 <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
@@ -1294,7 +1294,7 @@ export default function MemoryDashboard() {
               {/* Memory Health card */}
               <div className="card" style={{ padding: '1.25rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 0 }}>📊 Memory Health & Analytics</h3>
+                  <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 0 }}>Memory Health & Analytics</h3>
                   <button
                     onClick={handleConsolidate}
                     className="premium-btn premium-btn-primary"
@@ -1419,7 +1419,7 @@ export default function MemoryDashboard() {
 
               {/* Memory Evolution */}
               <div className="card" style={{ padding: '1.25rem' }}>
-                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>🕰️ Memory Evolution</h3>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>Memory Evolution</h3>
                 <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
                   Timeline tracking memory revisions, supersessions, and temporal state relationships.
                 </p>
@@ -1503,7 +1503,7 @@ export default function MemoryDashboard() {
               
               {/* System Diagnostics */}
               <div className="card" style={{ padding: '1.25rem' }}>
-                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>🛠️ Diagnostic Health States</h3>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>Diagnostic Health States</h3>
                 <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
                   Diagnostics detailing status of local Neon database and external Gemini endpoints.
                 </p>
@@ -1531,7 +1531,7 @@ export default function MemoryDashboard() {
 
               {/* Security Audits */}
               <div className="card" style={{ padding: '1.25rem' }}>
-                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>🛡️ Security & Performance Audits</h3>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>Security & Performance Audits</h3>
                 <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
                   Active API key parameters, rate limiting quotas, and timing latency statistics.
                 </p>
@@ -1565,7 +1565,7 @@ export default function MemoryDashboard() {
               
               {/* Route reference docs */}
               <div className="card" style={{ padding: '1.25rem' }}>
-                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem' }}>📄 API Reference (REST v1)</h3>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem' }}>API Reference (REST v1)</h3>
                 
                 <div style={{ display: 'flex', gap: '0.2rem', marginBottom: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.4rem', overflowX: 'auto' }}>
                   {(['ingest', 'search', 'context', 'respond', 'health'] as const).map((tab) => (
@@ -1667,7 +1667,7 @@ export default function MemoryDashboard() {
 
               {/* Telemetry Trace */}
               <div className="card" style={{ padding: '1.25rem' }}>
-                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>📊 Live Telemetry Tracer</h3>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>Live Telemetry Tracer</h3>
                 <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
                   Real-time network logging captures API executions.
                 </p>
@@ -1698,7 +1698,7 @@ export default function MemoryDashboard() {
 
             {/* Evaluation benchmarks */}
             <div className="card" style={{ padding: '1.25rem' }}>
-              <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>⚡ Scenario Benchmark Evaluation</h3>
+              <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>Scenario Benchmark Evaluation</h3>
               <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
                 Run the synthetic evaluation benchmark dataset to audit recall, precision, and isolation limits.
               </p>
