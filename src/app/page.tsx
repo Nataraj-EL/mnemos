@@ -150,6 +150,111 @@ export default function MemoryDashboard() {
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<'workspace' | 'developer'>('workspace');
   const [activeIntelligenceTab, setActiveIntelligenceTab] = useState<'ask' | 'search' | 'context'>('ask');
 
+  // Voice Transcription State
+  const [isRecording, setIsRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [transcribeLoading, setTranscribeLoading] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  const [transcribeError, setTranscribeError] = useState<string | null>(null);
+
+  // Timer effect for voice recording
+  useEffect(() => {
+    if (!isRecording) return;
+    const interval = setInterval(() => {
+      setRecordingTime((prev) => prev + 1);
+    }, 1000);
+    return () => {
+      clearInterval(interval);
+      setRecordingTime(0);
+    };
+  }, [isRecording]);
+
+  const startRecording = async () => {
+    setTranscribeError(null);
+    setTranscript('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+        stream.getTracks().forEach((track) => track.stop());
+        await uploadAudio(audioBlob);
+      };
+
+      recorder.start();
+      setMediaRecorder(recorder);
+      setIsRecording(true);
+    } catch (err: unknown) {
+      console.error('Failed to start recording:', err);
+      setTranscribeError('Could not access microphone. Please check permissions.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const uploadAudio = async (blob: Blob) => {
+    setTranscribeLoading(true);
+    setTranscribeError(null);
+    const start = Date.now();
+
+    try {
+      const formData = new FormData();
+      formData.append('file', blob, 'recording.webm');
+
+      // Use authorization header if public/local api key is set
+      const headers: Record<string, string> = {};
+      if (process.env.NEXT_PUBLIC_MNEMOS_API_KEY) {
+        headers['Authorization'] = `Bearer ${process.env.NEXT_PUBLIC_MNEMOS_API_KEY}`;
+      }
+
+      const response = await fetch('/api/v1/voice/transcribe', {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+
+      const data = await response.json();
+      const latency = Date.now() - start;
+      const reqId = data.requestId || 'req-' + Math.random().toString(36).substring(2, 9);
+
+      setRequestMetrics((prev) => [
+        {
+          id: reqId,
+          timestamp: new Date().toISOString(),
+          endpoint: 'POST /api/v1/voice/transcribe',
+          latency,
+          status: response.ok ? '200 OK' : `${response.status} Error`,
+        },
+        ...prev,
+      ]);
+
+      if (!response.ok) {
+        setTranscribeError(data.error || 'Failed to transcribe audio.');
+      } else {
+        setTranscript(data.data.text);
+      }
+    } catch (err: unknown) {
+      console.error('Transcription upload failed:', err);
+      setTranscribeError('An error occurred during transcription upload.');
+    } finally {
+      setTranscribeLoading(false);
+    }
+  };
+
   // Consolidation State
   const [loadingConsolidate, setLoadingConsolidate] = useState(false);
   const [consolidateMessage, setConsolidateMessage] = useState<string | null>(null);
@@ -746,6 +851,14 @@ export default function MemoryDashboard() {
               font-weight: 600;
               box-shadow: var(--shadow-sm);
             }
+            @keyframes pulse {
+              0% { opacity: 0.6; }
+              50% { opacity: 1; }
+              100% { opacity: 0.6; }
+            }
+            .pulse {
+              animation: pulse 1.5s infinite ease-in-out;
+            }
           `,
         }}
       />
@@ -901,6 +1014,86 @@ export default function MemoryDashboard() {
                     </div>
                   )}
                 </form>
+              </div>
+
+              {/* Voice Transcription */}
+              <div className="card" style={{ padding: '1.25rem' }}>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.25rem' }}>Voice Transcription</h3>
+                <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
+                  Record voice interactions inside the browser to transcribe audio payload into plain text.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {isRecording ? (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 0.75rem', backgroundColor: 'rgba(219, 91, 91, 0.05)', border: '1px solid #db5b5b', borderRadius: 'var(--radius-sm)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <span className="status-dot error pulse" style={{ width: '8px', height: '8px' }}></span>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--error)' }}>Recording Audio</span>
+                      </div>
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.85rem', fontWeight: 600 }}>
+                        {Math.floor(recordingTime / 60).toString().padStart(2, '0')}:
+                        {(recordingTime % 60).toString().padStart(2, '0')}
+                      </span>
+                    </div>
+                  ) : transcribeLoading ? (
+                    <div style={{ padding: '0.5rem 0.75rem', border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', opacity: 0.8, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      {renderSpinner()}
+                      <span>Transcribing recording file...</span>
+                    </div>
+                  ) : null}
+
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    {isRecording ? (
+                      <button
+                        onClick={stopRecording}
+                        className="premium-btn"
+                        style={{ backgroundColor: 'var(--error)', borderColor: '#db5b5b', color: '#fff', width: '100%' }}
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '0.25rem' }}>
+                          <rect x="4" y="4" width="16" height="16" rx="2" />
+                        </svg>
+                        Stop Recording
+                      </button>
+                    ) : (
+                      <button
+                        onClick={startRecording}
+                        className="premium-btn premium-btn-primary"
+                        style={{ width: '100%' }}
+                        disabled={transcribeLoading}
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '0.25rem' }}>
+                          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                          <line x1="12" x2="12" y1="19" y2="22" />
+                        </svg>
+                        Start Recording
+                      </button>
+                    )}
+                  </div>
+
+                  {transcribeError && (
+                    <div style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--error)', backgroundColor: 'rgba(179, 74, 60, 0.05)', color: 'var(--error)', fontSize: '0.75rem' }}>
+                      {transcribeError}
+                    </div>
+                  )}
+
+                  {transcript && (
+                    <div style={{ marginTop: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)' }}>Transcript Output</span>
+                        <button
+                          onClick={() => setContentInput(transcript)}
+                          className="premium-btn premium-btn-secondary"
+                          style={{ padding: '0.2rem 0.4rem', fontSize: '0.7rem' }}
+                        >
+                          📋 Copy to Ingest Form
+                        </button>
+                      </div>
+                      <div style={{ padding: '0.6rem 0.8rem', backgroundColor: 'var(--background)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', lineHeight: '1.4', fontStyle: 'italic', color: 'var(--text)' }}>
+                        {transcript}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Persisted Memories */}
