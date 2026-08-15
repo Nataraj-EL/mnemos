@@ -11,6 +11,8 @@ export interface ContextItem {
   status?: 'active' | 'superseded';
   governanceDecision?: 'ALLOW' | 'DOWNRANK' | 'EXCLUDE';
   governanceReasons?: string[];
+  confidence?: number;
+  lifecycleState?: 'core' | 'stable' | 'fading' | 'historical';
 }
 
 export interface ContextRequest {

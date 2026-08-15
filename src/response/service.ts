@@ -219,6 +219,8 @@ export class ResponseService {
         similarity: item.similarity,
         score: item.score,
         content: item.content,
+        confidence: item.confidence !== undefined ? item.confidence : 0.9,
+        lifecycleState: item.lifecycleState || 'stable',
       }));
 
       const usedConversations = finalConversationSnippets.map((s) => ({

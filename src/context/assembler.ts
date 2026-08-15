@@ -1,4 +1,4 @@
-import { Memory, MemoryType, normalizeMetadata } from '@/core/types';
+import { Memory, MemoryType, normalizeMetadata, deriveLifecycleState } from '@/core/types';
 import { ContextItem, ContextResult } from './types';
 import { MemoryGovernance } from '@/memory/governance';
 
@@ -182,6 +182,8 @@ export class ContextAssembler {
         status: (metadata.status || 'active') as 'active' | 'superseded',
         governanceDecision: gov.decision,
         governanceReasons: gov.reasons,
+        confidence: metadata.confidence,
+        lifecycleState: deriveLifecycleState(memory),
       });
     }
 

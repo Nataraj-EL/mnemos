@@ -147,6 +147,37 @@ const renderMarkdown = (text: string) => {
 };
 
 export default function MemoryDashboard() {
+  const getGroundingStatus = (usedMemories: unknown[] = [], usedConversations: unknown[] = []) => {
+    const memCount = usedMemories.length;
+    const convCount = usedConversations.length;
+    
+    if (memCount > 0 && convCount > 0) {
+      return {
+        label: `Fully Grounded by ${memCount} memories + ${convCount} past conversations`,
+        color: '#10b981', // green
+        bgColor: 'rgba(16, 185, 129, 0.05)',
+        borderColor: 'rgba(16, 185, 129, 0.2)',
+      };
+    } else if (memCount > 0 || convCount > 0) {
+      const typeLabel = memCount > 0 
+        ? `${memCount} memor${memCount === 1 ? 'y' : 'ies'}` 
+        : `${convCount} past conversation${convCount === 1 ? '' : 's'}`;
+      return {
+        label: `Partially Grounded by ${typeLabel}`,
+        color: '#3b82f6', // blue
+        bgColor: 'rgba(59, 130, 246, 0.05)',
+        borderColor: 'rgba(59, 130, 246, 0.2)',
+      };
+    } else {
+      return {
+        label: 'No relevant context found',
+        color: '#ef4444', // red
+        bgColor: 'rgba(239, 68, 68, 0.05)',
+        borderColor: 'rgba(239, 68, 68, 0.2)',
+      };
+    }
+  };
+
   // Navigation & Workspace State Tabs
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<'workspace' | 'developer'>('workspace');
   const [activeIntelligenceTab, setActiveIntelligenceTab] = useState<'ask' | 'search' | 'context'>('ask');
@@ -162,7 +193,7 @@ export default function MemoryDashboard() {
   // Voice Grounded Query States
   const [voiceMode, setVoiceMode] = useState<'transcribe' | 'ask'>('transcribe');
   const [voiceResponseText, setVoiceResponseText] = useState<string | null>(null);
-  const [voiceUsedMemories, setVoiceUsedMemories] = useState<{ id: string; type: string; similarity: number; score: number; content?: string }[]>([]);
+  const [voiceUsedMemories, setVoiceUsedMemories] = useState<{ id: string; type: string; similarity: number; score: number; content?: string; confidence?: number; lifecycleState?: string }[]>([]);
   const [voiceUsedConversations, setVoiceUsedConversations] = useState<{ id: string; conversationId?: string; createdAt: string; text: string; matchedSnippet?: string; similarity?: number }[]>([]);
   const [voiceContextTokenCount, setVoiceContextTokenCount] = useState<number>(0);
 
@@ -180,6 +211,25 @@ export default function MemoryDashboard() {
   const [extractionState, setExtractionState] = useState<'idle' | 'extracting' | 'extracted' | 'extraction-error'>('idle');
   const [extractionResultCount, setExtractionResultCount] = useState<number | null>(null);
   const [extractionError, setExtractionError] = useState<string | null>(null);
+  
+  const [expandedCitations, setExpandedCitations] = useState<Record<string, boolean>>({});
+
+  const toggleCitation = (key: string) => {
+    setExpandedCitations((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
+  const handleVoiceAskAgain = () => {
+    setTranscript('');
+    setVoiceResponseText(null);
+    setVoiceUsedMemories([]);
+    setVoiceUsedConversations([]);
+    setVoiceContextTokenCount(0);
+    setVoiceSessionState('idle');
+    setVoiceMode('transcribe');
+  };
 
   const resetVoiceSession = () => {
     setTranscript('');
@@ -635,7 +685,20 @@ export default function MemoryDashboard() {
       ]);
 
       if (!response.ok) {
-        setTranscribeError(data.error || 'Failed to process voice action.');
+        let msg = 'Failed to process voice action.';
+        if (data.error) {
+          const errLower = data.error.toLowerCase();
+          if (errLower.includes('api_key') || errLower.includes('api key') || errLower.includes('provider') || errLower.includes('unavailable')) {
+            msg = 'Voice service is temporarily unavailable.';
+          } else if (errLower.includes('transcribe') || errLower.includes('transcription') || errLower.includes('audio') || errLower.includes('speech') || errLower.includes('format')) {
+            msg = 'Transcription failed. Please check your microphone and try again.';
+          } else if (errLower.includes('database') || errLower.includes('sql') || errLower.includes('persistence')) {
+            msg = 'Database connection issue. Unable to process request.';
+          } else {
+            msg = 'Unable to process voice request. Please try again.';
+          }
+        }
+        setTranscribeError(msg);
         setVoiceSessionState('error');
       } else {
         if (voiceMode === 'ask') {
@@ -845,7 +908,7 @@ export default function MemoryDashboard() {
   const [responseMaxTokens, setResponseMaxTokens] = useState(1500);
   const [responseResult, setResponseResult] = useState<{
     response: string;
-    usedMemories: { id: string; type: string; similarity: number; score: number; content?: string }[];
+    usedMemories: { id: string; type: string; similarity: number; score: number; content?: string; confidence?: number; lifecycleState?: string }[];
     contextTokenCount: number;
     usedConversations?: { id: string; conversationId?: string; createdAt: string; text: string; matchedSnippet?: string; similarity?: number }[];
     governance?: {
@@ -918,7 +981,18 @@ export default function MemoryDashboard() {
       ]);
 
       if (!response.ok) {
-        setResponseError(data.error || 'Failed to generate contextual response.');
+        let msg = 'Failed to generate contextual response.';
+        if (data.error) {
+          const errLower = data.error.toLowerCase();
+          if (errLower.includes('api_key') || errLower.includes('api key') || errLower.includes('provider') || errLower.includes('unavailable')) {
+            msg = 'Grounded response service is temporarily unavailable.';
+          } else if (errLower.includes('database') || errLower.includes('sql') || errLower.includes('persistence')) {
+            msg = 'Database connection issue. Unable to retrieve context.';
+          } else {
+            msg = 'Unable to generate response. Please try again.';
+          }
+        }
+        setResponseError(msg);
       } else {
         setResponseResult(data);
       }
@@ -1735,62 +1809,161 @@ export default function MemoryDashboard() {
                       
                       {voiceResponseText && (
                         <div>
-                          <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--primary)' }}>🧠 Grounded Response:</span>
-                          <div style={{ padding: '0.6rem 0.8rem', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', lineHeight: '1.45', marginTop: '0.2rem', color: 'var(--text)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--primary)' }}>🧠 Grounded Response:</span>
+                            {/* Grounding Status badge */}
+                            {(() => {
+                              const status = getGroundingStatus(voiceUsedMemories, voiceUsedConversations);
+                              return (
+                                <span style={{
+                                  fontSize: '0.65rem',
+                                  fontWeight: 600,
+                                  color: status.color,
+                                  backgroundColor: status.bgColor,
+                                  border: `1px solid ${status.borderColor}`,
+                                  padding: '0.15rem 0.4rem',
+                                  borderRadius: '12px'
+                                }}>
+                                  {status.label}
+                                </span>
+                              );
+                            })()}
+                          </div>
+                          <div style={{ padding: '0.6rem 0.8rem', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', lineHeight: '1.45', color: 'var(--text)' }}>
                             {voiceResponseText}
                           </div>
                         </div>
                       )}
 
+                      {/* Sources block */}
                       <div style={{ marginTop: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '0.5rem' }}>
-                        <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--primary)' }}>🧠 Grounding Citations ({voiceContextTokenCount} tokens):</span>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--primary)', display: 'block', marginBottom: '0.35rem' }}>
+                          📚 Sources Used ({voiceContextTokenCount} tokens):
+                        </span>
                         
                         {(voiceUsedMemories.length === 0 && voiceUsedConversations.length === 0) ? (
-                          <div style={{ padding: '0.5rem', textAlign: 'center', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', marginTop: '0.2rem', color: 'var(--text)' }}>
+                          <div style={{ padding: '0.5rem', textAlign: 'center', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', color: 'var(--text)' }}>
                             No relevant memory found
                           </div>
                         ) : (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.25rem' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                             {/* Voice Memories */}
-                            {voiceUsedMemories.map((m, idx) => (
-                              <div key={'vmem-' + idx} style={{ padding: '0.4rem 0.6rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', backgroundColor: 'var(--background)' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', opacity: 0.6, fontSize: '0.65rem', marginBottom: '0.15rem' }}>
-                                  <span style={{ color: '#3b82f6', fontWeight: 600 }}>Persistent Memory ({m.type})</span>
-                                  <span>Similarity: {m.similarity.toFixed(2)}</span>
-                                </div>
-                                <div style={{ fontStyle: 'italic', fontSize: '0.75rem', color: 'var(--text)' }}>&ldquo;{m.content || 'Memory ' + m.id.substring(0, 8)}&rdquo;</div>
-                              </div>
-                            ))}
-
-                            {/* Voice Conversations */}
-                            {voiceUsedConversations.map((c, idx) => (
-                              <div key={'vconv-' + idx} style={{ padding: '0.4rem 0.6rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', backgroundColor: 'var(--background)' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', opacity: 0.6, fontSize: '0.65rem', marginBottom: '0.15rem' }}>
-                                  <span style={{ color: '#10b981', fontWeight: 600 }}>Past Conversation</span>
-                                  <span>{new Date(c.createdAt).toLocaleDateString()}</span>
-                                </div>
-                                <div style={{ fontStyle: 'italic', fontSize: '0.75rem', color: 'var(--text)', marginBottom: '0.15rem' }}>&ldquo;{c.matchedSnippet || c.text}&rdquo;</div>
-                                <div style={{ fontSize: '0.65rem', opacity: 0.7 }}>
-                                  {c.similarity !== undefined && c.similarity !== null ? (
-                                    <span>Similarity: {c.similarity.toFixed(2)}</span>
-                                  ) : (
-                                    <span style={{ color: 'var(--primary)' }}>Relevance: Keyword Match</span>
+                            {voiceUsedMemories.map((m, idx) => {
+                              const key = `vmem-${idx}`;
+                              const isExpanded = !!expandedCitations[key];
+                              return (
+                                <div key={key} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--background)', overflow: 'hidden' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleCitation(key)}
+                                    aria-expanded={isExpanded}
+                                    aria-controls={`content-${key}`}
+                                    style={{
+                                      width: '100%',
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '0.4rem 0.6rem',
+                                      backgroundColor: 'rgba(59, 130, 246, 0.03)',
+                                      border: 'none',
+                                      cursor: 'pointer',
+                                      textAlign: 'left',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 600,
+                                      color: '#3b82f6',
+                                    }}
+                                  >
+                                    <span>🧠 Persistent Memory ({m.type})</span>
+                                    <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>
+                                      {isExpanded ? '▼' : '▶'}
+                                    </span>
+                                  </button>
+                                  {isExpanded && (
+                                    <div id={`content-${key}`} style={{ padding: '0.5rem 0.6rem', borderTop: '1px solid var(--border)', fontSize: '0.75rem' }}>
+                                      <div style={{ fontStyle: 'italic', color: 'var(--text)', marginBottom: '0.35rem' }}>
+                                        &ldquo;{m.content}&rdquo;
+                                      </div>
+                                      <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.65rem', opacity: 0.7 }}>
+                                        <span>Confidence: <strong>{((m.confidence || 0.9) * 100).toFixed(0)}%</strong></span>
+                                        <span>Lifecycle: <strong style={{ textTransform: 'capitalize' }}>{m.lifecycleState || 'stable'}</strong></span>
+                                      </div>
+                                    </div>
                                   )}
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
+
+                            {/* Voice Conversations */}
+                            {voiceUsedConversations.map((c, idx) => {
+                              const key = `vconv-${idx}`;
+                              const isExpanded = !!expandedCitations[key];
+                              return (
+                                <div key={key} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--background)', overflow: 'hidden' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleCitation(key)}
+                                    aria-expanded={isExpanded}
+                                    aria-controls={`content-${key}`}
+                                    style={{
+                                      width: '100%',
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '0.4rem 0.6rem',
+                                      backgroundColor: 'rgba(16, 185, 129, 0.03)',
+                                      border: 'none',
+                                      cursor: 'pointer',
+                                      textAlign: 'left',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 600,
+                                      color: '#10b981',
+                                    }}
+                                  >
+                                    <span>💬 Past Conversation ({new Date(c.createdAt).toLocaleDateString()})</span>
+                                    <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>
+                                      {isExpanded ? '▼' : '▶'}
+                                    </span>
+                                  </button>
+                                  {isExpanded && (
+                                    <div id={`content-${key}`} style={{ padding: '0.5rem 0.6rem', borderTop: '1px solid var(--border)', fontSize: '0.75rem' }}>
+                                      <div style={{ fontStyle: 'italic', color: 'var(--text)', marginBottom: '0.35rem' }}>
+                                        &ldquo;{c.matchedSnippet || c.text}&rdquo;
+                                      </div>
+                                      <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.65rem', opacity: 0.7 }}>
+                                        {c.similarity !== undefined && c.similarity !== null ? (
+                                          <span>Similarity: <strong>{(c.similarity * 100).toFixed(0)}%</strong></span>
+                                        ) : (
+                                          <span style={{ color: 'var(--primary)' }}>Relevance: Keyword Match</span>
+                                        )}
+                                        <span>Date/Time: <strong>{new Date(c.createdAt).toLocaleDateString()} {new Date(c.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong></span>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
 
-                      <button
-                        onClick={resetVoiceSession}
-                        className="premium-btn premium-btn-secondary"
-                        style={{ width: '100%', marginTop: '0.25rem' }}
-                        type="button"
-                      >
-                        🔄 Ask Another Question
-                      </button>
+                      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
+                        <button
+                          onClick={handleVoiceAskAgain}
+                          className="premium-btn premium-btn-primary"
+                          style={{ flex: 1 }}
+                          type="button"
+                        >
+                          🔄 Ask Again
+                        </button>
+                        <button
+                          onClick={resetVoiceSession}
+                          className="premium-btn premium-btn-secondary"
+                          style={{ flex: 1 }}
+                          type="button"
+                        >
+                          ❌ Reset Session
+                        </button>
+                      </div>
                     </div>
                   )}
 
@@ -2055,9 +2228,28 @@ export default function MemoryDashboard() {
                   ) : responseResult && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                       <div className="card" style={{ borderLeft: '4px solid var(--primary)', padding: '1.25rem', backgroundColor: 'var(--surface)' }}>
-                        <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.75rem', color: 'var(--primary)', borderBottom: '1px solid var(--border)', paddingBottom: '0.4rem' }}>
-                          Grounded AI Response
-                        </h4>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem', marginBottom: '0.75rem' }}>
+                          <h4 style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--primary)', margin: 0 }}>
+                            Grounded AI Response
+                          </h4>
+                          {/* Grounding Status badge */}
+                          {(() => {
+                            const status = getGroundingStatus(responseResult.usedMemories, responseResult.usedConversations);
+                            return (
+                              <span style={{
+                                fontSize: '0.65rem',
+                                fontWeight: 600,
+                                color: status.color,
+                                backgroundColor: status.bgColor,
+                                border: `1px solid ${status.borderColor}`,
+                                padding: '0.15rem 0.4rem',
+                                borderRadius: '12px'
+                              }}>
+                                {status.label}
+                              </span>
+                            );
+                          })()}
+                        </div>
                         <div style={{ color: 'var(--text)' }}>
                           {renderMarkdown(responseResult.response)}
                         </div>
@@ -2079,7 +2271,9 @@ export default function MemoryDashboard() {
                       )}
 
                       <div style={{ marginTop: '0.75rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
-                        <h4 style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.4rem' }}>🔒 Grounding Citations</h4>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)', display: 'block', marginBottom: '0.4rem' }}>
+                          📚 Sources Used ({responseResult.contextTokenCount || 0} tokens):
+                        </span>
                         
                         {(!responseResult.usedMemories || responseResult.usedMemories.length === 0) &&
                          (!responseResult.usedConversations || responseResult.usedConversations.length === 0) ? (
@@ -2087,51 +2281,102 @@ export default function MemoryDashboard() {
                             No relevant memory found
                           </div>
                         ) : (
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.5rem' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                             {/* Persistent Memories */}
-                            {responseResult.usedMemories && responseResult.usedMemories.map((used) => (
-                              <div key={used.id} style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', fontSize: '0.75rem' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                                  <span className="badge" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', fontSize: '0.65rem', fontWeight: 600 }}>
-                                    Persistent Memory ({used.type})
-                                  </span>
-                                  <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>
-                                    ID: {used.id.substring(0, 8)}...
-                                  </span>
-                                </div>
-                                <div style={{ fontStyle: 'italic', fontSize: '0.75rem', color: 'var(--text)', borderLeft: '2px solid #3b82f6', paddingLeft: '0.4rem', marginTop: '0.25rem', marginBottom: '0.25rem' }}>
-                                  &ldquo;{used.content || 'Memory ' + used.id.substring(0, 8)}&rdquo;
-                                </div>
-                                <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.7rem', opacity: 0.7 }}>
-                                  <span>Similarity: <strong>{used.similarity.toFixed(2)}</strong></span>
-                                  <span>Score: <strong>{used.score.toFixed(3)}</strong></span>
-                                </div>
-                              </div>
-                            ))}
-
-                            {/* Past Conversations */}
-                            {responseResult.usedConversations && responseResult.usedConversations.map((used, index) => (
-                              <div key={(used.conversationId || used.id) + '-' + index} style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', fontSize: '0.75rem' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                                  <span className="badge" style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981', fontSize: '0.65rem', fontWeight: 600 }}>
-                                    Past Conversation
-                                  </span>
-                                  <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>
-                                    {new Date(used.createdAt).toLocaleDateString()}
-                                  </span>
-                                </div>
-                                <div style={{ fontStyle: 'italic', fontSize: '0.75rem', color: 'var(--text)', borderLeft: '2px solid #10b981', paddingLeft: '0.4rem', marginTop: '0.25rem', marginBottom: '0.25rem' }}>
-                                  &ldquo;{used.matchedSnippet || used.text}&rdquo;
-                                </div>
-                                <div style={{ fontSize: '0.7rem', opacity: 0.7 }}>
-                                  {used.similarity !== undefined && used.similarity !== null ? (
-                                    <span>Similarity: <strong>{used.similarity.toFixed(2)}</strong></span>
-                                  ) : (
-                                    <span style={{ color: 'var(--primary)' }}>Relevance: Keyword Match</span>
+                            {responseResult.usedMemories && responseResult.usedMemories.map((used, idx) => {
+                              const key = `tmem-${idx}`;
+                              const isExpanded = !!expandedCitations[key];
+                              return (
+                                <div key={key} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)', overflow: 'hidden' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleCitation(key)}
+                                    aria-expanded={isExpanded}
+                                    aria-controls={`content-${key}`}
+                                    style={{
+                                      width: '100%',
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '0.4rem 0.6rem',
+                                      backgroundColor: 'rgba(59, 130, 246, 0.03)',
+                                      border: 'none',
+                                      cursor: 'pointer',
+                                      textAlign: 'left',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 600,
+                                      color: '#3b82f6',
+                                    }}
+                                  >
+                                    <span>🧠 Persistent Memory ({used.type})</span>
+                                    <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>
+                                      {isExpanded ? '▼' : '▶'}
+                                    </span>
+                                  </button>
+                                  {isExpanded && (
+                                    <div id={`content-${key}`} style={{ padding: '0.5rem 0.6rem', borderTop: '1px solid var(--border)', fontSize: '0.75rem' }}>
+                                      <div style={{ fontStyle: 'italic', color: 'var(--text)', marginBottom: '0.35rem' }}>
+                                        &ldquo;{used.content}&rdquo;
+                                      </div>
+                                      <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.65rem', opacity: 0.7 }}>
+                                        <span>Confidence: <strong>{((used.confidence || 0.9) * 100).toFixed(0)}%</strong></span>
+                                        <span>Lifecycle: <strong style={{ textTransform: 'capitalize' }}>{used.lifecycleState || 'stable'}</strong></span>
+                                      </div>
+                                    </div>
                                   )}
                                 </div>
-                              </div>
-                            ))}`
+                              );
+                            })}
+
+                            {/* Past Conversations */}
+                            {responseResult.usedConversations && responseResult.usedConversations.map((used, idx) => {
+                              const key = `tconv-${idx}`;
+                              const isExpanded = !!expandedCitations[key];
+                              return (
+                                <div key={key} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)', overflow: 'hidden' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleCitation(key)}
+                                    aria-expanded={isExpanded}
+                                    aria-controls={`content-${key}`}
+                                    style={{
+                                      width: '100%',
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '0.4rem 0.6rem',
+                                      backgroundColor: 'rgba(16, 185, 129, 0.03)',
+                                      border: 'none',
+                                      cursor: 'pointer',
+                                      textAlign: 'left',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 600,
+                                      color: '#10b981',
+                                    }}
+                                  >
+                                    <span>💬 Past Conversation ({new Date(used.createdAt).toLocaleDateString()})</span>
+                                    <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>
+                                      {isExpanded ? '▼' : '▶'}
+                                    </span>
+                                  </button>
+                                  {isExpanded && (
+                                    <div id={`content-${key}`} style={{ padding: '0.5rem 0.6rem', borderTop: '1px solid var(--border)', fontSize: '0.75rem' }}>
+                                      <div style={{ fontStyle: 'italic', color: 'var(--text)', marginBottom: '0.35rem' }}>
+                                        &ldquo;{used.matchedSnippet || used.text}&rdquo;
+                                      </div>
+                                      <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.65rem', opacity: 0.7 }}>
+                                        {used.similarity !== undefined && used.similarity !== null ? (
+                                          <span>Similarity: <strong>{(used.similarity * 100).toFixed(0)}%</strong></span>
+                                        ) : (
+                                          <span style={{ color: 'var(--primary)' }}>Relevance: Keyword Match</span>
+                                        )}
+                                        <span>Date/Time: <strong>{new Date(used.createdAt).toLocaleDateString()} {new Date(used.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong></span>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
