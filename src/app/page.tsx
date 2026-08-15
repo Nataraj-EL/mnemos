@@ -159,6 +159,12 @@ export default function MemoryDashboard() {
   const [transcript, setTranscript] = useState('');
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
 
+  // Voice Grounded Query States
+  const [voiceMode, setVoiceMode] = useState<'transcribe' | 'ask'>('transcribe');
+  const [voiceResponseText, setVoiceResponseText] = useState<string | null>(null);
+  const [voiceUsedMemories, setVoiceUsedMemories] = useState<{ id: string; type: string; similarity: number; score: number }[]>([]);
+  const [voiceContextTokenCount, setVoiceContextTokenCount] = useState<number>(0);
+
   // Conversation persistence states
   const [recordingStart, setRecordingStart] = useState<number>(0);
   const [recordingEnd, setRecordingEnd] = useState<number>(0);
@@ -424,11 +430,15 @@ export default function MemoryDashboard() {
   const uploadAudio = async (blob: Blob) => {
     setTranscribeLoading(true);
     setTranscribeError(null);
+    setVoiceResponseText(null);
+    setVoiceUsedMemories([]);
+    setVoiceContextTokenCount(0);
     const start = Date.now();
 
     try {
       const formData = new FormData();
       formData.append('file', blob, 'recording.webm');
+      formData.append('userId', userId.trim());
 
       // Use authorization header if public/local api key is set
       const headers: Record<string, string> = {};
@@ -436,7 +446,8 @@ export default function MemoryDashboard() {
         headers['Authorization'] = `Bearer ${process.env.NEXT_PUBLIC_MNEMOS_API_KEY}`;
       }
 
-      const response = await fetch('/api/v1/voice/transcribe', {
+      const endpoint = voiceMode === 'ask' ? '/api/v1/voice/respond' : '/api/v1/voice/transcribe';
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers,
         body: formData,
@@ -450,7 +461,7 @@ export default function MemoryDashboard() {
         {
           id: reqId,
           timestamp: new Date().toISOString(),
-          endpoint: 'POST /api/v1/voice/transcribe',
+          endpoint: `POST ${endpoint}`,
           latency,
           status: response.ok ? '200 OK' : `${response.status} Error`,
         },
@@ -458,13 +469,20 @@ export default function MemoryDashboard() {
       ]);
 
       if (!response.ok) {
-        setTranscribeError(data.error || 'Failed to transcribe audio.');
+        setTranscribeError(data.error || 'Failed to process voice action.');
       } else {
-        setTranscript(data.data.text);
+        if (voiceMode === 'ask') {
+          setTranscript(data.data.transcript);
+          setVoiceResponseText(data.data.response);
+          setVoiceUsedMemories(data.data.usedMemories || []);
+          setVoiceContextTokenCount(data.data.contextTokenCount || 0);
+        } else {
+          setTranscript(data.data.text);
+        }
       }
     } catch (err: unknown) {
-      console.error('Transcription upload failed:', err);
-      setTranscribeError('An error occurred during transcription upload.');
+      console.error('Voice processing upload failed:', err);
+      setTranscribeError('An error occurred during voice upload.');
     } finally {
       setTranscribeLoading(false);
     }
@@ -1239,6 +1257,38 @@ export default function MemoryDashboard() {
                   Record voice interactions inside the browser to transcribe audio payload into plain text.
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  
+                  {/* Mode Selector */}
+                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.25rem', backgroundColor: 'var(--background)', padding: '0.2rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                    <button
+                      onClick={() => {
+                        setVoiceMode('transcribe');
+                        setVoiceResponseText(null);
+                        setVoiceUsedMemories([]);
+                        setVoiceContextTokenCount(0);
+                      }}
+                      className={`premium-btn ${voiceMode === 'transcribe' ? 'premium-btn-primary' : 'premium-btn-secondary'}`}
+                      style={{ flex: 1, padding: '0.3rem', fontSize: '0.75rem', border: 'none', boxShadow: 'none' }}
+                      type="button"
+                    >
+                      📝 Transcribe Only
+                    </button>
+                    <button
+                      onClick={() => {
+                        setVoiceMode('ask');
+                        setTranscript('');
+                        setVoiceResponseText(null);
+                        setVoiceUsedMemories([]);
+                        setVoiceContextTokenCount(0);
+                      }}
+                      className={`premium-btn ${voiceMode === 'ask' ? 'premium-btn-primary' : 'premium-btn-secondary'}`}
+                      style={{ flex: 1, padding: '0.3rem', fontSize: '0.75rem', border: 'none', boxShadow: 'none' }}
+                      type="button"
+                    >
+                      💬 Ask by Voice
+                    </button>
+                  </div>
+
                   {isRecording ? (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 0.75rem', backgroundColor: 'rgba(219, 91, 91, 0.05)', border: '1px solid #db5b5b', borderRadius: 'var(--radius-sm)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
@@ -1253,7 +1303,7 @@ export default function MemoryDashboard() {
                   ) : transcribeLoading ? (
                     <div style={{ padding: '0.5rem 0.75rem', border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', opacity: 0.8, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       {renderSpinner()}
-                      <span>Transcribing recording file...</span>
+                      <span>{voiceMode === 'ask' ? 'Processing grounded query...' : 'Transcribing recording file...'}</span>
                     </div>
                   ) : null}
 
@@ -1281,7 +1331,7 @@ export default function MemoryDashboard() {
                           <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                           <line x1="12" x2="12" y1="19" y2="22" />
                         </svg>
-                        Start Recording
+                        {voiceMode === 'ask' ? 'Ask by Voice' : 'Start Recording'}
                       </button>
                     )}
                   </div>
@@ -1292,7 +1342,7 @@ export default function MemoryDashboard() {
                     </div>
                   )}
 
-                  {transcript && (
+                  {voiceMode === 'transcribe' && transcript && (
                     <div style={{ marginTop: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)' }}>Transcript Output</span>
@@ -1328,6 +1378,55 @@ export default function MemoryDashboard() {
                             Save Conversation
                           </>
                         )}
+                      </button>
+                    </div>
+                  )}
+
+                  {voiceMode === 'ask' && (transcript || voiceResponseText) && (
+                    <div style={{ marginTop: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      {transcript && (
+                        <div>
+                          <span style={{ fontSize: '0.7rem', fontWeight: 600, opacity: 0.7 }}>Transcribed Question:</span>
+                          <div style={{ padding: '0.5rem 0.75rem', backgroundColor: 'var(--background)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', fontStyle: 'italic', marginTop: '0.2rem' }}>
+                            &ldquo;{transcript}&rdquo;
+                          </div>
+                        </div>
+                      )}
+                      
+                      {voiceResponseText && (
+                        <div>
+                          <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--primary)' }}>🧠 Grounded Response:</span>
+                          <div style={{ padding: '0.6rem 0.8rem', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', lineHeight: '1.45', marginTop: '0.2rem', color: 'var(--text)' }}>
+                            {voiceResponseText}
+                          </div>
+                        </div>
+                      )}
+
+                      {voiceUsedMemories.length > 0 && (
+                        <div>
+                          <span style={{ fontSize: '0.65rem', fontWeight: 600, opacity: 0.7 }}>Retrieved Context ({voiceContextTokenCount} tokens):</span>
+                          <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
+                            {voiceUsedMemories.map((m, idx) => (
+                              <span key={idx} className="badge" style={{ fontSize: '0.6rem', padding: '0.15rem 0.35rem', backgroundColor: 'rgba(212, 163, 89, 0.05)', border: '1px solid var(--border)' }}>
+                                [{m.type}] similarity: {m.similarity.toFixed(2)}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <button
+                        onClick={() => {
+                          setTranscript('');
+                          setVoiceResponseText(null);
+                          setVoiceUsedMemories([]);
+                          setVoiceContextTokenCount(0);
+                          setTranscribeError(null);
+                        }}
+                        className="premium-btn premium-btn-secondary"
+                        style={{ width: '100%', marginTop: '0.25rem' }}
+                      >
+                        🔄 Ask Another Question
                       </button>
                     </div>
                   )}
