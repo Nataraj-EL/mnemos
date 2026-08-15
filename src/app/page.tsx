@@ -162,8 +162,8 @@ export default function MemoryDashboard() {
   // Voice Grounded Query States
   const [voiceMode, setVoiceMode] = useState<'transcribe' | 'ask'>('transcribe');
   const [voiceResponseText, setVoiceResponseText] = useState<string | null>(null);
-  const [voiceUsedMemories, setVoiceUsedMemories] = useState<{ id: string; type: string; similarity: number; score: number }[]>([]);
-  const [voiceUsedConversations, setVoiceUsedConversations] = useState<{ id: string; createdAt: string; text: string; similarity?: number }[]>([]);
+  const [voiceUsedMemories, setVoiceUsedMemories] = useState<{ id: string; type: string; similarity: number; score: number; content?: string }[]>([]);
+  const [voiceUsedConversations, setVoiceUsedConversations] = useState<{ id: string; conversationId?: string; createdAt: string; text: string; matchedSnippet?: string; similarity?: number }[]>([]);
   const [voiceContextTokenCount, setVoiceContextTokenCount] = useState<number>(0);
 
   // Conversation persistence states
@@ -845,9 +845,9 @@ export default function MemoryDashboard() {
   const [responseMaxTokens, setResponseMaxTokens] = useState(1500);
   const [responseResult, setResponseResult] = useState<{
     response: string;
-    usedMemories: { id: string; type: string; similarity: number; score: number }[];
+    usedMemories: { id: string; type: string; similarity: number; score: number; content?: string }[];
     contextTokenCount: number;
-    usedConversations?: { id: string; createdAt: string; text: string; similarity?: number }[];
+    usedConversations?: { id: string; conversationId?: string; createdAt: string; text: string; matchedSnippet?: string; similarity?: number }[];
     governance?: {
       allowedCount: number;
       downrankedCount: number;
@@ -1742,35 +1742,46 @@ export default function MemoryDashboard() {
                         </div>
                       )}
 
-                      {voiceUsedMemories.length > 0 && (
-                        <div>
-                          <span style={{ fontSize: '0.65rem', fontWeight: 600, opacity: 0.7 }}>Retrieved Memories ({voiceContextTokenCount} tokens):</span>
-                          <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
-                            {voiceUsedMemories.map((m, idx) => (
-                              <span key={idx} className="badge" style={{ fontSize: '0.6rem', padding: '0.15rem 0.35rem', backgroundColor: 'rgba(212, 163, 89, 0.05)', border: '1px solid var(--border)' }}>
-                                [{m.type}] similarity: {m.similarity.toFixed(2)}
-                              </span>
-                            ))}
+                      <div style={{ marginTop: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '0.5rem' }}>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--primary)' }}>🧠 Grounding Citations ({voiceContextTokenCount} tokens):</span>
+                        
+                        {(voiceUsedMemories.length === 0 && voiceUsedConversations.length === 0) ? (
+                          <div style={{ padding: '0.5rem', textAlign: 'center', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', marginTop: '0.2rem', color: 'var(--text)' }}>
+                            No relevant memory found
                           </div>
-                        </div>
-                      )}
-
-                      {voiceUsedConversations && voiceUsedConversations.length > 0 && (
-                        <div style={{ marginTop: '0.25rem' }}>
-                          <span style={{ fontSize: '0.65rem', fontWeight: 600, opacity: 0.7 }}>Retrieved Conversations:</span>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginTop: '0.2rem' }}>
-                            {voiceUsedConversations.map((c: { id: string; createdAt: string; text: string; similarity?: number }, idx: number) => (
-                              <div key={idx} style={{ padding: '0.4rem 0.6rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', backgroundColor: 'var(--background)' }}>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.25rem' }}>
+                            {/* Voice Memories */}
+                            {voiceUsedMemories.map((m, idx) => (
+                              <div key={'vmem-' + idx} style={{ padding: '0.4rem 0.6rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', backgroundColor: 'var(--background)' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', opacity: 0.6, fontSize: '0.65rem', marginBottom: '0.15rem' }}>
-                                  <span style={{ color: 'var(--primary)', fontWeight: 600 }}>Past Conversation</span>
-                                  <span>{new Date(c.createdAt).toLocaleDateString()} {new Date(c.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                  <span style={{ color: '#3b82f6', fontWeight: 600 }}>Persistent Memory ({m.type})</span>
+                                  <span>Similarity: {m.similarity.toFixed(2)}</span>
                                 </div>
-                                <div style={{ fontStyle: 'italic', fontSize: '0.75rem', color: 'var(--text)' }}>&ldquo;{c.text}&rdquo;</div>
+                                <div style={{ fontStyle: 'italic', fontSize: '0.75rem', color: 'var(--text)' }}>&ldquo;{m.content || 'Memory ' + m.id.substring(0, 8)}&rdquo;</div>
+                              </div>
+                            ))}
+
+                            {/* Voice Conversations */}
+                            {voiceUsedConversations.map((c, idx) => (
+                              <div key={'vconv-' + idx} style={{ padding: '0.4rem 0.6rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', backgroundColor: 'var(--background)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', opacity: 0.6, fontSize: '0.65rem', marginBottom: '0.15rem' }}>
+                                  <span style={{ color: '#10b981', fontWeight: 600 }}>Past Conversation</span>
+                                  <span>{new Date(c.createdAt).toLocaleDateString()}</span>
+                                </div>
+                                <div style={{ fontStyle: 'italic', fontSize: '0.75rem', color: 'var(--text)', marginBottom: '0.15rem' }}>&ldquo;{c.matchedSnippet || c.text}&rdquo;</div>
+                                <div style={{ fontSize: '0.65rem', opacity: 0.7 }}>
+                                  {c.similarity !== undefined && c.similarity !== null ? (
+                                    <span>Similarity: {c.similarity.toFixed(2)}</span>
+                                  ) : (
+                                    <span style={{ color: 'var(--primary)' }}>Relevance: Keyword Match</span>
+                                  )}
+                                </div>
                               </div>
                             ))}
                           </div>
-                        </div>
-                      )}
+                        )}
+                      </div>
 
                       <button
                         onClick={resetVoiceSession}
@@ -2067,56 +2078,63 @@ export default function MemoryDashboard() {
                         </div>
                       )}
 
-                      <div>
-                        <h4 style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.4rem' }}>🔒 Supporting Memories Trace</h4>
-                        {responseResult.usedMemories.length === 0 ? (
-                          <div style={{ padding: '0.75rem', textAlign: 'center', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem' }}>
-                            No matching memories were used as context.
+                      <div style={{ marginTop: '0.75rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.4rem' }}>🔒 Grounding Citations</h4>
+                        
+                        {(!responseResult.usedMemories || responseResult.usedMemories.length === 0) &&
+                         (!responseResult.usedConversations || responseResult.usedConversations.length === 0) ? (
+                          <div style={{ padding: '0.75rem', textAlign: 'center', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', color: 'var(--text)' }}>
+                            No relevant memory found
                           </div>
                         ) : (
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.5rem' }}>
-                            {responseResult.usedMemories.map((used) => (
+                            {/* Persistent Memories */}
+                            {responseResult.usedMemories && responseResult.usedMemories.map((used) => (
                               <div key={used.id} style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', fontSize: '0.75rem' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                                  <span className="badge" style={{ backgroundColor: 'var(--background)', color: 'var(--primary)', fontSize: '0.65rem' }}>
-                                    {used.type}
+                                  <span className="badge" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', fontSize: '0.65rem', fontWeight: 600 }}>
+                                    Persistent Memory ({used.type})
                                   </span>
                                   <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>
                                     ID: {used.id.substring(0, 8)}...
                                   </span>
                                 </div>
-                                <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.7rem', opacity: 0.7, marginTop: '0.25rem' }}>
-                                  <span>Sim: <strong>{used.similarity.toFixed(2)}</strong></span>
+                                <div style={{ fontStyle: 'italic', fontSize: '0.75rem', color: 'var(--text)', borderLeft: '2px solid #3b82f6', paddingLeft: '0.4rem', marginTop: '0.25rem', marginBottom: '0.25rem' }}>
+                                  &ldquo;{used.content || 'Memory ' + used.id.substring(0, 8)}&rdquo;
+                                </div>
+                                <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.7rem', opacity: 0.7 }}>
+                                  <span>Similarity: <strong>{used.similarity.toFixed(2)}</strong></span>
                                   <span>Score: <strong>{used.score.toFixed(3)}</strong></span>
                                 </div>
                               </div>
                             ))}
-                          </div>
-                        )}
-                      </div>
 
-                      {responseResult.usedConversations && responseResult.usedConversations.length > 0 && (
-                        <div style={{ marginTop: '0.25rem' }}>
-                          <h4 style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.4rem' }}>💬 Supporting Conversation Sources</h4>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.5rem' }}>
-                            {responseResult.usedConversations.map((used: { id: string; createdAt: string; text: string; similarity?: number }, index: number) => (
-                              <div key={used.id + '-' + index} style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', fontSize: '0.75rem' }}>
+                            {/* Past Conversations */}
+                            {responseResult.usedConversations && responseResult.usedConversations.map((used, index) => (
+                              <div key={(used.conversationId || used.id) + '-' + index} style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', fontSize: '0.75rem' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                                  <span className="badge" style={{ backgroundColor: 'var(--background)', color: 'var(--primary)', fontSize: '0.65rem' }}>
+                                  <span className="badge" style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981', fontSize: '0.65rem', fontWeight: 600 }}>
                                     Past Conversation
                                   </span>
                                   <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>
-                                    {new Date(used.createdAt).toLocaleDateString()} {new Date(used.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    {new Date(used.createdAt).toLocaleDateString()}
                                   </span>
                                 </div>
-                                <div style={{ fontStyle: 'italic', fontSize: '0.75rem', color: 'var(--text)', borderLeft: '2px solid var(--primary)', paddingLeft: '0.4rem', marginTop: '0.25rem' }}>
-                                  &ldquo;{used.text}&rdquo;
+                                <div style={{ fontStyle: 'italic', fontSize: '0.75rem', color: 'var(--text)', borderLeft: '2px solid #10b981', paddingLeft: '0.4rem', marginTop: '0.25rem', marginBottom: '0.25rem' }}>
+                                  &ldquo;{used.matchedSnippet || used.text}&rdquo;
+                                </div>
+                                <div style={{ fontSize: '0.7rem', opacity: 0.7 }}>
+                                  {used.similarity !== undefined && used.similarity !== null ? (
+                                    <span>Similarity: <strong>{used.similarity.toFixed(2)}</strong></span>
+                                  ) : (
+                                    <span style={{ color: 'var(--primary)' }}>Relevance: Keyword Match</span>
+                                  )}
                                 </div>
                               </div>
-                            ))}
+                            ))}`
                           </div>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

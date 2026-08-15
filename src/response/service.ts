@@ -5,7 +5,7 @@ import { ContextResult } from '@/context/types';
 import { ResponseGenerator } from './generator';
 import { PgMemoryRepository } from '@/memory/repository';
 import { logTelemetry } from '@/core/logger';
-import { ConversationRetriever } from '@/conversation/retriever';
+import { ConversationRetriever, ConversationSnippetResult } from '@/conversation/retriever';
 
 export interface ContextualResponseResult {
   response: string;
@@ -14,12 +14,15 @@ export interface ContextualResponseResult {
     type: string;
     similarity: number;
     score: number;
+    content?: string;
   }[];
   contextTokenCount: number;
   usedConversations?: {
     id: string;
+    conversationId: string;
     createdAt: string;
     text: string;
+    matchedSnippet: string;
     similarity?: number;
   }[];
   governance?: ContextResult['governance'];
@@ -158,7 +161,7 @@ export class ResponseService {
       estimatedContextTokens = assemblyResult.tokenCount;
 
       // Sprint 20 Conversation Snippet Retrieval
-      let conversationSnippets: { conversationId: string; createdAt: Date; text: string; similarity?: number }[] = [];
+      let conversationSnippets: ConversationSnippetResult[] = [];
       if (this.conversationRetriever) {
         try {
           conversationSnippets = await this.conversationRetriever.retrieveSnippets(userId, query);
@@ -169,17 +172,33 @@ export class ResponseService {
 
       let combinedContext = assemblyResult.context;
       let finalTokenCount = assemblyResult.tokenCount;
+      const finalConversationSnippets: ConversationSnippetResult[] = [];
 
       if (conversationSnippets.length > 0) {
         const memoryLines = assemblyResult.context ? assemblyResult.context.split('\n').filter(Boolean) : [];
         const formattedMemoryLines = memoryLines.map(line => `[MEMORY] ${line}`);
-        
-        const formattedConversationLines = conversationSnippets.map(
-          s => `[PAST CONVERSATION] [Date: ${s.createdAt.toISOString().split('T')[0]}] ${s.text}`
-        );
+        const formattedConversationLines: string[] = [];
+
+        // Build combined context line by line to respect maxTokens
+        let currentTokens = Math.ceil(formattedMemoryLines.join('\n').length / 4);
+
+        for (const s of conversationSnippets) {
+          const snippetText = s.matchedSnippet || s.text;
+          const line = `[PAST CONVERSATION] [Date: ${s.createdAt.toISOString().split('T')[0]}] ${snippetText}`;
+          const snippetTokens = Math.ceil(line.length / 4);
+          
+          if (currentTokens + snippetTokens <= maxTokens || formattedConversationLines.length === 0) {
+            formattedConversationLines.push(line);
+            finalConversationSnippets.push(s);
+            currentTokens += snippetTokens;
+          } else {
+            // Exceeds maxTokens budget
+            break;
+          }
+        }
 
         combinedContext = [...formattedMemoryLines, ...formattedConversationLines].join('\n');
-        finalTokenCount = Math.ceil(combinedContext.length / 4);
+        finalTokenCount = currentTokens;
       }
 
       estimatedContextTokens = finalTokenCount;
@@ -199,12 +218,15 @@ export class ResponseService {
         type: item.type,
         similarity: item.similarity,
         score: item.score,
+        content: item.content,
       }));
 
-      const usedConversations = conversationSnippets.map((s) => ({
+      const usedConversations = finalConversationSnippets.map((s) => ({
         id: s.conversationId,
+        conversationId: s.conversationId,
         createdAt: s.createdAt.toISOString(),
-        text: s.text,
+        text: s.matchedSnippet || s.text,
+        matchedSnippet: s.matchedSnippet || s.text,
         similarity: s.similarity,
       }));
 
