@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { deriveLifecycleState } from '@/core/types';
+import type { Memory as PackageMemory } from '@/core/types';
 
 interface MemoryMetadata {
   source: string;
@@ -76,7 +78,50 @@ interface HealthResponse {
   };
 }
 
-export default function Home() {
+const getLifecycleColor = (state: string) => {
+  switch (state) {
+    case 'core':
+      return { bg: 'rgba(91, 138, 82, 0.15)', text: '#5b8a52', border: '#5b8a52' };
+    case 'stable':
+      return { bg: 'rgba(74, 114, 153, 0.15)', text: '#4a7299', border: '#4a7299' };
+    case 'fading':
+      return { bg: 'rgba(219, 145, 66, 0.15)', text: '#db9142', border: '#db9142' };
+    case 'historical':
+    default:
+      return { bg: 'rgba(128, 128, 128, 0.15)', text: 'gray', border: 'gray' };
+  }
+};
+
+export default function MemoryDashboard() {
+  // Consolidation State
+  const [loadingConsolidate, setLoadingConsolidate] = useState(false);
+  const [consolidateMessage, setConsolidateMessage] = useState<string | null>(null);
+
+  const handleConsolidate = async () => {
+    if (!userId.trim()) return;
+    setLoadingConsolidate(true);
+    setConsolidateMessage(null);
+    try {
+      const res = await fetch('/api/memory/consolidate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: userId.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.status === 'success') {
+        setConsolidateMessage(`Consolidation successful! Consolidated ${data.consolidatedCount} duplicate records.`);
+        fetchMemories();
+      } else {
+        setConsolidateMessage(`Consolidation failed: ${data.error || 'Unknown error'}`);
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setConsolidateMessage(`Consolidation failed: ${errMsg}`);
+    } finally {
+      setLoadingConsolidate(false);
+    }
+  };
+
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [loadingHealth, setLoadingHealth] = useState(true);
   const [healthError, setHealthError] = useState(false);
@@ -562,6 +607,31 @@ export default function Home() {
                         {memory.type}
                       </span>
                       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        {(() => {
+                          const lifecycle = deriveLifecycleState({
+                            id: memory.id,
+                            userId: memory.userId,
+                            type: memory.type,
+                            content: memory.content,
+                            metadata: memory.metadata,
+                            createdAt: new Date(memory.createdAt),
+                            updatedAt: new Date(memory.updatedAt),
+                          } as unknown as PackageMemory);
+                          const colors = getLifecycleColor(lifecycle);
+                          return (
+                            <span className="badge" style={{
+                              backgroundColor: colors.bg,
+                              color: colors.text,
+                              borderColor: colors.border,
+                              fontSize: '0.7rem',
+                              textTransform: 'uppercase',
+                              fontWeight: 'bold',
+                              border: '1px solid'
+                            }}>
+                              {lifecycle}
+                            </span>
+                          );
+                        })()}
                         <span style={{ fontSize: '0.75rem', opacity: 0.8 }}>
                           Conf: <strong>{(memory.metadata.confidence * 100).toFixed(0)}%</strong>
                         </span>
@@ -585,6 +655,180 @@ export default function Home() {
               </div>
             )}
           </div>
+        </section>
+
+        {/* Memory Health Panel */}
+        <section className="card" style={{ marginTop: '2.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '0.5rem' }}>
+            <h3 className="card-title" style={{ marginBottom: 0 }}>📊 Memory Lifecycle & Health Console</h3>
+            <button
+              onClick={handleConsolidate}
+              className="btn btn-primary"
+              disabled={loadingConsolidate || memories.length === 0}
+              style={{ fontSize: '0.85rem', padding: '0.4rem 0.8rem' }}
+            >
+              {loadingConsolidate ? 'Consolidating...' : '⚡ Consolidate Duplicates'}
+            </button>
+          </div>
+          <p style={{ fontSize: '0.9rem', opacity: 0.7, marginBottom: '1.5rem' }}>
+            Analytics on memory persistence, confidence thresholds, and reinforcement tracking.
+          </p>
+
+          {consolidateMessage && (
+            <div style={{
+              padding: '0.75rem',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: '0.85rem',
+              border: '1px solid var(--success)',
+              backgroundColor: 'rgba(91, 138, 82, 0.1)',
+              color: 'var(--success)',
+              marginBottom: '1.25rem'
+            }}>
+              {consolidateMessage}
+            </div>
+          )}
+
+          {(() => {
+            if (memories.length === 0) {
+              return (
+                <div style={{ padding: '2rem', textAlign: 'center', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)' }}>
+                  No health analytics available yet. Ingest memories to compile metrics.
+                </div>
+              );
+            }
+
+            // Derive stats
+            const stats = memories.reduce((acc, m) => {
+              const lf = deriveLifecycleState({
+                id: m.id,
+                userId: m.userId,
+                type: m.type,
+                content: m.content,
+                metadata: m.metadata,
+                createdAt: new Date(m.createdAt),
+                updatedAt: new Date(m.updatedAt)
+              } as unknown as PackageMemory);
+              acc[lf] = (acc[lf] || 0) + 1;
+              acc.totalConfidence += (m.metadata.confidence || 0.9);
+              acc.totalImportance += (m.metadata.importance || 5);
+              return acc;
+            }, { core: 0, stable: 0, fading: 0, historical: 0, totalConfidence: 0, totalImportance: 0 });
+
+            const avgConfidence = stats.totalConfidence / memories.length;
+            const avgImportance = stats.totalImportance / memories.length;
+
+            // Find top 3 reinforced memories (sorting by reinforcementCount, then accessCount)
+            const sortedMemories = [...memories].sort((a, b) => {
+              const aR = (a.metadata.reinforcementCount as number) || 0;
+              const bR = (b.metadata.reinforcementCount as number) || 0;
+              if (bR !== aR) return bR - aR;
+              const aA = (a.metadata.accessCount as number) || 0;
+              const bA = (b.metadata.accessCount as number) || 0;
+              return bA - aA;
+            });
+            const topReinforced = sortedMemories.slice(0, 3);
+
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.5rem' }}>
+                {/* Stats Breakdown */}
+                <div style={{
+                  padding: '1.25rem',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)',
+                  backgroundColor: 'var(--surface)'
+                }}>
+                  <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '1rem', color: 'var(--primary)' }}>Classification Metrics</h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#5b8a52' }} /> Core Memories
+                      </span>
+                      <strong className="badge" style={{ backgroundColor: 'rgba(91, 138, 82, 0.15)', color: '#5b8a52' }}>{stats.core || 0}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#4a7299' }} /> Stable Memories
+                      </span>
+                      <strong className="badge" style={{ backgroundColor: 'rgba(74, 114, 153, 0.15)', color: '#4a7299' }}>{stats.stable || 0}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#db9142' }} /> Fading Memories
+                      </span>
+                      <strong className="badge" style={{ backgroundColor: 'rgba(219, 145, 66, 0.15)', color: '#db9142' }}>{stats.fading || 0}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'gray' }} /> Historical Memories
+                      </span>
+                      <strong className="badge" style={{ backgroundColor: 'rgba(128, 128, 128, 0.15)', color: 'gray' }}>{stats.historical || 0}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Averages Console */}
+                <div style={{
+                  padding: '1.25rem',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)',
+                  backgroundColor: 'var(--surface)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                  gap: '1rem'
+                }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--primary)' }}>
+                      {(avgConfidence * 100).toFixed(0)}%
+                    </div>
+                    <div style={{ fontSize: '0.75rem', opacity: 0.6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Average Confidence
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'center', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+                    <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--primary)' }}>
+                      {avgImportance.toFixed(1)}/10
+                    </div>
+                    <div style={{ fontSize: '0.75rem', opacity: 0.6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Average Importance
+                    </div>
+                  </div>
+                </div>
+
+                {/* Top Reinforced Memories */}
+                <div style={{
+                  padding: '1.25rem',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)',
+                  backgroundColor: 'var(--surface)'
+                }}>
+                  <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.75rem', color: 'var(--primary)' }}>🔥 Top Reinforced</h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {topReinforced.map((m, idx) => {
+                      const access = (m.metadata.accessCount as number) || 0;
+                      const reinforce = (m.metadata.reinforcementCount as number) || 0;
+                      return (
+                        <div key={m.id} style={{
+                          padding: '0.5rem',
+                          borderRadius: 'var(--radius-xs)',
+                          border: '1px solid var(--border)',
+                          backgroundColor: 'var(--background)'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '0.25rem' }}>
+                            <span style={{ fontWeight: 600 }}>#{idx + 1} {m.type}</span>
+                            <span style={{ opacity: 0.7 }}>Reinforce: <strong>{reinforce}</strong> (Hits: {access})</span>
+                          </div>
+                          <p style={{ fontSize: '0.8rem', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', margin: 0 }}>
+                            {m.content}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </section>
 
         {/* Memory Timeline & History */}

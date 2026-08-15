@@ -87,6 +87,10 @@ describe('MemoryIngestionService', () => {
         importance: 4,
         timestamp: expect.any(String),
         status: 'active',
+        accessCount: 0,
+        lastAccessedAt: expect.any(String),
+        reinforcementCount: 0,
+        lifecycleUpdatedAt: expect.any(String),
       },
     });
     expect(mockEmbeddingProvider.generateEmbedding).toHaveBeenCalledWith('User likes green tea');
@@ -170,6 +174,10 @@ describe('MemoryIngestionService', () => {
         status: 'active',
         validFrom: expect.any(String),
         supersedes: 'mem-update-id',
+        accessCount: 0,
+        lastAccessedAt: expect.any(String),
+        reinforcementCount: 0,
+        lifecycleUpdatedAt: expect.any(String),
       },
     });
     expect(mockRepo.update).toHaveBeenCalledWith('mem-update-id', {
@@ -229,6 +237,7 @@ describe('MemoryIngestionService', () => {
         timestamp: expect.any(String),
         supersededAt: expect.any(String),
         validUntil: expect.any(String),
+        lifecycleUpdatedAt: expect.any(String),
       },
     });
     expect(result).toEqual([deletedMemory]);

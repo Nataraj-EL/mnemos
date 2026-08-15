@@ -1,4 +1,5 @@
 import { MemoryRetriever } from '@/memory/retriever';
+import { normalizeMetadata } from '@/core/types';
 import { ContextAssembler } from '@/context/assembler';
 import { ResponseGenerator } from './generator';
 import { PgMemoryRepository } from '@/memory/repository';
@@ -162,6 +163,52 @@ export class ResponseService {
         similarity: item.similarity,
         score: item.score,
       }));
+
+      // 5.5 Reinforce memories actually included in the final context
+      if (this.repository) {
+        const now = new Date();
+        const nowStr = now.toISOString();
+
+        for (const item of finalItems) {
+          try {
+            // Retrieve fresh memory state
+            const memory = await this.repository.get(item.id);
+            if (memory && memory.userId === userId) {
+              const metadata = normalizeMetadata(memory.metadata, memory.createdAt);
+              
+              // Increment accessCount
+              const newAccessCount = (metadata.accessCount ?? 0) + 1;
+
+              // Cooldown calculation: use the PREVIOUS lastAccessedAt for cooldown calculation
+              const prevLastAccessedStr = metadata.lastAccessedAt || metadata.timestamp;
+              const prevLastAccessed = new Date(prevLastAccessedStr);
+              const diffSec = Math.max(0, now.getTime() - prevLastAccessed.getTime()) / 1000;
+
+              let newReinforcementCount = metadata.reinforcementCount ?? 0;
+              let newConfidence = metadata.confidence ?? 0.9;
+
+              if (diffSec >= 300) {
+                // Cooldown of 300 seconds passed
+                newReinforcementCount += 1;
+                newConfidence = Math.min(1.0, newConfidence + 0.05);
+              }
+
+              await this.repository.update(item.id, {
+                metadata: {
+                  ...metadata,
+                  accessCount: newAccessCount,
+                  lastAccessedAt: nowStr,
+                  reinforcementCount: newReinforcementCount,
+                  confidence: parseFloat(newConfidence.toFixed(4)),
+                  lifecycleUpdatedAt: nowStr,
+                },
+              });
+            }
+          } catch (reinforceErr) {
+            console.error(`Reinforcement failed for memory ${item.id}:`, reinforceErr);
+          }
+        }
+      }
 
       // Log success telemetry
       logTelemetry({

@@ -1,4 +1,4 @@
-import { Memory, MemoryType } from '@/core/types';
+import { Memory, MemoryType, normalizeMetadata } from '@/core/types';
 import { ContextItem, ContextResult } from './types';
 
 export const HALF_LIFE_DAYS = 30;
@@ -69,31 +69,40 @@ export class ContextAssembler {
     const scoredItems: ContextItem[] = candidates.map((item) => {
       const { memory, similarity } = item;
 
-      // Normalized Importance (1-10 -> 0.1-1.0)
-      const importanceVal = memory.metadata.importance ?? 5;
+      const metadata = normalizeMetadata(memory.metadata, memory.createdAt);
+      const importanceVal = metadata.importance;
       const normalizedImportance = importanceVal / 10;
+      const confidence = metadata.confidence;
 
       // Recency decay calculation
-      const timestampStr =
-        memory.metadata.timestamp ||
-        (memory.createdAt ? new Date(memory.createdAt).toISOString() : new Date().toISOString());
+      const timestampStr = metadata.timestamp;
       const memoryDate = new Date(timestampStr);
       const now = new Date();
       const elapsedMs = Math.max(0, now.getTime() - memoryDate.getTime());
       const elapsedDays = elapsedMs / (1000 * 60 * 60 * 24);
       const recencyScore = 1 / (1 + elapsedDays / HALF_LIFE_DAYS);
 
+      // Deterministic decay calculation based on time since lastAccessedAt
+      const lastAccessedStr = metadata.lastAccessedAt || timestampStr;
+      const lastAccessedDate = new Date(lastAccessedStr);
+      const elapsedAccessMs = Math.max(0, now.getTime() - lastAccessedDate.getTime());
+      const elapsedAccessDays = elapsedAccessMs / (1000 * 60 * 60 * 24);
+      const decayFactor = 1 / (1 + elapsedAccessDays / 90);
+
       // Type weight
       const typeWeight = TYPE_WEIGHTS[memory.type] ?? 0.5;
 
-      // Final score (Sprint 4 scoring weights formula unchanged)
+      const effectiveImportance = normalizedImportance * confidence;
+      const effectiveRecency = recencyScore * decayFactor;
+
+      // Final score (Sprint 8 scoring weights formula with confidence + decay)
       const score =
         similarity * SCORING_WEIGHTS.similarity +
-        normalizedImportance * SCORING_WEIGHTS.importance +
-        recencyScore * SCORING_WEIGHTS.recency +
+        effectiveImportance * SCORING_WEIGHTS.importance +
+        effectiveRecency * SCORING_WEIGHTS.recency +
         typeWeight * SCORING_WEIGHTS.type;
 
-      const reason = `Score ${score.toFixed(3)} [Sim: ${similarity.toFixed(2)}, Imp: ${importanceVal}/10, Recency: ${recencyScore.toFixed(2)}, Type: ${memory.type}]`;
+      const reason = `Score ${score.toFixed(3)} [Sim: ${similarity.toFixed(2)}, Imp: ${importanceVal}/10, Conf: ${confidence.toFixed(2)}, Recency: ${recencyScore.toFixed(2)}, Decay: ${decayFactor.toFixed(2)}, Type: ${memory.type}]`;
 
       return {
         id: memory.id,
@@ -103,7 +112,7 @@ export class ContextAssembler {
         importance: importanceVal,
         score,
         reason,
-        status: (memory.metadata.status || 'active') as 'active' | 'superseded',
+        status: (metadata.status || 'active') as 'active' | 'superseded',
       };
     });
 

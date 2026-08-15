@@ -54,6 +54,10 @@ export class MemoryIngestionService {
             importance: act.importance ?? 5,
             timestamp: new Date().toISOString(),
             status: 'active',
+            accessCount: 0,
+            lastAccessedAt: new Date().toISOString(),
+            reinforcementCount: 0,
+            lifecycleUpdatedAt: new Date().toISOString(),
           },
         });
 
@@ -104,6 +108,10 @@ export class MemoryIngestionService {
             status: 'active',
             validFrom: nowStr,
             supersedes: existingMemory.id,
+            accessCount: 0,
+            lastAccessedAt: nowStr,
+            reinforcementCount: 0,
+            lifecycleUpdatedAt: nowStr,
           },
         });
 
@@ -157,6 +165,7 @@ export class MemoryIngestionService {
             validUntil: nowStr,
             timestamp: nowStr,
             supersededAt: nowStr,
+            lifecycleUpdatedAt: nowStr,
           },
         });
         processedMemories.push(superseded);
