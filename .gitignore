@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local python environments
+/venv/
+.venv/
+
+# local whisper cache and temp files
+/.whisper_cache/
+/src/voice/tmp/

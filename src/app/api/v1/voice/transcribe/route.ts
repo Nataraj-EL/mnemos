@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { WhisperTranscriptionProvider } from '@/voice/whisperTranscription';
+import { LocalWhisperTranscriptionProvider } from '@/voice/localWhisperTranscription';
 import { logTelemetry } from '@/core/logger';
 import {
   authenticate,
@@ -143,7 +144,9 @@ export async function POST(request: Request) {
     }
 
     // 6. Execute Transcription Provider
-    const provider = new WhisperTranscriptionProvider();
+    const provider = process.env.WHISPER_PROVIDER === 'cloud'
+      ? new WhisperTranscriptionProvider()
+      : new LocalWhisperTranscriptionProvider();
     const result = await provider.transcribe(audioBuffer, normalizedMime);
 
     // Empty transcript check

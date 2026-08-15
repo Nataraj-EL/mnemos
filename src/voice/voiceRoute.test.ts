@@ -6,6 +6,7 @@ describe('POST /api/v1/voice/transcribe API Route', () => {
   beforeEach(() => {
     process.env.MNEMOS_AUTH_ENABLED = 'false';
     process.env.WHISPER_API_KEY = 'mock-whisper-key';
+    process.env.WHISPER_PROVIDER = 'cloud';
     vi.stubGlobal('fetch', vi.fn());
     resetRateLimits();
   });

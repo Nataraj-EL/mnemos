@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { WhisperTranscriptionProvider } from '@/voice/whisperTranscription';
+import { LocalWhisperTranscriptionProvider } from '@/voice/localWhisperTranscription';
 import { GeminiEmbeddingProvider } from '@/memory/geminiEmbedding';
 import { MemoryRetriever } from '@/memory/retriever';
 import { ContextAssembler } from '@/context/assembler';
@@ -153,8 +154,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // 6. Execute Whisper transcription provider (timeout protected natively to 10s)
-    const transcriptionProvider = new WhisperTranscriptionProvider();
+    // 6. Execute Whisper transcription provider
+    const transcriptionProvider = process.env.WHISPER_PROVIDER === 'cloud'
+      ? new WhisperTranscriptionProvider()
+      : new LocalWhisperTranscriptionProvider();
     const transcriptionResult = await transcriptionProvider.transcribe(audioBuffer, normalizedMime);
 
     const transcript = transcriptionResult.text ? transcriptionResult.text.trim() : '';

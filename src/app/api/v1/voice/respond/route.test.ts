@@ -28,6 +28,7 @@ vi.mock('@/response/service', () => {
 describe('POST /api/v1/voice/respond Route Handler', () => {
   beforeEach(() => {
     process.env.MNEMOS_AUTH_ENABLED = 'false';
+    process.env.WHISPER_PROVIDER = 'cloud';
     resetRateLimits();
     mockTranscribe.mockReset();
     mockRespond.mockReset();
