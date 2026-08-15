@@ -202,14 +202,14 @@ export class LocalWhisperTranscriptionProvider implements TranscriptionProvider 
       const parsed = await response.json();
 
       const text = parsed.text || '';
-      const trimmedText = text.trim();
+      const normalized = normalizeTranscript(text);
 
-      if (!trimmedText) {
+      if (!normalized || normalized.length < 3) {
         throw new Error('Empty transcription: No text could be extracted from this audio.');
       }
 
       return {
-        text: trimmedText,
+        text: normalized,
         metadata: {
           model: `local-whisper-${this.modelName}`,
           mimeType: mimeType || 'audio/wav',
@@ -277,3 +277,12 @@ function cleanup() {
 process.on('exit', cleanup);
 process.on('SIGINT', () => { cleanup(); process.exit(0); });
 process.on('SIGTERM', () => { cleanup(); process.exit(0); });
+
+export function normalizeTranscript(text: string): string {
+  let trimmed = text.trim();
+  if (!trimmed) return '';
+  trimmed = trimmed.replace(/[ \t]+/g, ' ');
+  trimmed = trimmed.replace(/[ \t]*\n[ \t]*/g, '\n');
+  trimmed = trimmed.replace(/\n\s*\n+/g, '\n\n');
+  return trimmed;
+}

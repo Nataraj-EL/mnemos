@@ -245,7 +245,78 @@ export default function MemoryDashboard() {
     setVoiceUsedConversations([]);
     setVoiceContextTokenCount(0);
     setVoiceSessionState('idle');
-    setVoiceMode('transcribe');
+  };
+
+  const handleSubmitEditedVoiceQuery = async () => {
+    if (transcribeLoading || saveLoading) return;
+    if (!transcript || !transcript.trim()) return;
+
+    setTranscribeLoading(true);
+    setVoiceSessionState('transcribing');
+    setTranscribeError(null);
+    setVoiceResponseText(null);
+    setVoiceUsedMemories([]);
+    setVoiceUsedConversations([]);
+    setVoiceContextTokenCount(0);
+    const start = Date.now();
+
+    try {
+      const response = await fetch('/api/memory/respond', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: userId.trim(),
+          query: transcript.trim(),
+          limit: Number(responseLimit),
+          maxTokens: Number(responseMaxTokens),
+        }),
+      });
+
+      const data = await response.json();
+      const latency = Date.now() - start;
+      const reqId = data.requestId || 'req-' + Math.random().toString(36).substring(2, 9);
+
+      setRequestMetrics((prev) => [
+        {
+          id: reqId,
+          timestamp: new Date().toISOString(),
+          endpoint: 'POST /api/memory/respond',
+          latency,
+          status: response.ok ? '200 OK' : `${response.status} Error`,
+        },
+        ...prev,
+      ]);
+
+      if (!response.ok) {
+        let msg = 'Failed to generate response.';
+        if (data.error) {
+          const errLower = data.error.toLowerCase();
+          if (errLower.includes('api_key') || errLower.includes('api key') || errLower.includes('provider') || errLower.includes('unavailable')) {
+            msg = 'Grounded response service is temporarily unavailable.';
+          } else if (errLower.includes('limit') || errLower.includes('token') || errLower.includes('budget')) {
+            msg = 'The query exceeds resource limits or context token budgets.';
+          } else {
+            msg = data.error;
+          }
+        }
+        setTranscribeError(msg);
+        setVoiceSessionState('error');
+      } else {
+        setVoiceResponseText(data.response);
+        setVoiceUsedMemories(data.usedMemories || []);
+        setVoiceUsedConversations(data.usedConversations || []);
+        setVoiceContextTokenCount(data.contextTokenCount || 0);
+        setVoiceSessionState('review');
+      }
+    } catch (err) {
+      console.error('Failed to submit edited voice query:', err);
+      setTranscribeError('An error occurred during query generation.');
+      setVoiceSessionState('error');
+    } finally {
+      setTranscribeLoading(false);
+    }
   };
 
   const resetVoiceSession = () => {
@@ -1687,18 +1758,22 @@ export default function MemoryDashboard() {
                   )}
 
                   {/* Transcript editable card */}
-                  {voiceMode === 'transcribe' && (voiceSessionState === 'review' || voiceSessionState === 'saving' || voiceSessionState === 'saved' || voiceSessionState === 'error') && transcript !== undefined && (
+                  {(voiceSessionState === 'review' || voiceSessionState === 'saving' || voiceSessionState === 'saved' || voiceSessionState === 'error') && transcript !== undefined && (
                     <div style={{ marginTop: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)' }}>Transcript Output</span>
-                        <button
-                          onClick={() => setContentInput(transcript)}
-                          className="premium-btn premium-btn-secondary"
-                          style={{ padding: '0.2rem 0.4rem', fontSize: '0.7rem' }}
-                          disabled={voiceSessionState === 'saving' || extractionState === 'extracting'}
-                        >
-                          📋 Copy to Ingest Form
-                        </button>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)' }}>
+                          {voiceMode === 'ask' ? 'Edit Question' : 'Transcript Output'}
+                        </span>
+                        {voiceMode === 'transcribe' && (
+                          <button
+                            onClick={() => setContentInput(transcript)}
+                            className="premium-btn premium-btn-secondary"
+                            style={{ padding: '0.2rem 0.4rem', fontSize: '0.7rem' }}
+                            disabled={voiceSessionState === 'saving' || extractionState === 'extracting'}
+                          >
+                            📋 Copy to Ingest Form
+                          </button>
+                        )}
                       </div>
                       
                       <textarea
@@ -1709,7 +1784,7 @@ export default function MemoryDashboard() {
                             setVoiceSessionState('review');
                           }
                         }}
-                        readOnly={voiceSessionState === 'saving' || voiceSessionState === 'saved' || extractionState === 'extracting'}
+                        readOnly={voiceSessionState === 'saving' || voiceSessionState === 'saved' || extractionState === 'extracting' || (voiceMode === 'ask' && transcribeLoading)}
                         style={{
                           width: '100%',
                           minHeight: '120px',
@@ -1729,7 +1804,36 @@ export default function MemoryDashboard() {
                         Characters: {transcript.length} / 10,000 ({Math.max(0, 10000 - transcript.length)} remaining)
                       </div>
 
-                      {voiceSessionState === 'saved' ? (
+                      {voiceMode === 'ask' ? (
+                        <div style={{ display: 'flex', gap: '0.5rem', width: '100%', marginTop: '0.25rem' }}>
+                          <button
+                            onClick={resetVoiceSession}
+                            className="premium-btn premium-btn-secondary"
+                            style={{ flex: 1 }}
+                            disabled={transcribeLoading || saveLoading}
+                            type="button"
+                          >
+                            ✕ Clear
+                          </button>
+                          
+                          <button
+                            onClick={handleSubmitEditedVoiceQuery}
+                            className="premium-btn premium-btn-primary"
+                            disabled={transcribeLoading || saveLoading || !transcript || !transcript.trim()}
+                            style={{ flex: 2 }}
+                            type="button"
+                          >
+                            {transcribeLoading ? (
+                              <>
+                                {renderSpinner()}
+                                Generating...
+                              </>
+                            ) : (
+                              'Get Answer'
+                            )}
+                          </button>
+                        </div>
+                      ) : voiceSessionState === 'saved' ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%', marginTop: '0.25rem' }}>
                           <div style={{
                             padding: '0.5rem 0.75rem',
@@ -1851,17 +1955,8 @@ export default function MemoryDashboard() {
                     </div>
                   )}
 
-                  {voiceMode === 'ask' && (transcript || voiceResponseText) && (
+                  {voiceMode === 'ask' && voiceResponseText && (
                     <div style={{ marginTop: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                      {transcript && (
-                        <div>
-                          <span style={{ fontSize: '0.7rem', fontWeight: 600, opacity: 0.7 }}>Transcribed Question:</span>
-                          <div style={{ padding: '0.5rem 0.75rem', backgroundColor: 'var(--background)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', fontStyle: 'italic', marginTop: '0.2rem' }}>
-                            &ldquo;{transcript}&rdquo;
-                          </div>
-                        </div>
-                      )}
-                      
                       {voiceResponseText && (
                         <div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>

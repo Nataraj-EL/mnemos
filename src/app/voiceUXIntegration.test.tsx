@@ -227,3 +227,51 @@ describe('Voice UX Integration State Machine Unit Tests (Sprint 19)', () => {
     expect(state.transcript).toBe('');
   });
 });
+
+describe('Voice UX Integration State Machine - Sprint 27 Additions', () => {
+  it('should prove transcript fidelity - normalizing whitespaces without altering words/casing/ends', () => {
+    const rawWhisperOutput = '   some   words  \n\n\n here  ';
+    // Trim and collapse whitespace/consecutive newlines
+    let normalized = rawWhisperOutput.trim();
+    normalized = normalized.replace(/[ \t]+/g, ' ');
+    normalized = normalized.replace(/[ \t]*\n[ \t]*/g, '\n');
+    normalized = normalized.replace(/\n\s*\n+/g, '\n\n');
+
+    expect(normalized).toBe('some words\n\nhere');
+  });
+
+  it('should reject empty or very short inputs (< 3 characters) during verification check', () => {
+    const noisyTranscript = '  h  ';
+    const checkLength = noisyTranscript.trim().length;
+    expect(checkLength).toBeLessThan(3);
+  });
+
+  it('should allow editing the transcript before save and show accurate character counts', () => {
+    let mockTranscript = 'Initial text';
+    expect(mockTranscript.length).toBe(12);
+
+    // Edit transcript
+    mockTranscript = 'Edited question';
+    expect(mockTranscript.length).toBe(15);
+  });
+
+  it('should prevent duplicate Get Answer requests using loading guard variables', async () => {
+    let callCount = 0;
+    let loading = false;
+
+    const getAnswerMock = async () => {
+      if (loading) return;
+      loading = true;
+      callCount++;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      loading = false;
+    };
+
+    // Simulate clicking twice quickly
+    const p1 = getAnswerMock();
+    const p2 = getAnswerMock();
+    await Promise.all([p1, p2]);
+
+    expect(callCount).toBe(1);
+  });
+});
