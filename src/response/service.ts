@@ -299,8 +299,17 @@ export class ResponseService {
         status: 'success',
       });
 
+      // --- SPRINT 32: Grounding Validation ---
+      const validation = this.validateResponseGrounding(
+        query,
+        generatorResult.text,
+        combinedContext,
+        usedMemories,
+        usedConversations
+      );
+
       return {
-        response: generatorResult.text,
+        response: validation.refinedResponse,
         usedMemories,
         contextTokenCount: finalTokenCount,
         usedConversations,
@@ -322,5 +331,118 @@ export class ResponseService {
       });
       throw error;
     }
+  }
+
+  private validateResponseGrounding(
+    query: string,
+    response: string,
+    context: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    usedMemories: any[],
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    usedConversations: any[]
+  ): { isValid: boolean; refinedResponse: string } {
+    const queryLower = query.toLowerCase();
+    const responseLower = response.toLowerCase();
+
+    // 1. Never expose prompts, internal IDs, provider errors, or developer diagnostics.
+    const diagnosticsKeywords = [
+      'systemprompt',
+      'user memory context',
+      'gemini_api_key',
+      'api key',
+      'database records',
+      'architecture',
+      'uuid',
+      'req-',
+      'correlationid',
+    ];
+    if (diagnosticsKeywords.some((kw) => responseLower.includes(kw))) {
+      return { isValid: false, refinedResponse: "I cannot expose internal diagnostics. Please ask another question about your memories." };
+    }
+
+    // 2. Prevent presenting personal facts as known when no trustworthy context exists.
+    const isPersonalQuery = /\b(my|me|i|myself|mine)\b/i.test(queryLower);
+    const hasContext = usedMemories.length > 0 || usedConversations.length > 0;
+    if (isPersonalQuery && !hasContext) {
+      const statesUnknown = [
+        'unknown',
+        "don't know",
+        "don't have",
+        "do not have",
+        'not sure',
+        'no context',
+        'no memories',
+        'no user memories',
+        'cannot verify',
+        'sorry',
+        'unable to',
+        'not in my memory',
+        'no memory'
+      ].some(k => responseLower.includes(k));
+      if (!statesUnknown) {
+        return {
+          isValid: false,
+          refinedResponse: "I do not have any saved memory context to answer this query. You can add memories or start a conversation to save this information."
+        };
+      }
+    }
+
+    // 3. Ensure only context actually included within the final token budget can be cited.
+    const citationMatches = response.match(/\[MEMORY\s+([a-zA-Z0-9_-]+)\]|\[PAST\s+CONVERSATION\s+([a-zA-Z0-9_-]+)\]/gi);
+    if (citationMatches) {
+      for (const cit of citationMatches) {
+        const idMatch = cit.match(/\[(?:MEMORY|PAST\s+CONVERSATION)\s+([a-zA-Z0-9_-]+)\]/i);
+        if (idMatch) {
+          const citId = idMatch[1];
+          const isValidId = usedMemories.some(m => m.id === citId) || usedConversations.some(c => c.conversationId === citId);
+          if (!isValidId) {
+            return {
+              isValid: false,
+              refinedResponse: "I cannot retrieve details from that specific cited source. Please ask a query using available memories."
+            };
+          }
+        }
+      }
+    }
+
+    // 4. Semantic check for word overlap on personal claims
+    if (isPersonalQuery && hasContext) {
+      const contextWords = new Set(
+        context.toLowerCase()
+          .replace(/[^\w\s]/g, '')
+          .split(/\s+/)
+          .filter(w => w.length > 3)
+      );
+
+      const ignoreWords = new Set([
+        'you', 'your', 'have', 'saved', 'memory', 'memories', 'here', 'are', 'what', 'like', 'likes', 'want', 'wants',
+        'about', 'this', 'that', 'from', 'with', 'will', 'would', 'could', 'should', 'been', 'were', 'have', 'has', 'had',
+        'stated', 'preference', 'preference', 'preference', 'fact', 'facts', 'goal', 'goals', 'decision', 'decisions',
+        'conversation', 'conversations', 'date', 'past', 'information', 'grounded', 'source', 'sources', 'citation',
+        'citations'
+      ]);
+
+      const responseWords = responseLower
+        .replace(/[^\w\s]/g, '')
+        .split(/\s+/)
+        .filter(w => w.length > 3 && !ignoreWords.has(w) && !queryLower.includes(w));
+
+      let mismatchCount = 0;
+      for (const w of responseWords) {
+        if (!contextWords.has(w)) {
+          mismatchCount++;
+        }
+      }
+
+      if (responseWords.length > 4 && (mismatchCount / responseWords.length) > 0.6) {
+        return {
+          isValid: false,
+          refinedResponse: "I could not fully ground that response in your saved memory context. Some details seem unsupported by the retrieved information."
+        };
+      }
+    }
+
+    return { isValid: true, refinedResponse: response };
   }
 }

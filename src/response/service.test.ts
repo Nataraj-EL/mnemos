@@ -201,4 +201,101 @@ describe('ResponseService', () => {
     expect(result.usedMemories[0].id).toBe('mem-1');
     expect(result.usedMemories[1].id).toBe('mem-2');
   });
+
+  it('should pass fully grounded answers unmodified', async () => {
+    mockRetriever.retrieve.mockResolvedValueOnce([
+      { memory: { id: 'mem-1', content: 'Tea drinker', type: 'PREFERENCE', metadata: {} }, similarity: 0.9 }
+    ]);
+    mockAssembler.assemble.mockReturnValueOnce({
+      items: [{ id: 'mem-1', type: 'PREFERENCE', content: 'Tea drinker', similarity: 0.9, score: 0.85 }],
+      context: 'Tea drinker',
+      tokenCount: 2,
+    });
+    mockGenerator.generateResponse.mockResolvedValueOnce({ text: 'You are a Tea drinker.' });
+
+    const result = await service.respond('user-1', 'What do I drink?');
+    expect(result.response).toBe('You are a Tea drinker.');
+  });
+
+  it('should detect unsupported claims on personal queries and return a fallback response', async () => {
+    mockRetriever.retrieve.mockResolvedValueOnce([
+      { memory: { id: 'mem-1', content: 'Tea drinker', type: 'PREFERENCE', metadata: {} }, similarity: 0.9 }
+    ]);
+    mockAssembler.assemble.mockReturnValueOnce({
+      items: [{ id: 'mem-1', type: 'PREFERENCE', content: 'Tea drinker', similarity: 0.9, score: 0.85 }],
+      context: 'Tea drinker',
+      tokenCount: 2,
+    });
+    // Response claims coffee, which is completely missing from context!
+    mockGenerator.generateResponse.mockResolvedValueOnce({ text: 'You love drinking hot black coffee in the morning.' });
+
+    const result = await service.respond('user-1', 'What do I drink?');
+    expect(result.response).toContain('could not fully ground');
+  });
+
+  it('should return a safe fallback on personal queries when no context is available and response hallucinates facts', async () => {
+    mockRetriever.retrieve.mockResolvedValueOnce([]);
+    mockAssembler.assemble.mockReturnValueOnce({ items: [], context: '', tokenCount: 0 });
+    mockGenerator.generateResponse.mockResolvedValueOnce({ text: 'Your favorite coffee bean is Arabica.' });
+
+    const result = await service.respond('user-1', 'What is my favorite coffee bean?');
+    expect(result.response).toContain('do not have any saved memory context');
+  });
+
+  it('should detect citation mismatch and return fallback if response cites non-existent source', async () => {
+    mockRetriever.retrieve.mockResolvedValueOnce([
+      { memory: { id: 'mem-1', content: 'Tea drinker', type: 'PREFERENCE', metadata: {} }, similarity: 0.9 }
+    ]);
+    mockAssembler.assemble.mockReturnValueOnce({
+      items: [{ id: 'mem-1', type: 'PREFERENCE', content: 'Tea drinker', similarity: 0.9, score: 0.85 }],
+      context: 'Tea drinker',
+      tokenCount: 2,
+    });
+    mockGenerator.generateResponse.mockResolvedValueOnce({ text: 'You are a tea drinker [MEMORY mem-2].' }); // mem-2 is fabricated!
+
+    const result = await service.respond('user-1', 'What do I drink?');
+    expect(result.response).toContain('cannot retrieve details from that specific cited source');
+  });
+
+  it('should detect token-budget excluded citations and return fallback', async () => {
+    const mockMemories = [
+      { memory: { id: 'mem-1', content: 'C1', type: 'FACT', metadata: {} }, similarity: 0.95 },
+      { memory: { id: 'mem-2', content: 'C2', type: 'FACT', metadata: {} }, similarity: 0.9 },
+    ];
+    mockRetriever.retrieve.mockResolvedValueOnce(mockMemories);
+    mockAssembler.assemble.mockReturnValueOnce({
+      items: [
+        { id: 'mem-1', type: 'FACT', content: 'C1', similarity: 0.95, score: 0.9 },
+        { id: 'mem-2', type: 'FACT', content: 'C2', similarity: 0.9, score: 0.85 },
+      ],
+      context: 'C1\nC2',
+      tokenCount: 4,
+    });
+    // We restrict limit: 1, so mem-2 is sliced/excluded!
+    mockGenerator.generateResponse.mockResolvedValueOnce({ text: 'You have context [MEMORY mem-2].' });
+
+    const result = await service.respond('user-1', 'Query', { limit: 1 });
+    expect(result.response).toContain('cannot retrieve details from that specific cited source');
+  });
+
+  it('should block response and return fallback if developer diagnostics or error keywords leak', async () => {
+    mockRetriever.retrieve.mockResolvedValueOnce([]);
+    mockAssembler.assemble.mockReturnValueOnce({ items: [], context: '', tokenCount: 0 });
+    mockGenerator.generateResponse.mockResolvedValueOnce({ text: 'Internal error: gemini_api_key leak alert!' });
+
+    const result = await service.respond('user-1', 'Query');
+    expect(result.response).toContain('cannot expose internal diagnostics');
+  });
+
+  it('should maintain backward compatibility in ResponseService output contract structure', async () => {
+    mockRetriever.retrieve.mockResolvedValueOnce([]);
+    mockAssembler.assemble.mockReturnValueOnce({ items: [], context: '', tokenCount: 0 });
+    mockGenerator.generateResponse.mockResolvedValueOnce({ text: 'General info answer.' });
+
+    const result = await service.respond('user-1', 'Who is the president of USA?');
+    expect(result).toHaveProperty('response');
+    expect(result).toHaveProperty('usedMemories');
+    expect(result).toHaveProperty('contextTokenCount');
+    expect(result).toHaveProperty('usedConversations');
+  });
 });
