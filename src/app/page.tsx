@@ -93,6 +93,58 @@ const getLifecycleColor = (state: string) => {
   }
 };
 
+const renderMarkdown = (text: string) => {
+  if (!text) return null;
+  const lines = text.split('\n');
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      {lines.map((line, idx) => {
+        const isBullet = line.trim().startsWith('* ') || line.trim().startsWith('- ');
+        let content = line.trim();
+        if (isBullet) {
+          content = content.replace(/^[\*\-]\s+/, '');
+        }
+        
+        const parts = [];
+        let match;
+        let lastIndex = 0;
+        const boldRegex = /\*\*([^\*]+)\*\*/g;
+        
+        while ((match = boldRegex.exec(content)) !== null) {
+          const before = content.substring(lastIndex, match.index);
+          if (before) parts.push(before);
+          parts.push(<strong key={match.index} style={{ color: 'var(--primary)', fontWeight: 650 }}>{match[1]}</strong>);
+          lastIndex = boldRegex.lastIndex;
+        }
+        
+        const after = content.substring(lastIndex);
+        if (after) parts.push(after);
+        
+        const lineEl = parts.length > 0 ? parts : content;
+        
+        if (isBullet) {
+          return (
+            <div key={idx} style={{ display: 'flex', gap: '0.5rem', paddingLeft: '0.75rem', fontSize: '0.85rem', lineHeight: '1.6', alignItems: 'flex-start' }}>
+              <span style={{ color: 'var(--primary)', fontSize: '0.8rem', marginTop: '0.1rem' }}>•</span>
+              <span style={{ flex: 1 }}>{lineEl}</span>
+            </div>
+          );
+        }
+        
+        if (!line.trim()) {
+          return <div key={idx} style={{ height: '0.25rem' }} />;
+        }
+        
+        return (
+          <p key={idx} style={{ margin: 0, fontSize: '0.85rem', lineHeight: '1.6' }}>
+            {lineEl}
+          </p>
+        );
+      })}
+    </div>
+  );
+};
+
 export default function MemoryDashboard() {
   // Navigation & Workspace State Tabs
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<'workspace' | 'developer'>('workspace');
@@ -1039,10 +1091,12 @@ export default function MemoryDashboard() {
                     <div style={{ textAlign: 'center', padding: '1.5rem', fontSize: '0.8rem', opacity: 0.6 }}>Running contextual synthesis pipeline...</div>
                   ) : responseResult && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                      <div>
-                        <h4 style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.4rem' }}>🤖 Grounded AI Response</h4>
-                        <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--background)', color: 'var(--text)', lineHeight: '1.5', fontSize: '0.85rem', whiteSpace: 'pre-wrap' }}>
-                          {responseResult.response}
+                      <div className="card" style={{ borderLeft: '4px solid var(--primary)', padding: '1.25rem', backgroundColor: 'var(--surface)' }}>
+                        <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.75rem', color: 'var(--primary)', borderBottom: '1px solid var(--border)', paddingBottom: '0.4rem' }}>
+                          Grounded AI Response
+                        </h4>
+                        <div style={{ color: 'var(--text)' }}>
+                          {renderMarkdown(responseResult.response)}
                         </div>
                       </div>
 
