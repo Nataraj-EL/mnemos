@@ -1,5 +1,6 @@
 import { Memory, MemoryType, normalizeMetadata } from '@/core/types';
 import { ContextItem, ContextResult } from './types';
+import { MemoryGovernance } from '@/memory/governance';
 
 export const HALF_LIFE_DAYS = 30;
 export const DEDUPLICATION_THRESHOLD = 0.70;
@@ -58,18 +59,78 @@ export class ContextAssembler {
     maxTokens: number = 1500,
     includeHistorical: boolean = false
   ): ContextResult {
-    // 1. Exclude superseded memories unless includeHistorical is true
-    const candidates = retrieved.filter((item) => {
-      if (includeHistorical) return true;
-      const status = item.memory.metadata.status || 'active';
-      return status !== 'superseded';
-    });
+    // 1. Run conflict detection on the candidate memories to find losing conflict IDs
+    const rawMemories = retrieved.map((r) => r.memory);
+    const conflicts = MemoryGovernance.detectConflicts(rawMemories);
+    const conflictingIds = new Set<string>();
+    for (const c of conflicts) {
+      for (const id of c.conflictingIds) {
+        conflictingIds.add(id);
+      }
+    }
 
-    // 2. Score candidates using normalized weighted formulas
-    const scoredItems: ContextItem[] = candidates.map((item) => {
+    // Initialize governance counters
+    let allowedCount = 0;
+    let downrankedCount = 0;
+    let excludedCount = 0;
+    const conflictsDetectedCount = conflictingIds.size;
+    let lowConfidenceCount = 0;
+    let injectionBlockedCount = 0;
+    const governanceDetails: Record<
+      string,
+      { decision: 'ALLOW' | 'DOWNRANK' | 'EXCLUDE'; reasons: string[] }
+    > = {};
+
+    // 2. Score candidates using normalized weighted formulas + governance decisions
+    const scoredItems: ContextItem[] = [];
+
+    for (const item of retrieved) {
       const { memory, similarity } = item;
 
+      // Governance check
+      const gov = MemoryGovernance.govern(memory, { includeHistorical, conflictingIds });
+      governanceDetails[memory.id] = {
+        decision: gov.decision,
+        reasons: gov.reasons,
+      };
+
+      // Count stats
+      if (gov.decision === 'ALLOW') {
+        allowedCount++;
+      } else if (gov.decision === 'DOWNRANK') {
+        downrankedCount++;
+      } else if (gov.decision === 'EXCLUDE') {
+        excludedCount++;
+      }
+
+      // Check specific categories
       const metadata = normalizeMetadata(memory.metadata, memory.createdAt);
+      if (metadata.confidence < 0.5) {
+        lowConfidenceCount++;
+      }
+
+      const contentLower = memory.content.toLowerCase();
+      const unsafeKeywords = [
+        'ignore previous instructions',
+        'ignore instructions',
+        'reveal system prompt',
+        'reveal the system prompt',
+        'bypass system instructions',
+        'override system settings',
+        'instead print',
+      ];
+      const hasUnsafe =
+        unsafeKeywords.some((keyword) => contentLower.includes(keyword)) ||
+        metadata.unsafe === true;
+      if (hasUnsafe) {
+        injectionBlockedCount++;
+      }
+
+      // If EXCLUDE, discard from context
+      if (gov.decision === 'EXCLUDE') {
+        continue;
+      }
+
       const importanceVal = metadata.importance;
       const normalizedImportance = importanceVal / 10;
       const confidence = metadata.confidence;
@@ -95,16 +156,22 @@ export class ContextAssembler {
       const effectiveImportance = normalizedImportance * confidence;
       const effectiveRecency = recencyScore * decayFactor;
 
-      // Final score (Sprint 8 scoring weights formula with confidence + decay)
-      const score =
+      // Final score formula
+      let score =
         similarity * SCORING_WEIGHTS.similarity +
         effectiveImportance * SCORING_WEIGHTS.importance +
         effectiveRecency * SCORING_WEIGHTS.recency +
         typeWeight * SCORING_WEIGHTS.type;
 
-      const reason = `Score ${score.toFixed(3)} [Sim: ${similarity.toFixed(2)}, Imp: ${importanceVal}/10, Conf: ${confidence.toFixed(2)}, Recency: ${recencyScore.toFixed(2)}, Decay: ${decayFactor.toFixed(2)}, Type: ${memory.type}]`;
+      let reason = `Score ${score.toFixed(3)} [Sim: ${similarity.toFixed(2)}, Imp: ${importanceVal}/10, Conf: ${confidence.toFixed(2)}, Recency: ${recencyScore.toFixed(2)}, Decay: ${decayFactor.toFixed(2)}, Type: ${memory.type}]`;
 
-      return {
+      // Apply downranking penalty if DOWNRANK decision
+      if (gov.decision === 'DOWNRANK') {
+        score = score * 0.7;
+        reason = `Score ${score.toFixed(3)} (Downranked 0.70x: ${gov.reasons.join(', ')}) [Sim: ${similarity.toFixed(2)}, Imp: ${importanceVal}/10, Conf: ${confidence.toFixed(2)}, Recency: ${recencyScore.toFixed(2)}, Decay: ${decayFactor.toFixed(2)}, Type: ${memory.type}]`;
+      }
+
+      scoredItems.push({
         id: memory.id,
         type: memory.type,
         content: memory.content,
@@ -113,8 +180,10 @@ export class ContextAssembler {
         score,
         reason,
         status: (metadata.status || 'active') as 'active' | 'superseded',
-      };
-    });
+        governanceDecision: gov.decision,
+        governanceReasons: gov.reasons,
+      });
+    }
 
     // 3. Sort by selection score descending
     scoredItems.sort((a, b) => b.score - a.score);
@@ -170,6 +239,15 @@ export class ContextAssembler {
       items: selectedItems,
       context: compiledContext,
       tokenCount: estimateTokens(compiledContext),
+      governance: {
+        allowedCount,
+        downrankedCount,
+        excludedCount,
+        conflictsDetectedCount,
+        lowConfidenceCount,
+        injectionBlockedCount,
+        details: governanceDetails,
+      },
     };
   }
 }

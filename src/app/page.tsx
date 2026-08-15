@@ -228,6 +228,15 @@ export default function MemoryDashboard() {
     response: string;
     usedMemories: { id: string; type: string; similarity: number; score: number }[];
     contextTokenCount: number;
+    governance?: {
+      allowedCount: number;
+      downrankedCount: number;
+      excludedCount: number;
+      conflictsDetectedCount: number;
+      lowConfidenceCount: number;
+      injectionBlockedCount: number;
+      details: Record<string, { decision: 'ALLOW' | 'DOWNRANK' | 'EXCLUDE'; reasons: string[] }>;
+    };
   } | null>(null);
   const [responseLoading, setResponseLoading] = useState(false);
   const [responseError, setResponseError] = useState<string | null>(null);
@@ -1341,6 +1350,107 @@ export default function MemoryDashboard() {
                   {responseResult.response}
                 </div>
               </div>
+
+              {/* Memory Governance Stats & Logs */}
+              {responseResult.governance && (
+                <div>
+                  <h4 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem' }}>🛡️ Memory Governance & Safety Control</h4>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                    gap: '1rem',
+                    marginBottom: '1rem'
+                  }}>
+                    {/* Stat boxes */}
+                    <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
+                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#5b8a52' }}>
+                        {responseResult.governance.allowedCount}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', opacity: 0.7, textTransform: 'uppercase', marginTop: '0.25rem' }}>Allowed</div>
+                    </div>
+                    <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
+                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#db9142' }}>
+                        {responseResult.governance.downrankedCount}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', opacity: 0.7, textTransform: 'uppercase', marginTop: '0.25rem' }}>Downranked</div>
+                    </div>
+                    <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
+                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'gray' }}>
+                        {responseResult.governance.excludedCount}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', opacity: 0.7, textTransform: 'uppercase', marginTop: '0.25rem' }}>Excluded</div>
+                    </div>
+                    <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
+                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'var(--error)' }}>
+                        {responseResult.governance.conflictsDetectedCount}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', opacity: 0.7, textTransform: 'uppercase', marginTop: '0.25rem' }}>Conflicts Detected</div>
+                    </div>
+                  </div>
+
+                  {/* Warning blocks for alerts */}
+                  {(responseResult.governance.injectionBlockedCount > 0 || responseResult.governance.conflictsDetectedCount > 0 || responseResult.governance.lowConfidenceCount > 0) && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
+                      {responseResult.governance.injectionBlockedCount > 0 && (
+                        <div style={{
+                          padding: '0.75rem 1rem',
+                          backgroundColor: 'rgba(219, 91, 91, 0.1)',
+                          border: '1px solid var(--error)',
+                          borderRadius: 'var(--radius-sm)',
+                          fontSize: '0.85rem',
+                          color: 'var(--error)'
+                        }}>
+                          ⚠️ <strong>Security Guard:</strong> Blocked {responseResult.governance.injectionBlockedCount} candidate memory record(s) due to potential instructions injection/safety policy mismatch. Match was excluded from context and kept untouched in database.
+                        </div>
+                      )}
+                      {responseResult.governance.conflictsDetectedCount > 0 && (
+                        <div style={{
+                          padding: '0.75rem 1rem',
+                          backgroundColor: 'rgba(219, 145, 66, 0.1)',
+                          border: '1px solid #db9142',
+                          borderRadius: 'var(--radius-sm)',
+                          fontSize: '0.85rem',
+                          color: '#db9142'
+                        }}>
+                          ⚡ <strong>Conflict Warning:</strong> Detected {responseResult.governance.conflictsDetectedCount} active competing fact(s) on the same topic. Selected the newer, preferred memory and safely excluded the superseded choice from the prompt context.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Table or list showing decision trace details */}
+                  <div style={{
+                    maxHeight: '200px',
+                    overflowY: 'auto',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '0.8rem',
+                    backgroundColor: 'var(--background)'
+                  }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+                          <th style={{ padding: '0.5rem 0.75rem' }}>Memory ID</th>
+                          <th style={{ padding: '0.5rem 0.75rem' }}>Decision</th>
+                          <th style={{ padding: '0.5rem 0.75rem' }}>Details / Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(responseResult.governance.details).map(([id, info]) => {
+                          const statusColor = info.decision === 'ALLOW' ? '#5b8a52' : info.decision === 'DOWNRANK' ? '#db9142' : 'gray';
+                          return (
+                            <tr key={id} style={{ borderBottom: '1px solid var(--border)' }}>
+                              <td style={{ padding: '0.5rem 0.75rem', fontFamily: 'monospace', opacity: 0.7 }}>{id.substring(0, 8)}...</td>
+                              <td style={{ padding: '0.5rem 0.75rem', fontWeight: 'bold', color: statusColor }}>{info.decision}</td>
+                              <td style={{ padding: '0.5rem 0.75rem', opacity: 0.8 }}>{info.reasons.join(', ')}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               {/* Supporting context trace metadata */}
               <div>

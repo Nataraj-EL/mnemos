@@ -1,6 +1,7 @@
 import { MemoryRetriever } from '@/memory/retriever';
 import { normalizeMetadata } from '@/core/types';
 import { ContextAssembler } from '@/context/assembler';
+import { ContextResult } from '@/context/types';
 import { ResponseGenerator } from './generator';
 import { PgMemoryRepository } from '@/memory/repository';
 import { logTelemetry } from '@/core/logger';
@@ -14,6 +15,7 @@ export interface ContextualResponseResult {
     score: number;
   }[];
   contextTokenCount: number;
+  governance?: ContextResult['governance'];
 }
 
 export class ResponseService {
@@ -227,6 +229,7 @@ export class ResponseService {
         response: generatorResult.text,
         usedMemories,
         contextTokenCount: assemblyResult.tokenCount,
+        governance: assemblyResult.governance,
       };
     } catch (error: unknown) {
       const totalLatencyMs = Date.now() - startTime;

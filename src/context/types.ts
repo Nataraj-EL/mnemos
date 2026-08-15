@@ -9,6 +9,8 @@ export interface ContextItem {
   score: number;
   reason: string;
   status?: 'active' | 'superseded';
+  governanceDecision?: 'ALLOW' | 'DOWNRANK' | 'EXCLUDE';
+  governanceReasons?: string[];
 }
 
 export interface ContextRequest {
@@ -23,4 +25,16 @@ export interface ContextResult {
   items: ContextItem[];
   context: string;
   tokenCount: number;
+  governance?: {
+    allowedCount: number;
+    downrankedCount: number;
+    excludedCount: number;
+    conflictsDetectedCount: number;
+    lowConfidenceCount: number;
+    injectionBlockedCount: number;
+    details: Record<string, {
+      decision: 'ALLOW' | 'DOWNRANK' | 'EXCLUDE';
+      reasons: string[];
+    }>;
+  };
 }
