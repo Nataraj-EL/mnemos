@@ -94,6 +94,10 @@ const getLifecycleColor = (state: string) => {
 };
 
 export default function MemoryDashboard() {
+  // Navigation & Workspace State Tabs
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<'workspace' | 'developer'>('workspace');
+  const [activeIntelligenceTab, setActiveIntelligenceTab] = useState<'ask' | 'search' | 'context'>('ask');
+
   // Consolidation State
   const [loadingConsolidate, setLoadingConsolidate] = useState(false);
   const [consolidateMessage, setConsolidateMessage] = useState<string | null>(null);
@@ -392,7 +396,6 @@ export default function MemoryDashboard() {
       const response = await fetch('/api/evaluation/run', { method: 'POST' });
       const data = await response.json();
       if (!response.ok) {
-        // Fallback to client-side evaluation if server route is restricted/disabled
         console.warn('Server evaluation endpoint returned error. Running locally in browser...', data.error);
         const { EvaluationRunner } = await import('@/evaluation/runner');
         const runner = new EvaluationRunner();
@@ -422,7 +425,6 @@ export default function MemoryDashboard() {
       const data = await response.json();
       setHealth(data);
 
-      // Diagnostic developer health check
       const v1Res = await fetch('/api/v1/memory/health');
       const v1Data = await v1Res.json();
       if (v1Data.status === 'success' || v1Data.data) {
@@ -461,7 +463,6 @@ export default function MemoryDashboard() {
       setMounted(true);
       fetchHealth();
     }, 0);
-    // Poll the health check API every 15 seconds
     const healthInterval = setInterval(fetchHealth, 15000);
     return () => clearInterval(healthInterval);
   }, []);
@@ -519,7 +520,7 @@ export default function MemoryDashboard() {
           text: `Successfully processed ingestion pipeline. Reconciled memory changes.`,
         });
         setContentInput('');
-        fetchMemories(); // Refresh memories list
+        fetchMemories();
       }
     } catch (err) {
       console.error('Ingestion Error:', err);
@@ -565,6 +566,40 @@ export default function MemoryDashboard() {
           </div>
         </div>
 
+        {/* View Toggle */}
+        <div style={{ display: 'flex', gap: '0.25rem', backgroundColor: 'var(--muted)', padding: '0.25rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+          <button
+            onClick={() => setActiveWorkspaceTab('workspace')}
+            style={{
+              padding: '0.35rem 0.75rem',
+              border: 'none',
+              backgroundColor: activeWorkspaceTab === 'workspace' ? 'var(--surface)' : 'transparent',
+              color: activeWorkspaceTab === 'workspace' ? 'var(--primary)' : 'var(--text)',
+              fontWeight: activeWorkspaceTab === 'workspace' ? 600 : 400,
+              borderRadius: 'var(--radius-sm)',
+              fontSize: '0.8rem',
+              cursor: 'pointer',
+            }}
+          >
+            Product Workspace
+          </button>
+          <button
+            onClick={() => setActiveWorkspaceTab('developer')}
+            style={{
+              padding: '0.35rem 0.75rem',
+              border: 'none',
+              backgroundColor: activeWorkspaceTab === 'developer' ? 'var(--surface)' : 'transparent',
+              color: activeWorkspaceTab === 'developer' ? 'var(--primary)' : 'var(--text)',
+              fontWeight: activeWorkspaceTab === 'developer' ? 600 : 400,
+              borderRadius: 'var(--radius-sm)',
+              fontSize: '0.8rem',
+              cursor: 'pointer',
+            }}
+          >
+            Developer Console
+          </button>
+        </div>
+
         <div className="status-badge" id="system-status-container">
           <span
             className={`status-dot ${
@@ -576,1523 +611,1006 @@ export default function MemoryDashboard() {
             {loadingHealth
               ? 'Checking status...'
               : healthError
-              ? 'Offline / Error'
+              ? 'Offline'
               : isAppHealthy
-              ? 'Systems Operational'
-              : 'Degraded Performance'}
+              ? 'Operational'
+              : 'Degraded'}
           </span>
         </div>
       </nav>
 
       {/* Main Content Area */}
-      <main className="container" style={{ flexGrow: 1 }}>
-        {/* Hero Section */}
-        <section className="hero">
-          <h1>Mnemos</h1>
-          <p>
-            Persistent Memory & Context Engine for Personal AI. Establish long-term state, recall,
-            and contextual continuity across conversations and session boundaries.
-          </p>
-          <div className="hero-stats">
-            <div className="status-badge">
-              <span>Application Status:</span>
-              <span className={`status-dot ${isAppHealthy ? 'success' : 'error'}`}></span>
-              <strong style={{ marginLeft: '0.25rem' }}>
-                {loadingHealth ? 'LOADING' : isAppHealthy ? 'ONLINE' : 'OFFLINE'}
-              </strong>
+      <main className="container" style={{ flexGrow: 1, paddingTop: '1.5rem' }}>
+        {/* Compact Hero/Config section */}
+        <section style={{ marginBottom: '2rem', padding: '1.5rem', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.5rem' }}>
+          <div>
+            <h1 style={{ fontSize: '1.75rem', color: 'var(--primary)', marginBottom: '0.25rem', fontWeight: 700 }}>Mnemos</h1>
+            <p style={{ fontSize: '0.85rem', opacity: 0.7, margin: 0, maxWidth: '600px' }}>
+              Persistent Memory & Context Engine for Personal AI. Establishes long-term state, recall, and contextual continuity across conversations.
+            </p>
+          </div>
+          
+          {/* Status chips */}
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <div className="status-badge" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}>
+              <span>App:</span>
+              <span className={`status-dot ${isAppHealthy ? 'success' : 'error'}`} style={{ width: '6px', height: '6px' }} />
+              <strong>{loadingHealth ? 'LOADING' : isAppHealthy ? 'ONLINE' : 'OFFLINE'}</strong>
             </div>
-            <div className="status-badge">
-              <span>Neon Database:</span>
-              <span className={`status-dot ${isDbConnected ? 'success' : 'error'}`}></span>
-              <strong style={{ marginLeft: '0.25rem' }}>
-                {loadingHealth ? 'LOADING' : isDbConnected ? 'CONNECTED' : 'DISCONNECTED'}
-              </strong>
+            <div className="status-badge" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}>
+              <span>Database:</span>
+              <span className={`status-dot ${isDbConnected ? 'success' : 'error'}`} style={{ width: '6px', height: '6px' }} />
+              <strong>{loadingHealth ? 'LOADING' : isDbConnected ? 'CONNECTED' : 'DISCONNECTED'}</strong>
+            </div>
+            <div className="status-badge" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}>
+              <span>Memories:</span>
+              <strong>{memories.length} Active</strong>
             </div>
           </div>
         </section>
 
-        {/* Placeholder Features Grid */}
-        <div className="grid">
-          {/* Memories Card */}
-          <div className="card">
-            <h3 className="card-title">🧠 Memory Store</h3>
-            <div className="card-content">
-              <p>
-                A high-reliability persistence layer for memories categorized by specific cognitive forms.
-              </p>
-              <div style={{ marginTop: '1rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                <span className="badge">Fact</span>
-                <span className="badge">Preference</span>
-                <span className="badge">Goal</span>
-                <span className="badge">Decision</span>
-                <span className="badge">Event</span>
-                <span className="badge">Relationship</span>
-              </div>
-            </div>
-            <div className="card-footer">
-              <span>Storage API Integration</span>
-              <span className="badge" style={{ backgroundColor: 'var(--muted)', borderColor: 'var(--border)' }}>
-                Sprint 2
-              </span>
-            </div>
-          </div>
-
-          {/* Context Retrieval Card */}
-          <div className="card">
-            <h3 className="card-title">🎯 Context Resolver</h3>
-            <div className="card-content">
-              <p>
-                Dynamic window generation to inject relevant memories back into active agent prompts based on query triggers.
-              </p>
-              <p style={{ marginTop: '0.5rem', fontStyle: 'italic', fontSize: '0.85rem', opacity: 0.7 }}>
-                Calculates relevancy indexes, filtering out stale facts.
-              </p>
-            </div>
-            <div className="card-footer">
-              <span>Semantic & Temporal Search</span>
-              <span className="badge" style={{ backgroundColor: 'var(--muted)', borderColor: 'var(--border)' }}>
-                Sprint 3
-              </span>
-            </div>
-          </div>
-
-          {/* Evaluation Card */}
-          <div className="card">
-            <h3 className="card-title">⚡ Performance & Evaluation</h3>
-            <div className="card-content">
-              <p>
-                Track indexing latency, memory retrieval precision, recall metrics, and system operations logs.
-              </p>
-              <p style={{ marginTop: '0.5rem', fontStyle: 'italic', fontSize: '0.85rem', opacity: 0.7 }}>
-                Ensures predictable context synthesis.
-              </p>
-            </div>
-            <div className="card-footer">
-              <span>Observability Console</span>
-              <span className="badge" style={{ backgroundColor: 'var(--muted)', borderColor: 'var(--border)' }}>
-                Sprint 2
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Ingestion & Memories Split Layout */}
-        <section style={{ marginTop: '3rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '2rem' }}>
-          {/* Ingestion Form Card */}
-          <div className="card">
-            <h3 className="card-title">📥 Ingest Raw Interaction</h3>
-            <form onSubmit={handleIngestSubmit} style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>User ID</label>
-                <input
-                  type="text"
-                  value={userId}
-                  onChange={(e) => setUserId(e.target.value)}
-                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
-                  required
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Raw Interaction Statement</label>
-                <textarea
-                  rows={5}
-                  value={contentInput}
-                  onChange={(e) => setContentInput(e.target.value)}
-                  placeholder="e.g. I prefer serverless postgres architecture and have decided to use Neon PostgreSQL."
-                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', color: 'var(--text)', resize: 'vertical', fontFamily: 'inherit' }}
-                  required
-                />
-              </div>
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={!mounted || ingestLoading || !contentInput.trim()}
-              >
-                {ingestLoading ? 'Processing Ingestion...' : 'Submit to Engine'}
-              </button>
-
-              {ingestMessage && (
-                <div style={{
-                  padding: '0.75rem',
-                  borderRadius: 'var(--radius-sm)',
-                  fontSize: '0.85rem',
-                  border: '1px solid',
-                  borderColor: ingestMessage.type === 'success' ? 'var(--success)' : 'var(--error)',
-                  backgroundColor: ingestMessage.type === 'success' ? 'rgba(91, 138, 82, 0.1)' : 'rgba(179, 74, 60, 0.1)',
-                  color: ingestMessage.type === 'success' ? 'var(--success)' : 'var(--error)'
-                }}>
-                  {ingestMessage.text}
-                </div>
-              )}
-            </form>
-          </div>
-
-          {/* Memories List Card */}
-          <div className="card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 className="card-title" style={{ marginBottom: 0 }}>🗃️ Persisted Memories</h3>
-              <span className="badge" style={{ fontSize: '0.85rem' }}>Count: {memories.length}</span>
-            </div>
-
-            {loadingMemories && memories.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '2rem', opacity: 0.6 }}>Loading memories...</div>
-            ) : memories.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '3rem', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-md)' }}>
-                No memories persisted yet for user <strong>{userId}</strong>.
-                Use the Ingestion panel on the left to extract and persist memories.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '450px', overflowY: 'auto', paddingRight: '0.25rem' }}>
-                {memories.map((memory) => (
-                  <div key={memory.id} style={{
-                    padding: '1rem',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--border)',
-                    backgroundColor: memory.metadata.status === 'superseded' ? 'var(--muted)' : 'var(--surface)',
-                    opacity: memory.metadata.status === 'superseded' ? 0.65 : 1,
-                    transition: 'opacity 0.2s'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                      <span className="badge" style={{ backgroundColor: 'var(--background)', color: 'var(--primary)', fontWeight: 'bold' }}>
-                        {memory.type}
-                      </span>
-                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                        {(() => {
-                          const lifecycle = deriveLifecycleState({
-                            id: memory.id,
-                            userId: memory.userId,
-                            type: memory.type,
-                            content: memory.content,
-                            metadata: memory.metadata,
-                            createdAt: new Date(memory.createdAt),
-                            updatedAt: new Date(memory.updatedAt),
-                          } as unknown as PackageMemory);
-                          const colors = getLifecycleColor(lifecycle);
-                          return (
-                            <span className="badge" style={{
-                              backgroundColor: colors.bg,
-                              color: colors.text,
-                              borderColor: colors.border,
-                              fontSize: '0.7rem',
-                              textTransform: 'uppercase',
-                              fontWeight: 'bold',
-                              border: '1px solid'
-                            }}>
-                              {lifecycle}
-                            </span>
-                          );
-                        })()}
-                        <span style={{ fontSize: '0.75rem', opacity: 0.8 }}>
-                          Conf: <strong>{(memory.metadata.confidence * 100).toFixed(0)}%</strong>
-                        </span>
-                        <span style={{ fontSize: '0.75rem', opacity: 0.8 }}>
-                          Imp: <strong>{memory.metadata.importance}/10</strong>
-                        </span>
-                        {memory.metadata.status === 'superseded' && (
-                          <span className="badge" style={{ backgroundColor: 'var(--error)', color: '#fff', fontSize: '0.7rem' }}>
-                            SUPERSEDED
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <p style={{ fontWeight: 500, fontSize: '0.95rem' }}>{memory.content}</p>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', opacity: 0.5, marginTop: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '0.5rem' }}>
-                      <span>Source: {memory.metadata.source}</span>
-                      <span>Observed: {new Date(memory.metadata.timestamp || memory.createdAt).toLocaleDateString()}</span>
-                    </div>
+        {activeWorkspaceTab === 'workspace' ? (
+          /* ========================================== */
+          /*         PRODUCT WORKSPACE VIEW             */
+          /* ========================================== */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            
+            {/* 1. MEMORY STORE (Ingest + Persisted Memories) */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', alignItems: 'start' }}>
+              
+              {/* Ingestion Form */}
+              <div className="card" style={{ padding: '1.25rem' }}>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>📥 Ingest Raw Interaction</h3>
+                <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
+                  Submit texts to extract, index, and reconcile new persistent memories.
+                </p>
+                <form onSubmit={handleIngestSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Workspace User Context</label>
+                    <input
+                      type="text"
+                      value={userId}
+                      onChange={(e) => setUserId(e.target.value)}
+                      style={{ width: '100%', padding: '0.4rem 0.5rem', fontSize: '0.8rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                      required
+                    />
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* Memory Health Panel */}
-        <section className="card" style={{ marginTop: '2.5rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '0.5rem' }}>
-            <h3 className="card-title" style={{ marginBottom: 0 }}>📊 Memory Lifecycle & Health Console</h3>
-            <button
-              onClick={handleConsolidate}
-              className="btn btn-primary"
-              disabled={loadingConsolidate || memories.length === 0}
-              style={{ fontSize: '0.85rem', padding: '0.4rem 0.8rem' }}
-            >
-              {loadingConsolidate ? 'Consolidating...' : '⚡ Consolidate Duplicates'}
-            </button>
-          </div>
-          <p style={{ fontSize: '0.9rem', opacity: 0.7, marginBottom: '1.5rem' }}>
-            Analytics on memory persistence, confidence thresholds, and reinforcement tracking.
-          </p>
-
-          {consolidateMessage && (
-            <div style={{
-              padding: '0.75rem',
-              borderRadius: 'var(--radius-sm)',
-              fontSize: '0.85rem',
-              border: '1px solid var(--success)',
-              backgroundColor: 'rgba(91, 138, 82, 0.1)',
-              color: 'var(--success)',
-              marginBottom: '1.25rem'
-            }}>
-              {consolidateMessage}
-            </div>
-          )}
-
-          {(() => {
-            if (memories.length === 0) {
-              return (
-                <div style={{ padding: '2rem', textAlign: 'center', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)' }}>
-                  No health analytics available yet. Ingest memories to compile metrics.
-                </div>
-              );
-            }
-
-            // Derive stats
-            const stats = memories.reduce((acc, m) => {
-              const lf = deriveLifecycleState({
-                id: m.id,
-                userId: m.userId,
-                type: m.type,
-                content: m.content,
-                metadata: m.metadata,
-                createdAt: new Date(m.createdAt),
-                updatedAt: new Date(m.updatedAt)
-              } as unknown as PackageMemory);
-              acc[lf] = (acc[lf] || 0) + 1;
-              acc.totalConfidence += (m.metadata.confidence || 0.9);
-              acc.totalImportance += (m.metadata.importance || 5);
-              return acc;
-            }, { core: 0, stable: 0, fading: 0, historical: 0, totalConfidence: 0, totalImportance: 0 });
-
-            const avgConfidence = stats.totalConfidence / memories.length;
-            const avgImportance = stats.totalImportance / memories.length;
-
-            // Find top 3 reinforced memories (sorting by reinforcementCount, then accessCount)
-            const sortedMemories = [...memories].sort((a, b) => {
-              const aR = (a.metadata.reinforcementCount as number) || 0;
-              const bR = (b.metadata.reinforcementCount as number) || 0;
-              if (bR !== aR) return bR - aR;
-              const aA = (a.metadata.accessCount as number) || 0;
-              const bA = (b.metadata.accessCount as number) || 0;
-              return bA - aA;
-            });
-            const topReinforced = sortedMemories.slice(0, 3);
-
-            return (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.5rem' }}>
-                {/* Stats Breakdown */}
-                <div style={{
-                  padding: '1.25rem',
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-sm)',
-                  backgroundColor: 'var(--surface)'
-                }}>
-                  <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '1rem', color: 'var(--primary)' }}>Classification Metrics</h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#5b8a52' }} /> Core Memories
-                      </span>
-                      <strong className="badge" style={{ backgroundColor: 'rgba(91, 138, 82, 0.15)', color: '#5b8a52' }}>{stats.core || 0}</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#4a7299' }} /> Stable Memories
-                      </span>
-                      <strong className="badge" style={{ backgroundColor: 'rgba(74, 114, 153, 0.15)', color: '#4a7299' }}>{stats.stable || 0}</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#db9142' }} /> Fading Memories
-                      </span>
-                      <strong className="badge" style={{ backgroundColor: 'rgba(219, 145, 66, 0.15)', color: '#db9142' }}>{stats.fading || 0}</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'gray' }} /> Historical Memories
-                      </span>
-                      <strong className="badge" style={{ backgroundColor: 'rgba(128, 128, 128, 0.15)', color: 'gray' }}>{stats.historical || 0}</strong>
-                    </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Interaction Statement</label>
+                    <textarea
+                      rows={3}
+                      value={contentInput}
+                      onChange={(e) => setContentInput(e.target.value)}
+                      placeholder="e.g. I prefer staging on Postgres and decided to host using Neon."
+                      style={{ width: '100%', padding: '0.4rem 0.5rem', fontSize: '0.8rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', color: 'var(--text)', resize: 'vertical', fontFamily: 'inherit' }}
+                      required
+                    />
                   </div>
-                </div>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    style={{ fontSize: '0.8rem', padding: '0.4rem 0.75rem' }}
+                    disabled={!mounted || ingestLoading || !contentInput.trim()}
+                  >
+                    {ingestLoading ? 'Processing...' : 'Submit to Memory'}
+                  </button>
 
-                {/* Averages Console */}
-                <div style={{
-                  padding: '1.25rem',
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-sm)',
-                  backgroundColor: 'var(--surface)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'center',
-                  gap: '1rem'
-                }}>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--primary)' }}>
-                      {(avgConfidence * 100).toFixed(0)}%
-                    </div>
-                    <div style={{ fontSize: '0.75rem', opacity: 0.6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                      Average Confidence
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'center', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
-                    <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--primary)' }}>
-                      {avgImportance.toFixed(1)}/10
-                    </div>
-                    <div style={{ fontSize: '0.75rem', opacity: 0.6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                      Average Importance
-                    </div>
-                  </div>
-                </div>
-
-                {/* Top Reinforced Memories */}
-                <div style={{
-                  padding: '1.25rem',
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-sm)',
-                  backgroundColor: 'var(--surface)'
-                }}>
-                  <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.75rem', color: 'var(--primary)' }}>🔥 Top Reinforced</h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    {topReinforced.map((m, idx) => {
-                      const access = (m.metadata.accessCount as number) || 0;
-                      const reinforce = (m.metadata.reinforcementCount as number) || 0;
-                      return (
-                        <div key={m.id} style={{
-                          padding: '0.5rem',
-                          borderRadius: 'var(--radius-xs)',
-                          border: '1px solid var(--border)',
-                          backgroundColor: 'var(--background)'
-                        }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '0.25rem' }}>
-                            <span style={{ fontWeight: 600 }}>#{idx + 1} {m.type}</span>
-                            <span style={{ opacity: 0.7 }}>Reinforce: <strong>{reinforce}</strong> (Hits: {access})</span>
-                          </div>
-                          <p style={{ fontSize: '0.8rem', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', margin: 0 }}>
-                            {m.content}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-        </section>
-
-        {/* Memory Timeline & History */}
-        <section className="card" style={{ marginTop: '2.5rem' }}>
-          <h3 className="card-title">🕰️ Memory Evolution & Timeline</h3>
-          <p style={{ fontSize: '0.9rem', opacity: 0.7, marginBottom: '1.25rem' }}>
-            Track historical updates, fact supersessions, and temporal relationships.
-          </p>
-
-          {(() => {
-            const activeWithHistory = memories.filter(
-              (m) => (m.metadata.status || 'active') !== 'superseded' && m.metadata.supersedes
-            );
-
-            if (activeWithHistory.length === 0) {
-              return (
-                <div style={{
-                  padding: '2rem',
-                  textAlign: 'center',
-                  opacity: 0.6,
-                  border: '1px dashed var(--border)',
-                  borderRadius: 'var(--radius-sm)'
-                }}>
-                  No versioned memory updates or superseded relationships detected yet for user <strong>{userId || '(none)'}</strong>.
-                </div>
-              );
-            }
-
-            return (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                {activeWithHistory.map((current) => {
-                  const chain: typeof memories = [current];
-                  let curr = current;
-                  const visited = new Set<string>([curr.id]);
-
-                  while (curr.metadata.supersedes && typeof curr.metadata.supersedes === 'string') {
-                    const parentId = curr.metadata.supersedes;
-                    if (visited.has(parentId)) break;
-                    visited.add(parentId);
-
-                    const parent = memories.find((m) => m.id === parentId);
-                    if (!parent) break;
-                    chain.push(parent);
-                    curr = parent;
-                  }
-
-                  return (
-                    <div key={current.id} style={{
-                      padding: '1.25rem',
-                      border: '1px solid var(--border)',
+                  {ingestMessage && (
+                    <div style={{
+                      padding: '0.5rem 0.75rem',
                       borderRadius: 'var(--radius-sm)',
-                      backgroundColor: 'var(--surface)'
+                      fontSize: '0.75rem',
+                      border: '1px solid',
+                      borderColor: ingestMessage.type === 'success' ? 'var(--success)' : 'var(--error)',
+                      backgroundColor: ingestMessage.type === 'success' ? 'rgba(91, 138, 82, 0.05)' : 'rgba(179, 74, 60, 0.05)',
+                      color: ingestMessage.type === 'success' ? 'var(--success)' : 'var(--error)'
                     }}>
-                      <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--primary)', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span>Topic: <strong>{current.type}</strong></span>
-                        <span style={{ fontSize: '0.75rem', opacity: 0.5, fontWeight: 'normal' }}>
-                          Chain length: {chain.length}
-                        </span>
-                      </h4>
-
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', position: 'relative', paddingLeft: '1.5rem' }}>
-                        {chain.map((version, idx) => {
-                          const isActive = idx === 0;
-                          return (
-                            <div key={version.id} style={{ position: 'relative' }}>
-                              {/* Connector Line */}
-                              {idx !== chain.length - 1 && (
-                                <div style={{
-                                  position: 'absolute',
-                                  left: '-1.05rem',
-                                  top: '0.75rem',
-                                  bottom: '-1.25rem',
-                                  width: '2px',
-                                  backgroundColor: 'var(--border)'
-                                }} />
-                              )}
-                              {/* Bullet Circle */}
-                              <div style={{
-                                position: 'absolute',
-                                left: '-1.3rem',
-                                top: '0.35rem',
-                                width: '10px',
-                                height: '10px',
-                                borderRadius: '50%',
-                                backgroundColor: isActive ? 'var(--success)' : 'var(--error)',
-                                border: '2px solid var(--surface)'
-                              }} />
-
-                              <div>
-                                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                                  <span style={{
-                                    fontSize: '0.75rem',
-                                    fontWeight: 'bold',
-                                    color: isActive ? 'var(--success)' : 'var(--error)',
-                                    textTransform: 'uppercase'
-                                  }}>
-                                    {isActive ? 'Current active' : 'superseded'}
-                                  </span>
-                                  <span style={{ fontSize: '0.75rem', opacity: 0.5 }}>
-                                    ID: {version.id.substring(0, 8)}...
-                                  </span>
-                                </div>
-                                <p style={{
-                                  margin: '0.25rem 0 0.5rem 0',
-                                  fontWeight: isActive ? 600 : 400,
-                                  fontSize: '0.9rem',
-                                  color: 'var(--text)'
-                                }}>
-                                  {version.content}
-                                </p>
-                                <div style={{
-                                  display: 'flex',
-                                  gap: '1rem',
-                                  fontSize: '0.75rem',
-                                  opacity: 0.6,
-                                  borderTop: '1px solid rgba(0,0,0,0.05)',
-                                  paddingTop: '0.25rem'
-                                }}>
-                                  {typeof version.metadata.validFrom === 'string' && (
-                                    <span>From: <strong>{new Date(version.metadata.validFrom).toLocaleString()}</strong></span>
-                                  )}
-                                  {typeof version.metadata.validUntil === 'string' && (
-                                    <span>Until: <strong>{new Date(version.metadata.validUntil).toLocaleString()}</strong></span>
-                                  )}
-                                  {typeof version.metadata.validFrom !== 'string' && typeof version.metadata.validUntil !== 'string' && (
-                                    <span>Observed: <strong>{new Date((version.metadata.timestamp as string) || version.createdAt).toLocaleString()}</strong></span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
-        </section>
-
-        {/* Semantic Search Panel */}
-        <section className="card" style={{ marginTop: '2.5rem' }}>
-          <h3 className="card-title">🔍 Semantic Memory Search</h3>
-          <p style={{ fontSize: '0.9rem', opacity: 0.7, marginBottom: '1.25rem' }}>
-            Query active memories using cosine similarity matching. Enter a concept or preference description.
-          </p>
-
-          <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
-            <input
-              type="text"
-              placeholder="e.g. databases, coding preferences, goals..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{
-                flexGrow: 1,
-                minWidth: '280px',
-                padding: '0.5rem 1rem',
-                borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--border)',
-                backgroundColor: 'var(--surface)',
-                color: 'var(--text)'
-              }}
-              required
-            />
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={!mounted || searchLoading || !searchQuery.trim()}
-            >
-              {searchLoading ? 'Searching...' : 'Search Context'}
-            </button>
-          </form>
-
-          {searchError && (
-            <div style={{
-              padding: '0.75rem',
-              borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--error)',
-              backgroundColor: 'rgba(179, 74, 60, 0.1)',
-              color: 'var(--error)',
-              marginBottom: '1.25rem',
-              fontSize: '0.85rem'
-            }}>
-              {searchError}
-            </div>
-          )}
-
-          {searchLoading ? (
-            <div style={{ textAlign: 'center', padding: '2rem', opacity: 0.6 }}>Executing semantic vector search...</div>
-          ) : searchResults.length === 0 ? (
-            searchQuery && (
-              <div style={{ textAlign: 'center', padding: '2rem', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-md)' }}>
-                No active memories found matching &quot;<strong>{searchQuery}</strong>&quot;.
-              </div>
-            )
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {searchResults.map((result) => {
-                const { memory, similarity } = result;
-                const scorePercent = (similarity * 100).toFixed(1);
-                return (
-                  <div key={memory.id} style={{
-                    padding: '1rem',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--border)',
-                    backgroundColor: 'var(--surface)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '0.5rem',
-                    position: 'relative'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span className="badge" style={{ backgroundColor: 'var(--background)', color: 'var(--primary)', fontWeight: 'bold' }}>
-                        {memory.type}
-                      </span>
-                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginLeft: 'auto' }}>
-                        <span style={{ fontSize: '0.85rem', color: 'var(--primary)', fontWeight: 'bold' }}>
-                          Similarity: {scorePercent}%
-                        </span>
-                        <span style={{ fontSize: '0.75rem', opacity: 0.65 }}>
-                          Conf: {(memory.metadata.confidence * 100).toFixed(0)}%
-                        </span>
-                        <span style={{ fontSize: '0.75rem', opacity: 0.65 }}>
-                          Imp: {memory.metadata.importance}/10
-                        </span>
-                      </div>
-                    </div>
-                    <p style={{ fontWeight: 500, fontSize: '1rem', marginTop: '0.25rem' }}>{memory.content}</p>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', opacity: 0.5, borderTop: '1px solid var(--border)', paddingTop: '0.5rem', marginTop: '0.25rem' }}>
-                      <span>Source: {memory.metadata.source}</span>
-                      <span>Observed: {new Date(memory.metadata.timestamp || memory.createdAt).toLocaleString()}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        {/* Context Preview Panel */}
-        <section className="card" style={{ marginTop: '2.5rem' }}>
-          <h3 className="card-title">🧩 Context Assembly Preview</h3>
-          <p style={{ fontSize: '0.9rem', opacity: 0.7, marginBottom: '1.25rem' }}>
-            Deterministically filter, score, deduplicate, and token-budget your memories to synthesize structured context templates.
-          </p>
-
-          <form onSubmit={handleContextSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
-            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-              <div style={{ flexGrow: 1, minWidth: '280px' }}>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Contextual Query / Topic</label>
-                <input
-                  type="text"
-                  placeholder="e.g. database choices or language preferences..."
-                  value={contextQuery}
-                  onChange={(e) => setContextQuery(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem 1rem',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--border)',
-                    backgroundColor: 'var(--surface)',
-                    color: 'var(--text)'
-                  }}
-                  required
-                />
-              </div>
-              <div style={{ width: '120px' }}>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Limit</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={contextLimit}
-                  onChange={(e) => setContextLimit(Number(e.target.value))}
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--border)',
-                    backgroundColor: 'var(--surface)',
-                    color: 'var(--text)'
-                  }}
-                  required
-                />
-              </div>
-              <div style={{ width: '140px' }}>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Max Tokens</label>
-                <input
-                  type="number"
-                  min={1}
-                  value={contextMaxTokens}
-                  onChange={(e) => setContextMaxTokens(Number(e.target.value))}
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--border)',
-                    backgroundColor: 'var(--surface)',
-                    color: 'var(--text)'
-                  }}
-                  required
-                />
-              </div>
-            </div>
-            
-            <button
-              type="submit"
-              className="btn btn-primary"
-              style={{ alignSelf: 'flex-start' }}
-              disabled={!mounted || contextLoading || !contextQuery.trim()}
-            >
-              {contextLoading ? 'Assembling Context...' : 'Assemble Prompt Context'}
-            </button>
-          </form>
-
-          {contextError && (
-            <div style={{
-              padding: '0.75rem',
-              borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--error)',
-              backgroundColor: 'rgba(179, 74, 60, 0.1)',
-              color: 'var(--error)',
-              marginBottom: '1.25rem',
-              fontSize: '0.85rem'
-            }}>
-              {contextError}
-            </div>
-          )}
-
-          {contextLoading ? (
-            <div style={{ textAlign: 'center', padding: '2rem', opacity: 0.6 }}>Running context selection heuristics...</div>
-          ) : contextResult && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '1.5rem' }}>
-              
-              {/* Selected memories and reasons */}
-              <div>
-                <h4 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between' }}>
-                  <span>📋 Selected Memory Items</span>
-                  <span style={{ fontSize: '0.85rem', opacity: 0.7 }}>Selected: {contextResult.items.length}</span>
-                </h4>
-                
-                {contextResult.items.length === 0 ? (
-                  <div style={{ padding: '1.5rem', textAlign: 'center', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)' }}>
-                    No memories were selected. Either the search returned no results, or the first memory exceeded your token budget.
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {contextResult.items.map((item) => (
-                      <div key={item.id} style={{
-                        padding: '0.75rem 1rem',
-                        borderRadius: 'var(--radius-sm)',
-                        border: '1px solid var(--border)',
-                        backgroundColor: 'var(--surface)'
-                      }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                          <span className="badge" style={{ backgroundColor: 'var(--background)', color: 'var(--primary)', fontWeight: 'bold', fontSize: '0.75rem' }}>
-                            {item.type}
-                          </span>
-                          <span style={{ fontSize: '0.8rem', opacity: 0.6, fontStyle: 'italic' }}>
-                            ID: {item.id.substring(0, 8)}...
-                          </span>
-                        </div>
-                        <p style={{ fontWeight: 500, fontSize: '0.95rem', margin: '0.25rem 0' }}>{item.content}</p>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--primary)', opacity: 0.85, marginTop: '0.5rem', borderTop: '1px dotted var(--border)', paddingTop: '0.25rem' }}>
-                          ℹ️ {item.reason}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Complete assembled context block */}
-              <div>
-                <h4 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span>📄 Compiled Prompt Context Block</span>
-                  <span className="badge" style={{ backgroundColor: 'var(--primary)', color: '#fff', fontSize: '0.8rem' }}>
-                    Estimated Tokens: {contextResult.tokenCount}
-                  </span>
-                </h4>
-                <pre style={{
-                  padding: '1rem',
-                  borderRadius: 'var(--radius-sm)',
-                  border: '1px solid var(--border)',
-                  backgroundColor: 'var(--background)',
-                  color: 'var(--text)',
-                  fontFamily: 'monospace',
-                  fontSize: '0.9rem',
-                  whiteSpace: 'pre-wrap',
-                  maxHeight: '300px',
-                  overflowY: 'auto'
-                }}>
-                  {contextResult.context || '/* Empty Context Block */'}
-                </pre>
-              </div>
-
-            </div>
-          )}
-        </section>
-
-        {/* Contextual Response Panel */}
-        <section className="card" style={{ marginTop: '2.5rem' }}>
-          <h3 className="card-title">💬 Contextual Response Engine</h3>
-          <p style={{ fontSize: '0.9rem', opacity: 0.7, marginBottom: '1.25rem' }}>
-            Query your persistent memory repository. The system will retrieve matching records, score/deduplicate them under a token budget, and ground the LLM generation using the assembled context.
-          </p>
-
-          <form onSubmit={handleResponseSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
-            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-              <div style={{ flexGrow: 1, minWidth: '280px' }}>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Your Question</label>
-                <input
-                  type="text"
-                  placeholder="e.g. What is my favorite hot drink? or What do you know about me?"
-                  value={responseQuery}
-                  onChange={(e) => setResponseQuery(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem 1rem',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--border)',
-                    backgroundColor: 'var(--surface)',
-                    color: 'var(--text)'
-                  }}
-                  required
-                />
-              </div>
-              <div style={{ width: '120px' }}>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Limit</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={responseLimit}
-                  onChange={(e) => setResponseLimit(Number(e.target.value))}
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--border)',
-                    backgroundColor: 'var(--surface)',
-                    color: 'var(--text)'
-                  }}
-                  required
-                />
-              </div>
-              <div style={{ width: '140px' }}>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Max Tokens</label>
-                <input
-                  type="number"
-                  min={1}
-                  value={responseMaxTokens}
-                  onChange={(e) => setResponseMaxTokens(Number(e.target.value))}
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--border)',
-                    backgroundColor: 'var(--surface)',
-                    color: 'var(--text)'
-                  }}
-                  required
-                />
-              </div>
-            </div>
-            
-            <button
-              type="submit"
-              className="btn btn-primary"
-              style={{ alignSelf: 'flex-start' }}
-              disabled={!mounted || responseLoading || !responseQuery.trim()}
-            >
-              {responseLoading ? 'Generating Response...' : 'Generate Grounded Response'}
-            </button>
-          </form>
-
-          {responseError && (
-            <div style={{
-              padding: '0.75rem',
-              borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--error)',
-              backgroundColor: 'rgba(179, 74, 60, 0.1)',
-              color: 'var(--error)',
-              marginBottom: '1.25rem',
-              fontSize: '0.85rem'
-            }}>
-              {responseError}
-            </div>
-          )}
-
-          {responseLoading ? (
-            <div style={{ textAlign: 'center', padding: '2rem', opacity: 0.6 }}>Running contextual synthesis pipeline...</div>
-          ) : responseResult && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '1.5rem' }}>
-              
-              {/* Generated text response */}
-              <div>
-                <h4 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem' }}>🤖 Grounded AI Response</h4>
-                <div style={{
-                  padding: '1.25rem',
-                  borderRadius: 'var(--radius-sm)',
-                  border: '1px solid var(--border)',
-                  backgroundColor: 'var(--background)',
-                  color: 'var(--text)',
-                  lineHeight: '1.6',
-                  fontSize: '1rem',
-                  whiteSpace: 'pre-wrap'
-                }}>
-                  {responseResult.response}
-                </div>
-              </div>
-
-              {/* Memory Governance Stats & Logs */}
-              {responseResult.governance && (
-                <div>
-                  <h4 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem' }}>🛡️ Memory Governance & Safety Control</h4>
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                    gap: '1rem',
-                    marginBottom: '1rem'
-                  }}>
-                    {/* Stat boxes */}
-                    <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#5b8a52' }}>
-                        {responseResult.governance.allowedCount}
-                      </div>
-                      <div style={{ fontSize: '0.7rem', opacity: 0.7, textTransform: 'uppercase', marginTop: '0.25rem' }}>Allowed</div>
-                    </div>
-                    <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#db9142' }}>
-                        {responseResult.governance.downrankedCount}
-                      </div>
-                      <div style={{ fontSize: '0.7rem', opacity: 0.7, textTransform: 'uppercase', marginTop: '0.25rem' }}>Downranked</div>
-                    </div>
-                    <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'gray' }}>
-                        {responseResult.governance.excludedCount}
-                      </div>
-                      <div style={{ fontSize: '0.7rem', opacity: 0.7, textTransform: 'uppercase', marginTop: '0.25rem' }}>Excluded</div>
-                    </div>
-                    <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'var(--error)' }}>
-                        {responseResult.governance.conflictsDetectedCount}
-                      </div>
-                      <div style={{ fontSize: '0.7rem', opacity: 0.7, textTransform: 'uppercase', marginTop: '0.25rem' }}>Conflicts Detected</div>
-                    </div>
-                  </div>
-
-                  {/* Warning blocks for alerts */}
-                  {(responseResult.governance.injectionBlockedCount > 0 || responseResult.governance.conflictsDetectedCount > 0 || responseResult.governance.lowConfidenceCount > 0) && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
-                      {responseResult.governance.injectionBlockedCount > 0 && (
-                        <div style={{
-                          padding: '0.75rem 1rem',
-                          backgroundColor: 'rgba(219, 91, 91, 0.1)',
-                          border: '1px solid var(--error)',
-                          borderRadius: 'var(--radius-sm)',
-                          fontSize: '0.85rem',
-                          color: 'var(--error)'
-                        }}>
-                          ⚠️ <strong>Security Guard:</strong> Blocked {responseResult.governance.injectionBlockedCount} candidate memory record(s) due to potential instructions injection/safety policy mismatch. Match was excluded from context and kept untouched in database.
-                        </div>
-                      )}
-                      {responseResult.governance.conflictsDetectedCount > 0 && (
-                        <div style={{
-                          padding: '0.75rem 1rem',
-                          backgroundColor: 'rgba(219, 145, 66, 0.1)',
-                          border: '1px solid #db9142',
-                          borderRadius: 'var(--radius-sm)',
-                          fontSize: '0.85rem',
-                          color: '#db9142'
-                        }}>
-                          ⚡ <strong>Conflict Warning:</strong> Detected {responseResult.governance.conflictsDetectedCount} active competing fact(s) on the same topic. Selected the newer, preferred memory and safely excluded the superseded choice from the prompt context.
-                        </div>
-                      )}
+                      {ingestMessage.text}
                     </div>
                   )}
+                </form>
+              </div>
 
-                  {/* Table or list showing decision trace details */}
-                  <div style={{
-                    maxHeight: '200px',
-                    overflowY: 'auto',
-                    border: '1px solid var(--border)',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: '0.8rem',
-                    backgroundColor: 'var(--background)'
-                  }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                      <thead>
-                        <tr style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-                          <th style={{ padding: '0.5rem 0.75rem' }}>Memory ID</th>
-                          <th style={{ padding: '0.5rem 0.75rem' }}>Decision</th>
-                          <th style={{ padding: '0.5rem 0.75rem' }}>Details / Reason</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Object.entries(responseResult.governance.details).map(([id, info]) => {
-                          const statusColor = info.decision === 'ALLOW' ? '#5b8a52' : info.decision === 'DOWNRANK' ? '#db9142' : 'gray';
-                          return (
-                            <tr key={id} style={{ borderBottom: '1px solid var(--border)' }}>
-                              <td style={{ padding: '0.5rem 0.75rem', fontFamily: 'monospace', opacity: 0.7 }}>{id.substring(0, 8)}...</td>
-                              <td style={{ padding: '0.5rem 0.75rem', fontWeight: 'bold', color: statusColor }}>{info.decision}</td>
-                              <td style={{ padding: '0.5rem 0.75rem', opacity: 0.8 }}>{info.reasons.join(', ')}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+              {/* Persisted Memories */}
+              <div className="card" style={{ padding: '1.25rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 0 }}>🗃️ Persisted Memories</h3>
+                  <span className="badge" style={{ fontSize: '0.7rem' }}>Count: {memories.length}</span>
                 </div>
-              )}
+                <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
+                  Active and historical memory entities cataloged for the active workspace context.
+                </p>
 
-              {/* Supporting context trace metadata */}
-              <div>
-                <h4 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span>🔒 Supporting Memories Trace (Grounded Context)</span>
-                  <span className="badge" style={{ backgroundColor: 'var(--primary)', color: '#fff', fontSize: '0.8rem' }}>
-                    Context Tokens: {responseResult.contextTokenCount}
-                  </span>
-                </h4>
-
-                {responseResult.usedMemories.length === 0 ? (
-                  <div style={{ padding: '1rem', textAlign: 'center', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.9rem' }}>
-                    No memories were passed to the LLM (zero relevant context matching this query).
+                {loadingMemories && memories.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '1.5rem', fontSize: '0.8rem', opacity: 0.6 }}>Loading memories...</div>
+                ) : memories.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '2rem', fontSize: '0.8rem', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)' }}>
+                    No memories persisted yet. Use the Ingestion panel on the left to extract and persist memories.
                   </div>
                 ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.75rem' }}>
-                    {responseResult.usedMemories.map((used) => (
-                      <div key={used.id} style={{
-                        padding: '0.75rem 1rem',
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '380px', overflowY: 'auto', paddingRight: '0.25rem' }}>
+                    {memories.map((memory) => (
+                      <div key={memory.id} style={{
+                        padding: '0.75rem',
                         borderRadius: 'var(--radius-sm)',
                         border: '1px solid var(--border)',
-                        backgroundColor: 'var(--surface)'
+                        backgroundColor: memory.metadata.status === 'superseded' ? 'var(--muted)' : 'var(--surface)',
+                        opacity: memory.metadata.status === 'superseded' ? 0.7 : 1,
                       }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                          <span className="badge" style={{ backgroundColor: 'var(--background)', color: 'var(--primary)', fontWeight: 'bold', fontSize: '0.75rem' }}>
-                            {used.type}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                          <span className="badge" style={{ backgroundColor: 'var(--background)', color: 'var(--primary)', fontWeight: 'bold', fontSize: '0.65rem' }}>
+                            {memory.type}
                           </span>
-                          <span style={{ fontSize: '0.8rem', opacity: 0.6 }}>
-                            ID: {used.id.substring(0, 8)}...
-                          </span>
+                          <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                            {(() => {
+                              const lifecycle = deriveLifecycleState({
+                                id: memory.id,
+                                userId: memory.userId,
+                                type: memory.type,
+                                content: memory.content,
+                                metadata: memory.metadata,
+                                createdAt: new Date(memory.createdAt),
+                                updatedAt: new Date(memory.updatedAt),
+                              } as unknown as PackageMemory);
+                              const colors = getLifecycleColor(lifecycle);
+                              return (
+                                <span className="badge" style={{
+                                  backgroundColor: colors.bg,
+                                  color: colors.text,
+                                  borderColor: colors.border,
+                                  fontSize: '0.65rem',
+                                  textTransform: 'uppercase',
+                                  fontWeight: 'bold',
+                                  border: '1px solid'
+                                }}>
+                                  {lifecycle}
+                                </span>
+                              );
+                            })()}
+                            <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>
+                              Conf: <strong>{((memory.metadata.confidence as number) * 100).toFixed(0)}%</strong>
+                            </span>
+                            <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>
+                              Imp: <strong>{(memory.metadata.importance as number)}/10</strong>
+                            </span>
+                          </div>
                         </div>
-                        <div style={{ fontSize: '0.8rem', opacity: 0.7, marginTop: '0.5rem', display: 'flex', gap: '1rem' }}>
-                          <span>Similarity: <strong>{used.similarity.toFixed(2)}</strong></span>
-                          <span>Score: <strong>{used.score.toFixed(3)}</strong></span>
+                        <p style={{ fontWeight: 500, fontSize: '0.85rem', margin: 0 }}>{memory.content}</p>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', opacity: 0.5, marginTop: '0.4rem', borderTop: '1px solid var(--border)', paddingTop: '0.4rem' }}>
+                          <span>Source: {memory.metadata.source}</span>
+                          <span>Observed: {new Date((memory.metadata.timestamp as string) || memory.createdAt).toLocaleDateString()}</span>
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
-
             </div>
-          )}
-        </section>
 
-        {/* Evaluation & Observability Panel */}
-        <section className="card" style={{ marginTop: '2.5rem' }}>
-          <h3 className="card-title">📊 Evaluation & Observability</h3>
-          <p style={{ fontSize: '0.9rem', opacity: 0.7, marginBottom: '1.25rem' }}>
-            Run the 16-scenario synthetic benchmark suite to evaluate memory recall, user isolation boundaries, Jaccard/containment deduplication rates, and token compliance.
-          </p>
-
-          <button
-            onClick={handleRunEvaluation}
-            className="btn btn-primary"
-            style={{ marginBottom: '1.5rem' }}
-            disabled={evalLoading}
-          >
-            {evalLoading ? 'Running Benchmarks...' : 'Run Benchmark Evaluation'}
-          </button>
-
-          {evalError && (
-            <div style={{
-              padding: '0.75rem',
-              borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--error)',
-              backgroundColor: 'rgba(179, 74, 60, 0.1)',
-              color: 'var(--error)',
-              marginBottom: '1.25rem',
-              fontSize: '0.85rem'
-            }}>
-              {evalError}
-            </div>
-          )}
-
-          {evalLoading ? (
-            <div style={{ textAlign: 'center', padding: '2rem', opacity: 0.6 }}>Executing benchmark scenarios...</div>
-          ) : evalSummary && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-              
-              {/* Summary Stats Grid */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '1rem' }}>
-                <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.8rem', opacity: 0.6, textTransform: 'uppercase', fontWeight: 600 }}>Total Scenarios</div>
-                  <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--text)' }}>{evalSummary.total}</div>
-                </div>
-                <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'rgba(74, 117, 89, 0.1)', borderLeft: '4px solid var(--success)', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--success)', textTransform: 'uppercase', fontWeight: 600 }}>Passed</div>
-                  <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--success)' }}>{evalSummary.passed}</div>
-                </div>
-                <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'rgba(179, 74, 60, 0.1)', borderLeft: '4px solid var(--error)', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--error)', textTransform: 'uppercase', fontWeight: 600 }}>Failed</div>
-                  <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--error)' }}>{evalSummary.failed}</div>
-                </div>
-                <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.8rem', opacity: 0.6, textTransform: 'uppercase', fontWeight: 600 }}>Recall Rate</div>
-                  <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--text)' }}>{(evalSummary.retrievalRecall * 100).toFixed(0)}%</div>
-                </div>
-                <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.8rem', opacity: 0.6, textTransform: 'uppercase', fontWeight: 600 }}>Precision</div>
-                  <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--text)' }}>{(evalSummary.contextPrecision * 100).toFixed(0)}%</div>
-                </div>
-                <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.8rem', opacity: 0.6, textTransform: 'uppercase', fontWeight: 600 }}>Isolation</div>
-                  <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--success)' }}>{(evalSummary.isolationRate * 100).toFixed(0)}%</div>
-                </div>
-                <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.8rem', opacity: 0.6, textTransform: 'uppercase', fontWeight: 600 }}>Deduplication</div>
-                  <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--text)' }}>{(evalSummary.deduplicationRate * 100).toFixed(0)}%</div>
-                </div>
-                <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.8rem', opacity: 0.6, textTransform: 'uppercase', fontWeight: 600 }}>Avg Latency</div>
-                  <div style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--text)' }}>{evalSummary.averageLatency.toFixed(0)} ms</div>
-                </div>
-              </div>
-
-              {/* Scenario Sheet */}
-              <div>
-                <h4 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem' }}>📋 Scenario Benchmark Execution Sheet</h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '400px', overflowY: 'auto', paddingRight: '0.25rem' }}>
-                  {evalResults.map((result) => (
-                    <div key={result.scenarioId} style={{
-                      padding: '0.75rem 1rem',
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--border)',
-                      backgroundColor: 'var(--surface)',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center'
-                    }}>
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: '0.95rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                          <span style={{ color: result.passed ? 'var(--success)' : 'var(--error)' }}>
-                            {result.passed ? '●' : '■'}
-                          </span>
-                          {result.name}
-                        </div>
-                        <div style={{ fontSize: '0.8rem', opacity: 0.6, marginTop: '0.25rem', display: 'flex', gap: '0.75rem' }}>
-                          <span>Latency: <strong>{result.latencyMs} ms</strong></span>
-                          <span>Recall: <strong>{(result.metrics.retrievalRecall * 100).toFixed(0)}%</strong></span>
-                          <span>Precision: <strong>{(result.metrics.contextPrecision * 100).toFixed(0)}%</strong></span>
-                        </div>
-                        {result.failureReason && (
-                          <div style={{ fontSize: '0.75rem', color: 'var(--error)', marginTop: '0.25rem' }}>
-                            ⚠️ {result.failureReason}
-                          </div>
-                        )}
-                      </div>
-                      
-                      <span className="badge" style={{
-                        backgroundColor: result.passed ? 'rgba(74, 117, 89, 0.15)' : 'rgba(179, 74, 60, 0.15)',
-                        color: result.passed ? 'var(--success)' : 'var(--error)',
-                        fontWeight: 'bold'
-                      }}>
-                        {result.passed ? 'PASSED' : 'FAILED'}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-            </div>
-          )}
-        </section>
-
-        {/* Developer API & System Health Console */}
-        <section className="card" style={{ marginTop: '2.5rem' }}>
-          <h3 className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-            <span>🛠️ Developer API & System Health</span>
-            <div style={{ display: 'flex', gap: '0.5rem', fontSize: '0.8rem', flexWrap: 'wrap' }}>
-              <span className="badge" style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.3rem',
-                padding: '0.25rem 0.5rem',
-                borderRadius: 'var(--radius-sm)',
-                backgroundColor: healthData?.service === 'healthy' ? 'rgba(74, 117, 89, 0.15)' : 'rgba(179, 74, 60, 0.15)',
-                color: healthData?.service === 'healthy' ? 'var(--success)' : 'var(--error)',
-                border: `1px solid ${healthData?.service === 'healthy' ? 'rgba(74, 117, 89, 0.3)' : 'rgba(179, 74, 60, 0.3)'}`
-              }}>
-                <span className="dot-mini" style={{ width: '6px', height: '6px', borderRadius: '50%', display: 'inline-block', backgroundColor: healthData?.service === 'healthy' ? 'var(--success)' : 'var(--error)' }} />
-                Service: {healthData?.service || 'healthy'}
-              </span>
-              <span className="badge" style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.3rem',
-                padding: '0.25rem 0.5rem',
-                borderRadius: 'var(--radius-sm)',
-                backgroundColor: healthData?.database === 'healthy' ? 'rgba(74, 117, 89, 0.15)' : 'rgba(179, 74, 60, 0.15)',
-                color: healthData?.database === 'healthy' ? 'var(--success)' : 'var(--error)',
-                border: `1px solid ${healthData?.database === 'healthy' ? 'rgba(74, 117, 89, 0.3)' : 'rgba(179, 74, 60, 0.3)'}`
-              }}>
-                <span className="dot-mini" style={{ width: '6px', height: '6px', borderRadius: '50%', display: 'inline-block', backgroundColor: healthData?.database === 'healthy' ? 'var(--success)' : 'var(--error)' }} />
-                Database: {healthData?.database || 'checking...'}
-              </span>
-              <span className="badge" style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.3rem',
-                padding: '0.25rem 0.5rem',
-                borderRadius: 'var(--radius-sm)',
-                backgroundColor: healthData?.provider === 'healthy' ? 'rgba(74, 117, 89, 0.15)' : 'rgba(179, 74, 60, 0.15)',
-                color: healthData?.provider === 'healthy' ? 'var(--success)' : 'var(--error)',
-                border: `1px solid ${healthData?.provider === 'healthy' ? 'rgba(74, 117, 89, 0.3)' : 'rgba(179, 74, 60, 0.3)'}`
-              }}>
-                <span className="dot-mini" style={{ width: '6px', height: '6px', borderRadius: '50%', display: 'inline-block', backgroundColor: healthData?.provider === 'healthy' ? 'var(--success)' : 'var(--error)' }} />
-                Provider: {healthData?.provider || 'checking...'}
-              </span>
-            </div>
-          </h3>
-          <p style={{ fontSize: '0.9rem', opacity: 0.7, marginBottom: '1.5rem' }}>
-            Mnemos exposes high-performance versioned REST API endpoints for downstream AI agent or client application integrations.
-          </p>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', alignItems: 'start' }}>
-            {/* Documentation Panel */}
-            <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '1.25rem', backgroundColor: 'var(--background)' }}>
-              <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem', overflowX: 'auto' }}>
-                {(['ingest', 'search', 'context', 'respond', 'health'] as const).map((tab) => (
+            {/* 2. MEMORY INTELLIGENCE */}
+            <div className="card" style={{ padding: '1.25rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <button
-                    key={tab}
-                    onClick={() => setActiveDocTab(tab)}
+                    onClick={() => setActiveIntelligenceTab('ask')}
                     style={{
-                      padding: '0.4rem 0.75rem',
+                      padding: '0.4rem 0.8rem',
                       border: 'none',
-                      backgroundColor: activeDocTab === tab ? 'var(--surface)' : 'transparent',
-                      color: activeDocTab === tab ? 'var(--primary)' : 'var(--text)',
-                      fontWeight: activeDocTab === tab ? 600 : 400,
+                      backgroundColor: activeIntelligenceTab === 'ask' ? 'var(--primary)' : 'transparent',
+                      color: activeIntelligenceTab === 'ask' ? '#fff' : 'var(--text)',
+                      fontWeight: 600,
                       borderRadius: 'var(--radius-sm)',
                       fontSize: '0.8rem',
                       cursor: 'pointer',
-                      borderBottom: activeDocTab === tab ? '2px solid var(--primary)' : 'none',
-                      whiteSpace: 'nowrap'
+                      boxShadow: activeIntelligenceTab === 'ask' ? 'var(--shadow-sm)' : 'none',
                     }}
                   >
-                    {tab === 'ingest' && 'POST Ingest'}
-                    {tab === 'search' && 'POST Search'}
-                    {tab === 'context' && 'POST Context'}
-                    {tab === 'respond' && 'POST Respond'}
-                    {tab === 'health' && 'GET Health'}
+                    💬 Ask Mnemos (Grounded Response)
                   </button>
-                ))}
+                  <button
+                    onClick={() => setActiveIntelligenceTab('search')}
+                    style={{
+                      padding: '0.4rem 0.8rem',
+                      border: 'none',
+                      backgroundColor: activeIntelligenceTab === 'search' ? 'var(--surface)' : 'transparent',
+                      color: activeIntelligenceTab === 'search' ? 'var(--primary)' : 'var(--text)',
+                      fontWeight: activeIntelligenceTab === 'search' ? 600 : 400,
+                      borderRadius: 'var(--radius-sm)',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      borderBottom: activeIntelligenceTab === 'search' ? '2px solid var(--primary)' : 'none',
+                    }}
+                  >
+                    🔍 Semantic Search
+                  </button>
+                  <button
+                    onClick={() => setActiveIntelligenceTab('context')}
+                    style={{
+                      padding: '0.4rem 0.8rem',
+                      border: 'none',
+                      backgroundColor: activeIntelligenceTab === 'context' ? 'var(--surface)' : 'transparent',
+                      color: activeIntelligenceTab === 'context' ? 'var(--primary)' : 'var(--text)',
+                      fontWeight: activeIntelligenceTab === 'context' ? 600 : 400,
+                      borderRadius: 'var(--radius-sm)',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      borderBottom: activeIntelligenceTab === 'context' ? '2px solid var(--primary)' : 'none',
+                    }}
+                  >
+                    🧩 Context Assembly
+                  </button>
+                </div>
+                <span className="badge" style={{ backgroundColor: 'rgba(161, 70, 28, 0.1)', color: 'var(--primary)', fontSize: '0.7rem' }}>
+                  Intelligence Layer
+                </span>
               </div>
 
-              {activeDocTab === 'ingest' && (
+              {/* TAB CONTENT: ASK MNEMOS */}
+              {activeIntelligenceTab === 'ask' && (
                 <div>
-                  <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>POST /api/v1/memory/ingest</h4>
-                  <p style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '1rem' }}>
-                    Process user input texts, extract semantic details, reconcile against existing memory states, and update records.
+                  <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
+                    Query persistent memories. The system retrieves matching records, processes safety rules, and grounds generation in the compiled context.
                   </p>
-                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', opacity: 0.8 }}>Request Template (cURL)</div>
-                  <pre style={{ padding: '0.75rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', overflowX: 'auto', marginBottom: '1rem', border: '1px solid var(--border)' }}>
-{`curl -X POST http://localhost:3000/api/v1/memory/ingest \\
-  -H "Content-Type: application/json" \\
-  -H "X-API-Key: placeholder_key" \\
-  -d '{
-    "userId": "user-123",
-    "content": "I prefer using PostgreSQL databases."
-  }'`}
-                  </pre>
-                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', opacity: 0.8 }}>Example Success Response Payload</div>
-                  <pre style={{ padding: '0.75rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', overflowX: 'auto', border: '1px solid var(--border)' }}>
-{`{
-  "status": "success",
-  "data": {
-    "memories": [
-      {
-        "id": "mem-550e8400...",
-        "userId": "user-123",
-        "type": "PREFERENCE",
-        "content": "User prefers PostgreSQL databases."
-      }
-    ]
-  },
-  "requestId": "5c014087-586d..."
-}`}
-                  </pre>
+                  
+                  <form onSubmit={handleResponseSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}>
+                    <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                      <div style={{ flexGrow: 1, minWidth: '240px' }}>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Ask Mnemos</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. What is my favorite database stack or hosting choice?"
+                          value={responseQuery}
+                          onChange={(e) => setResponseQuery(e.target.value)}
+                          style={{ width: '100%', padding: '0.4rem 0.6rem', fontSize: '0.8rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                          required
+                        />
+                      </div>
+                      <div style={{ width: '90px' }}>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Limit</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={responseLimit}
+                          onChange={(e) => setResponseLimit(Number(e.target.value))}
+                          style={{ width: '100%', padding: '0.4rem', fontSize: '0.8rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                          required
+                        />
+                      </div>
+                      <div style={{ width: '110px' }}>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Max Tokens</label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={responseMaxTokens}
+                          onChange={(e) => setResponseMaxTokens(Number(e.target.value))}
+                          style={{ width: '100%', padding: '0.4rem', fontSize: '0.8rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                          required
+                        />
+                      </div>
+                    </div>
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      style={{ alignSelf: 'flex-start', fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
+                      disabled={!mounted || responseLoading || !responseQuery.trim()}
+                    >
+                      {responseLoading ? 'Synthesizing...' : 'Generate Grounded Answer'}
+                    </button>
+                  </form>
+
+                  {responseError && (
+                    <div style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--error)', backgroundColor: 'rgba(179, 74, 60, 0.05)', color: 'var(--error)', fontSize: '0.75rem', marginBottom: '1rem' }}>
+                      {responseError}
+                    </div>
+                  )}
+
+                  {responseLoading ? (
+                    <div style={{ textAlign: 'center', padding: '1.5rem', fontSize: '0.8rem', opacity: 0.6 }}>Running contextual synthesis pipeline...</div>
+                  ) : responseResult && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <div>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.4rem' }}>🤖 Grounded AI Response</h4>
+                        <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--background)', color: 'var(--text)', lineHeight: '1.5', fontSize: '0.85rem', whiteSpace: 'pre-wrap' }}>
+                          {responseResult.response}
+                        </div>
+                      </div>
+
+                      {responseResult.governance && (responseResult.governance.injectionBlockedCount > 0 || responseResult.governance.conflictsDetectedCount > 0) && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                          {responseResult.governance.injectionBlockedCount > 0 && (
+                            <div style={{ padding: '0.5rem 0.75rem', backgroundColor: 'rgba(219, 91, 91, 0.05)', border: '1px solid var(--error)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', color: 'var(--error)' }}>
+                              ⚠️ <strong>Security Guard:</strong> Blocked {responseResult.governance.injectionBlockedCount} candidate memory record(s) due to potential instruction injection patterns. Excluded from prompt context.
+                            </div>
+                          )}
+                          {responseResult.governance.conflictsDetectedCount > 0 && (
+                            <div style={{ padding: '0.5rem 0.75rem', backgroundColor: 'rgba(219, 145, 66, 0.05)', border: '1px solid #db9142', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', color: '#db9142' }}>
+                              ⚡ <strong>Conflict Warning:</strong> Detected {responseResult.governance.conflictsDetectedCount} active competing fact(s). Selected preferred memory and safely excluded the superseded choice.
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.4rem' }}>🔒 Supporting Memories Trace</h4>
+                        {responseResult.usedMemories.length === 0 ? (
+                          <div style={{ padding: '0.75rem', textAlign: 'center', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem' }}>
+                            No matching memories were used as context.
+                          </div>
+                        ) : (
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.5rem' }}>
+                            {responseResult.usedMemories.map((used) => (
+                              <div key={used.id} style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', fontSize: '0.75rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+                                  <span className="badge" style={{ backgroundColor: 'var(--background)', color: 'var(--primary)', fontSize: '0.65rem' }}>
+                                    {used.type}
+                                  </span>
+                                  <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>
+                                    ID: {used.id.substring(0, 8)}...
+                                  </span>
+                                </div>
+                                <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.7rem', opacity: 0.7, marginTop: '0.25rem' }}>
+                                  <span>Sim: <strong>{used.similarity.toFixed(2)}</strong></span>
+                                  <span>Score: <strong>{used.score.toFixed(3)}</strong></span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
-              {activeDocTab === 'search' && (
+              {/* TAB CONTENT: SEMANTIC SEARCH */}
+              {activeIntelligenceTab === 'search' && (
                 <div>
-                  <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>POST /api/v1/memory/search</h4>
-                  <p style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '1rem' }}>
-                    Generate semantic search embeddings and fetch matching active candidate memories sorted by vector similarity.
+                  <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
+                    Query memories using cosine similarity matching. Enter a concept description to search.
                   </p>
-                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', opacity: 0.8 }}>Request Template (cURL)</div>
-                  <pre style={{ padding: '0.75rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', overflowX: 'auto', marginBottom: '1rem', border: '1px solid var(--border)' }}>
+                  
+                  <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+                    <input
+                      type="text"
+                      placeholder="e.g. staging database staging preferences..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      style={{ flexGrow: 1, minWidth: '220px', padding: '0.4rem 0.75rem', fontSize: '0.8rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                      required
+                    />
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
+                      disabled={!mounted || searchLoading || !searchQuery.trim()}
+                    >
+                      {searchLoading ? 'Searching...' : 'Search Context'}
+                    </button>
+                  </form>
+
+                  {searchError && (
+                    <div style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--error)', backgroundColor: 'rgba(179, 74, 60, 0.05)', color: 'var(--error)', fontSize: '0.75rem', marginBottom: '1rem' }}>
+                      {searchError}
+                    </div>
+                  )}
+
+                  {searchLoading ? (
+                    <div style={{ textAlign: 'center', padding: '1.5rem', fontSize: '0.8rem', opacity: 0.6 }}>Executing vector search...</div>
+                  ) : searchResults.length === 0 ? (
+                    searchQuery && (
+                      <div style={{ textAlign: 'center', padding: '1.5rem', fontSize: '0.8rem', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)' }}>
+                        No memories found matching your search.
+                      </div>
+                    )
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {searchResults.map((result) => (
+                        <div key={result.memory.id} style={{ padding: '0.6rem 0.8rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', fontSize: '0.8rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
+                            <span className="badge" style={{ backgroundColor: 'var(--background)', color: 'var(--primary)', fontSize: '0.65rem' }}>
+                              {result.memory.type}
+                            </span>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: 'bold' }}>
+                              Similarity: {(result.similarity * 100).toFixed(1)}%
+                            </span>
+                          </div>
+                          <p style={{ fontWeight: 500, margin: '0.25rem 0' }}>{result.memory.content}</p>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', opacity: 0.5, fontSize: '0.7rem' }}>
+                            <span>Source: {result.memory.metadata.source}</span>
+                            <span>Observed: {new Date(result.memory.metadata.timestamp || result.memory.createdAt).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB CONTENT: CONTEXT ASSEMBLY */}
+              {activeIntelligenceTab === 'context' && (
+                <div>
+                  <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
+                    Assemble, score, and token-slice prompt contexts according to token constraints.
+                  </p>
+                  
+                  <form onSubmit={handleContextSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}>
+                    <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                      <div style={{ flexGrow: 1, minWidth: '240px' }}>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Query Topic</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. database configuration or staging..."
+                          value={contextQuery}
+                          onChange={(e) => setContextQuery(e.target.value)}
+                          style={{ width: '100%', padding: '0.4rem 0.6rem', fontSize: '0.8rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                          required
+                        />
+                      </div>
+                      <div style={{ width: '90px' }}>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Limit</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={contextLimit}
+                          onChange={(e) => setContextLimit(Number(e.target.value))}
+                          style={{ width: '100%', padding: '0.4rem', fontSize: '0.8rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                          required
+                        />
+                      </div>
+                      <div style={{ width: '110px' }}>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>Max Tokens</label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={contextMaxTokens}
+                          onChange={(e) => setContextMaxTokens(Number(e.target.value))}
+                          style={{ width: '100%', padding: '0.4rem', fontSize: '0.8rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                          required
+                        />
+                      </div>
+                    </div>
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      style={{ alignSelf: 'flex-start', fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
+                      disabled={!mounted || contextLoading || !contextQuery.trim()}
+                    >
+                      {contextLoading ? 'Assembling...' : 'Assemble Prompt Context'}
+                    </button>
+                  </form>
+
+                  {contextError && (
+                    <div style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--error)', backgroundColor: 'rgba(179, 74, 60, 0.05)', color: 'var(--error)', fontSize: '0.75rem', marginBottom: '1rem' }}>
+                      {contextError}
+                    </div>
+                  )}
+
+                  {contextLoading ? (
+                    <div style={{ textAlign: 'center', padding: '1.5rem', fontSize: '0.8rem', opacity: 0.6 }}>Running context selection heuristics...</div>
+                  ) : contextResult && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <div>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.4rem', display: 'flex', justifyContent: 'space-between' }}>
+                          <span>📄 Compiled Prompt Context Block</span>
+                          <span className="badge" style={{ backgroundColor: 'var(--primary)', color: '#fff', fontSize: '0.7rem' }}>
+                            Tokens: {contextResult.tokenCount}
+                          </span>
+                        </h4>
+                        <pre style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--background)', color: 'var(--text)', fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre-wrap', maxHeight: '200px', overflowY: 'auto' }}>
+                          {contextResult.context || '/* Empty Context Block */'}
+                        </pre>
+                      </div>
+
+                      <div>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.4rem' }}>📋 Selected Memory Items</h4>
+                        {contextResult.items.length === 0 ? (
+                          <div style={{ padding: '0.75rem', textAlign: 'center', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem' }}>
+                            No memories were selected under the token budget.
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                            {contextResult.items.map((item) => (
+                              <div key={item.id} style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', fontSize: '0.75rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
+                                  <span className="badge" style={{ backgroundColor: 'var(--background)', color: 'var(--primary)', fontSize: '0.65rem' }}>
+                                    {item.type}
+                                  </span>
+                                  <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>
+                                    ID: {item.id.substring(0, 8)}...
+                                  </span>
+                                </div>
+                                <p style={{ fontWeight: 500, margin: '0.2rem 0' }}>{item.content}</p>
+                                <div style={{ fontSize: '0.7rem', color: 'var(--primary)', opacity: 0.9, borderTop: '1px dotted var(--border)', paddingTop: '0.2rem', marginTop: '0.2rem' }}>
+                                  ℹ️ {item.reason}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* 3. MEMORY HEALTH & EVOLUTION TIMELINE */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', alignItems: 'start' }}>
+              
+              {/* Memory Health card */}
+              <div className="card" style={{ padding: '1.25rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 0 }}>📊 Memory Health & Analytics</h3>
+                  <button
+                    onClick={handleConsolidate}
+                    className="btn btn-primary"
+                    disabled={loadingConsolidate || memories.length === 0}
+                    style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem' }}
+                  >
+                    {loadingConsolidate ? 'Consolidating...' : '⚡ Consolidate Duplicates'}
+                  </button>
+                </div>
+                <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
+                  Cognitive classification metrics, confidence thresholds, and deduplication triggers.
+                </p>
+
+                {consolidateMessage && (
+                  <div style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--success)', backgroundColor: 'rgba(91, 138, 82, 0.05)', color: 'var(--success)', fontSize: '0.75rem', marginBottom: '1rem' }}>
+                    {consolidateMessage}
+                  </div>
+                )}
+
+                {(() => {
+                  if (memories.length === 0) {
+                    return (
+                      <div style={{ padding: '1.5rem', textAlign: 'center', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem' }}>
+                        No health analytics available yet.
+                      </div>
+                    );
+                  }
+
+                  const stats = memories.reduce((acc, m) => {
+                    const lf = deriveLifecycleState({
+                      id: m.id,
+                      userId: m.userId,
+                      type: m.type,
+                      content: m.content,
+                      metadata: m.metadata,
+                      createdAt: new Date(m.createdAt),
+                      updatedAt: new Date(m.updatedAt)
+                    } as unknown as PackageMemory);
+                    acc[lf] = (acc[lf] || 0) + 1;
+                    acc.totalConfidence += ((m.metadata.confidence as number) || 0.9);
+                    acc.totalImportance += ((m.metadata.importance as number) || 5);
+                    return acc;
+                  }, { core: 0, stable: 0, fading: 0, historical: 0, totalConfidence: 0, totalImportance: 0 });
+
+                  const avgConfidence = stats.totalConfidence / memories.length;
+                  const avgImportance = stats.totalImportance / memories.length;
+
+                  const sortedMemories = [...memories].sort((a, b) => {
+                    const aR = (a.metadata.reinforcementCount as number) || 0;
+                    const bR = (b.metadata.reinforcementCount as number) || 0;
+                    if (bR !== aR) return bR - aR;
+                    const aA = (a.metadata.accessCount as number) || 0;
+                    const bA = (b.metadata.accessCount as number) || 0;
+                    return bA - aA;
+                  });
+                  const topReinforced = sortedMemories.slice(0, 2);
+
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', fontSize: '0.8rem' }}>
+                        <div style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)' }}>
+                          <span style={{ opacity: 0.7 }}>Core Memories:</span> <strong>{stats.core || 0}</strong>
+                        </div>
+                        <div style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)' }}>
+                          <span style={{ opacity: 0.7 }}>Stable Memories:</span> <strong>{stats.stable || 0}</strong>
+                        </div>
+                        <div style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)' }}>
+                          <span style={{ opacity: 0.7 }}>Fading Memories:</span> <strong>{stats.fading || 0}</strong>
+                        </div>
+                        <div style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)' }}>
+                          <span style={{ opacity: 0.7 }}>Historical:</span> <strong>{stats.historical || 0}</strong>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', textAlign: 'center', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+                        <div>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'var(--primary)' }}>
+                            {(avgConfidence * 100).toFixed(0)}%
+                          </div>
+                          <div style={{ fontSize: '0.65rem', opacity: 0.6, textTransform: 'uppercase' }}>Avg Confidence</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'var(--primary)' }}>
+                            {avgImportance.toFixed(1)}/10
+                          </div>
+                          <div style={{ fontSize: '0.65rem', opacity: 0.6, textTransform: 'uppercase' }}>Avg Importance</div>
+                        </div>
+                      </div>
+
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+                        <h4 style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.4rem', color: 'var(--primary)' }}>🔥 Top Reinforced Memories</h4>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                          {topReinforced.map((m) => (
+                            <div key={m.id} style={{ padding: '0.4rem 0.6rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--background)', fontSize: '0.75rem' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', opacity: 0.7, marginBottom: '0.15rem' }}>
+                                <span style={{ fontWeight: 600 }}>{m.type}</span>
+                                <span>Reinforcement Hits: {(m.metadata.reinforcementCount as number) || 0}</span>
+                              </div>
+                              <p style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', margin: 0, fontStyle: 'italic' }}>
+                                {m.content}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Memory Evolution */}
+              <div className="card" style={{ padding: '1.25rem' }}>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>🕰️ Memory Evolution</h3>
+                <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
+                  Timeline tracking memory revisions, supersessions, and temporal state relationships.
+                </p>
+
+                {(() => {
+                  const activeWithHistory = memories.filter(
+                    (m) => (m.metadata.status || 'active') !== 'superseded' && m.metadata.supersedes
+                  );
+
+                  if (activeWithHistory.length === 0) {
+                    return (
+                      <div style={{ padding: '2rem', textAlign: 'center', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', lineHeight: '1.5' }}>
+                        No memory versions yet. When a memory changes, Mnemos preserves the previous version and shows its evolution here.
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '350px', overflowY: 'auto' }}>
+                      {activeWithHistory.map((current) => {
+                        const chain: typeof memories = [current];
+                        let curr = current;
+                        const visited = new Set<string>([curr.id]);
+
+                        while (curr.metadata.supersedes && typeof curr.metadata.supersedes === 'string') {
+                          const parentId = curr.metadata.supersedes;
+                          if (visited.has(parentId)) break;
+                          visited.add(parentId);
+
+                          const parent = memories.find((m) => m.id === parentId);
+                          if (!parent) break;
+                          chain.push(parent);
+                          curr = parent;
+                        }
+
+                        return (
+                          <div key={current.id} style={{ padding: '0.6rem 0.8rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.25rem', marginBottom: '0.4rem', fontWeight: 600 }}>
+                              <span style={{ color: 'var(--primary)' }}>Type: {current.type}</span>
+                              <span style={{ opacity: 0.5 }}>Revisions: {chain.length}</span>
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', paddingLeft: '0.75rem', borderLeft: '2px solid var(--border)', position: 'relative' }}>
+                              {chain.map((version, idx) => {
+                                const isActive = idx === 0;
+                                return (
+                                  <div key={version.id} style={{ fontSize: '0.75rem' }}>
+                                    <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                                      <strong style={{ color: isActive ? 'var(--success)' : 'var(--error)' }}>
+                                        {isActive ? 'Active' : 'Superseded'}
+                                      </strong>
+                                      <span style={{ opacity: 0.5 }}>ID: {version.id.substring(0, 8)}...</span>
+                                    </div>
+                                    <p style={{ margin: '0.15rem 0', fontWeight: isActive ? 600 : 400, color: 'var(--text)' }}>
+                                      {version.content}
+                                    </p>
+                                    <span style={{ opacity: 0.5, fontSize: '0.65rem' }}>
+                                      {version.metadata.validFrom ? `From: ${new Date(version.metadata.validFrom as string).toLocaleDateString()}` : `Observed: ${new Date((version.metadata.timestamp as string) || version.createdAt).toLocaleDateString()}`}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* ========================================== */
+          /*         DEVELOPER CONSOLE VIEW             */
+          /* ========================================== */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            
+            {/* System health and Security settings */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem', alignItems: 'start' }}>
+              
+              {/* System Diagnostics */}
+              <div className="card" style={{ padding: '1.25rem' }}>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>🛠️ Diagnostic Health States</h3>
+                <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
+                  Diagnostics detailing status of local Neon database and external Gemini endpoints.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.8rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.4rem 0', borderBottom: '1px solid var(--border)' }}>
+                    <span>Runtime Service</span>
+                    <strong style={{ color: healthData?.service === 'healthy' ? 'var(--success)' : 'var(--error)' }}>
+                      {healthData?.service ? healthData.service.toUpperCase() : 'HEALTHY'}
+                    </strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.4rem 0', borderBottom: '1px solid var(--border)' }}>
+                    <span>Neon Database Client</span>
+                    <strong style={{ color: healthData?.database === 'healthy' ? 'var(--success)' : 'var(--error)' }}>
+                      {healthData?.database ? healthData.database.toUpperCase() : 'HEALTHY'}
+                    </strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.4rem 0' }}>
+                    <span>Gemini Core Provider</span>
+                    <strong style={{ color: healthData?.provider === 'healthy' ? 'var(--success)' : 'var(--error)' }}>
+                      {healthData?.provider ? healthData.provider.toUpperCase() : 'HEALTHY'}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Security Audits */}
+              <div className="card" style={{ padding: '1.25rem' }}>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>🛡️ Security & Performance Audits</h3>
+                <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
+                  Active API key parameters, rate limiting quotas, and timing latency statistics.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.8rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.4rem 0', borderBottom: '1px solid var(--border)' }}>
+                    <span>API Credentials Verification</span>
+                    <strong style={{ color: healthData?.authEnabled ? 'var(--success)' : 'var(--error)' }}>
+                      {healthData?.authEnabled ? 'ENABLED (Production)' : 'DISABLED (Local Dev)'}
+                    </strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.4rem 0', borderBottom: '1px solid var(--border)' }}>
+                    <span>In-Memory Rate Limiter</span>
+                    <strong>
+                      {healthData?.rateLimitMax ? `${healthData.rateLimitMax} req / ${healthData.rateLimitWindow}s` : '100 req / 60s'}
+                    </strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.4rem 0', borderBottom: '1px solid var(--border)' }}>
+                    <span>Average Trace Latency</span>
+                    <strong>{avgLatency > 0 ? `${avgLatency} ms` : 'N/A'}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.4rem 0' }}>
+                    <span>Recent Request Errors</span>
+                    <strong style={{ color: errorCount > 0 ? 'var(--error)' : 'var(--success)' }}>{errorCount}</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* REST API and Telemetry logger */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', alignItems: 'start' }}>
+              
+              {/* Route reference docs */}
+              <div className="card" style={{ padding: '1.25rem' }}>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem' }}>📄 API Reference (REST v1)</h3>
+                
+                <div style={{ display: 'flex', gap: '0.2rem', marginBottom: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.4rem', overflowX: 'auto' }}>
+                  {(['ingest', 'search', 'context', 'respond', 'health'] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveDocTab(tab)}
+                      style={{
+                        padding: '0.3rem 0.5rem',
+                        border: 'none',
+                        backgroundColor: activeDocTab === tab ? 'var(--surface)' : 'transparent',
+                        color: activeDocTab === tab ? 'var(--primary)' : 'var(--text)',
+                        fontWeight: activeDocTab === tab ? 600 : 400,
+                        borderRadius: 'var(--radius-sm)',
+                        fontSize: '0.75rem',
+                        cursor: 'pointer',
+                        borderBottom: activeDocTab === tab ? '2px solid var(--primary)' : 'none',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {tab.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+
+                {activeDocTab === 'ingest' && (
+                  <div style={{ fontSize: '0.75rem' }}>
+                    <h4 style={{ fontWeight: 600, marginBottom: '0.25rem' }}>POST /api/v1/memory/ingest</h4>
+                    <p style={{ opacity: 0.7, marginBottom: '0.5rem' }}>Extracts and reconciles memory interaction records.</p>
+                    <pre style={{ padding: '0.5rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', overflowX: 'auto', border: '1px solid var(--border)', marginBottom: '0.5rem' }}>
+{`curl -X POST http://localhost:3000/api/v1/memory/ingest \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "userId": "user-123",
+    "content": "I prefer using PostgreSQL."
+  }'`}
+                    </pre>
+                  </div>
+                )}
+
+                {activeDocTab === 'search' && (
+                  <div style={{ fontSize: '0.75rem' }}>
+                    <h4 style={{ fontWeight: 600, marginBottom: '0.25rem' }}>POST /api/v1/memory/search</h4>
+                    <p style={{ opacity: 0.7, marginBottom: '0.5rem' }}>Cosine similarity vector matching over active memories.</p>
+                    <pre style={{ padding: '0.5rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', overflowX: 'auto', border: '1px solid var(--border)', marginBottom: '0.5rem' }}>
 {`curl -X POST http://localhost:3000/api/v1/memory/search \\
   -H "Content-Type: application/json" \\
   -d '{
     "userId": "user-123",
-    "query": "What database options do I prefer?",
+    "query": "preferred DB",
     "limit": 5
   }'`}
-                  </pre>
-                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', opacity: 0.8 }}>Example Success Response Payload</div>
-                  <pre style={{ padding: '0.75rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', overflowX: 'auto', border: '1px solid var(--border)' }}>
-{`{
-  "status": "success",
-  "data": {
-    "results": [
-      {
-        "memory": {
-          "id": "mem-550e8400...",
-          "type": "PREFERENCE",
-          "content": "User prefers PostgreSQL databases."
-        },
-        "similarity": 0.849
-      }
-    ]
-  },
-  "requestId": "2aeb-4847..."
-}`}
-                  </pre>
-                </div>
-              )}
+                    </pre>
+                  </div>
+                )}
 
-              {activeDocTab === 'context' && (
-                <div>
-                  <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>POST /api/v1/memory/context</h4>
-                  <p style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '1rem' }}>
-                    Retrieve, score, downrank, deduplicate, and compile relevant memories into a formatted prompt context block.
-                  </p>
-                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', opacity: 0.8 }}>Request Template (cURL)</div>
-                  <pre style={{ padding: '0.75rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', overflowX: 'auto', marginBottom: '1rem', border: '1px solid var(--border)' }}>
+                {activeDocTab === 'context' && (
+                  <div style={{ fontSize: '0.75rem' }}>
+                    <h4 style={{ fontWeight: 600, marginBottom: '0.25rem' }}>POST /api/v1/memory/context</h4>
+                    <p style={{ opacity: 0.7, marginBottom: '0.5rem' }}>Retrieve, governance filter, and slice formatted prompt context.</p>
+                    <pre style={{ padding: '0.5rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', overflowX: 'auto', border: '1px solid var(--border)', marginBottom: '0.5rem' }}>
 {`curl -X POST http://localhost:3000/api/v1/memory/context \\
   -H "Content-Type: application/json" \\
   -d '{
     "userId": "user-123",
-    "query": "preferred DB",
+    "query": "database choice",
     "limit": 10,
     "maxTokens": 1500
   }'`}
-                  </pre>
-                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', opacity: 0.8 }}>Example Success Response Payload</div>
-                  <pre style={{ padding: '0.75rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', overflowX: 'auto', border: '1px solid var(--border)' }}>
-{`{
-  "status": "success",
-  "data": {
-    "query": "preferred DB",
-    "items": [...],
-    "context": "[PREFERENCE] [CURRENT] User prefers PostgreSQL...",
-    "tokenCount": 11,
-    "governance": {
-      "allowedCount": 1,
-      "downrankedCount": 0,
-      "excludedCount": 0,
-      "conflictsDetectedCount": 0,
-      "lowConfidenceCount": 0,
-      "injectionBlockedCount": 0,
-      "details": {}
-    }
-  },
-  "requestId": "3a1c-99da..."
-}`}
-                  </pre>
-                </div>
-              )}
+                    </pre>
+                  </div>
+                )}
 
-              {activeDocTab === 'respond' && (
-                <div>
-                  <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>POST /api/v1/memory/respond</h4>
-                  <p style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '1rem' }}>
-                    Generate an LLM response grounded strictly in the user&apos;s retrieved memory context.
-                  </p>
-                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', opacity: 0.8 }}>Request Template (cURL)</div>
-                  <pre style={{ padding: '0.75rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', overflowX: 'auto', marginBottom: '1rem', border: '1px solid var(--border)' }}>
+                {activeDocTab === 'respond' && (
+                  <div style={{ fontSize: '0.75rem' }}>
+                    <h4 style={{ fontWeight: 600, marginBottom: '0.25rem' }}>POST /api/v1/memory/respond</h4>
+                    <p style={{ opacity: 0.7, marginBottom: '0.5rem' }}>Generate grounded LLM responses under user memory context rules.</p>
+                    <pre style={{ padding: '0.5rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', overflowX: 'auto', border: '1px solid var(--border)', marginBottom: '0.5rem' }}>
 {`curl -X POST http://localhost:3000/api/v1/memory/respond \\
   -H "Content-Type: application/json" \\
   -d '{
     "userId": "user-123",
-    "query": "Should I host using SQLite or PostgreSQL?",
-    "limit": 10,
-    "maxTokens": 1500
+    "query": "SQLite or PostgreSQL?",
+    "limit": 5
   }'`}
-                  </pre>
-                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', opacity: 0.8 }}>Example Success Response Payload</div>
-                  <pre style={{ padding: '0.75rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', overflowX: 'auto', border: '1px solid var(--border)' }}>
-{`{
-  "status": "success",
-  "data": {
-    "response": "Based on your preferences, you should host using PostgreSQL...",
-    "usedMemories": [
-      { "id": "mem-550e8400...", "type": "PREFERENCE", "similarity": 0.83, "score": 0.95 }
-    ],
-    "contextTokenCount": 11,
-    "governance": {}
-  },
-  "requestId": "4e12-b11c..."
-}`}
-                  </pre>
-                </div>
-              )}
-
-              {activeDocTab === 'health' && (
-                <div>
-                  <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>GET /api/v1/memory/health</h4>
-                  <p style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '1rem' }}>
-                    Diagnostic endpoint to evaluate health status of system core runners, Postgres database connection, and external Gemini model providers.
-                  </p>
-                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', opacity: 0.8 }}>Request Template (cURL)</div>
-                  <pre style={{ padding: '0.75rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', overflowX: 'auto', marginBottom: '1rem', border: '1px solid var(--border)' }}>
-{`curl -X GET http://localhost:3000/api/v1/memory/health`}
-                  </pre>
-                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', opacity: 0.8 }}>Example Success Response Payload</div>
-                  <pre style={{ padding: '0.75rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', overflowX: 'auto', border: '1px solid var(--border)' }}>
-{`{
-  "status": "success",
-  "data": {
-    "service": "healthy",
-    "database": "healthy",
-    "provider": "healthy"
-  },
-  "requestId": "f82b-c831..."
-}`}
-                  </pre>
-                </div>
-              )}
-            </div>
-
-            {/* Request Metrics Observability Panel */}
-            <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '1.25rem', backgroundColor: 'var(--background)' }}>
-              <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.75rem' }}>📊 Recent Request Telemetry Trace</h4>
-              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1.25rem' }}>
-                Real-time API invocation metrics. Run query or search actions above to view dynamic traces.
-              </p>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '350px', overflowY: 'auto' }}>
-                {requestMetrics.length === 0 ? (
-                  <div style={{ padding: '2rem', textAlign: 'center', opacity: 0.5, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem' }}>
-                    No recent requests captured.
+                    </pre>
                   </div>
-                ) : (
-                  requestMetrics.map((metric) => (
-                    <div key={metric.id} style={{ padding: '0.6rem 0.8rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', fontSize: '0.75rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem', fontWeight: 600 }}>
-                        <span style={{ color: 'var(--primary)' }}>{metric.endpoint}</span>
-                        <span style={{ color: metric.status.includes('OK') || metric.status.includes('200') ? 'var(--success)' : 'var(--error)' }}>
-                          {metric.status}
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', opacity: 0.6, fontSize: '0.7rem' }}>
-                        <span>Lat: <strong>{metric.latency} ms</strong></span>
-                        <span>ID: <code>{metric.id.substring(0, 10)}...</code></span>
-                      </div>
-                    </div>
-                  ))
+                )}
+
+                {activeDocTab === 'health' && (
+                  <div style={{ fontSize: '0.75rem' }}>
+                    <h4 style={{ fontWeight: 600, marginBottom: '0.25rem' }}>GET /api/v1/memory/health</h4>
+                    <p style={{ opacity: 0.7, marginBottom: '0.5rem' }}>Diagnostic health values of the database and provider clients.</p>
+                    <pre style={{ padding: '0.5rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', overflowX: 'auto', border: '1px solid var(--border)', marginBottom: '0.5rem' }}>
+{`curl -X GET http://localhost:3000/api/v1/memory/health`}
+                    </pre>
+                  </div>
                 )}
               </div>
-            </div>
 
-            {/* Production Readiness Diagnostics */}
-            <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '1.25rem', backgroundColor: 'var(--background)' }}>
-              <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.75rem' }}>🛡️ Security & Performance Audits</h4>
-              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1.25rem' }}>
-                System-wide security checks, connection diagnostic configurations, and latency performance averages.
-              </p>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.85rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: '1px solid var(--border)' }}>
-                  <span style={{ opacity: 0.8 }}>API Key Authentication</span>
-                  <strong style={{ color: healthData?.authEnabled ? 'var(--success)' : 'var(--error)' }}>
-                    {healthData?.authEnabled ? 'ENABLED (Production Mode)' : 'DISABLED (Local Dev)'}
-                  </strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: '1px solid var(--border)' }}>
-                  <span style={{ opacity: 0.8 }}>In-Memory Rate Limiter</span>
-                  <strong style={{ color: 'var(--primary)' }}>
-                    {healthData?.rateLimitMax ? `${healthData.rateLimitMax} reqs / ${healthData.rateLimitWindow}s` : 'active'}
-                  </strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: '1px solid var(--border)' }}>
-                  <span style={{ opacity: 0.8 }}>Average Request Latency</span>
-                  <strong>{avgLatency > 0 ? `${avgLatency} ms` : 'N/A'}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: '1px solid var(--border)' }}>
-                  <span style={{ opacity: 0.8 }}>Recent Request Errors (4xx/5xx)</span>
-                  <strong style={{ color: errorCount > 0 ? 'var(--error)' : 'var(--success)' }}>{errorCount}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0' }}>
-                  <span style={{ opacity: 0.8 }}>SQL Injection Guard</span>
-                  <strong style={{ color: 'var(--success)' }}>COMPLIANT</strong>
+              {/* Telemetry Trace */}
+              <div className="card" style={{ padding: '1.25rem' }}>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>📊 Live Telemetry Tracer</h3>
+                <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
+                  Real-time network logging captures API executions.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '250px', overflowY: 'auto' }}>
+                  {requestMetrics.length === 0 ? (
+                    <div style={{ padding: '1.5rem', textAlign: 'center', opacity: 0.5, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem' }}>
+                      No recent telemetry tracks captured.
+                    </div>
+                  ) : (
+                    requestMetrics.map((metric) => (
+                      <div key={metric.id} style={{ padding: '0.5rem 0.6rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', fontSize: '0.7rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.15rem', fontWeight: 600 }}>
+                          <span style={{ color: 'var(--primary)' }}>{metric.endpoint}</span>
+                          <span style={{ color: metric.status.includes('OK') || metric.status.includes('200') ? 'var(--success)' : 'var(--error)' }}>
+                            {metric.status}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', opacity: 0.6 }}>
+                          <span>Latency: <strong>{metric.latency} ms</strong></span>
+                          <span>ID: <code>{metric.id.substring(0, 10)}...</code></span>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>
+
+            {/* Evaluation benchmarks */}
+            <div className="card" style={{ padding: '1.25rem' }}>
+              <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>⚡ Scenario Benchmark Evaluation</h3>
+              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
+                Run the synthetic evaluation benchmark dataset to audit recall, precision, and isolation limits.
+              </p>
+              
+              <button
+                onClick={handleRunEvaluation}
+                className="btn btn-primary"
+                style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem', marginBottom: '1rem' }}
+                disabled={evalLoading}
+              >
+                {evalLoading ? 'Executing Benchmarks...' : 'Run Scenario Benchmarks'}
+              </button>
+
+              {evalError && (
+                <div style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--error)', backgroundColor: 'rgba(179, 74, 60, 0.05)', color: 'var(--error)', fontSize: '0.75rem', marginBottom: '1rem' }}>
+                  {evalError}
+                </div>
+              )}
+
+              {evalLoading ? (
+                <div style={{ textAlign: 'center', padding: '1.5rem', fontSize: '0.8rem', opacity: 0.6 }}>Executing benchmark scenarios...</div>
+              ) : evalSummary && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.75rem', fontSize: '0.75rem', textAlign: 'center' }}>
+                    <div style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)' }}>
+                      <span style={{ opacity: 0.6, display: 'block' }}>Total Scenarios</span>
+                      <strong>{evalSummary.total}</strong>
+                    </div>
+                    <div style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'rgba(91, 138, 82, 0.05)' }}>
+                      <span style={{ color: 'var(--success)', display: 'block' }}>Passed</span>
+                      <strong style={{ color: 'var(--success)' }}>{evalSummary.passed}</strong>
+                    </div>
+                    <div style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'rgba(179, 74, 60, 0.05)' }}>
+                      <span style={{ color: 'var(--error)', display: 'block' }}>Failed</span>
+                      <strong style={{ color: 'var(--error)' }}>{evalSummary.failed}</strong>
+                    </div>
+                    <div style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)' }}>
+                      <span style={{ opacity: 0.6, display: 'block' }}>Recall Rate</span>
+                      <strong>{(evalSummary.retrievalRecall * 100).toFixed(0)}%</strong>
+                    </div>
+                    <div style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)' }}>
+                      <span style={{ opacity: 0.6, display: 'block' }}>Precision</span>
+                      <strong>{(evalSummary.contextPrecision * 100).toFixed(0)}%</strong>
+                    </div>
+                    <div style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)' }}>
+                      <span style={{ opacity: 0.6, display: 'block' }}>Isolation</span>
+                      <strong>{(evalSummary.isolationRate * 100).toFixed(0)}%</strong>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '250px', overflowY: 'auto' }}>
+                    {evalResults.map((result) => (
+                      <div key={result.scenarioId} style={{ padding: '0.4rem 0.6rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)', fontSize: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <strong>{result.name}</strong>
+                          <div style={{ opacity: 0.6, fontSize: '0.65rem', marginTop: '0.1rem' }}>
+                            Recall: {(result.metrics.retrievalRecall * 100).toFixed(0)}% | Latency: {result.latencyMs} ms
+                          </div>
+                        </div>
+                        <span style={{ color: result.passed ? 'var(--success)' : 'var(--error)', fontWeight: 600 }}>
+                          {result.passed ? 'PASSED' : 'FAILED'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-        </section>
+        )}
       </main>
 
       {/* Footer */}
-      <footer className="footer">
-        <div className="footer-links">
-          <a href="https://github.com/Nataraj-EL/mnemos" target="_blank" rel="noopener noreferrer">
-            GitHub Repository
-          </a>
-          <a href="mailto:natarajel.dev@gmail.com">Developer Contact</a>
-        </div>
+      <footer className="footer" style={{ padding: '1.5rem', textAlign: 'center', borderTop: '1px solid var(--border)', fontSize: '0.8rem', opacity: 0.8 }}>
         <div>
-          &copy; {new Date().getFullYear()} Mnemos. Architecture & Infrastructure established.
+          © 2026 Nataraj EL. All Rights Reserved.
         </div>
       </footer>
     </div>
