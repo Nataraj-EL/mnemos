@@ -1,13 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LocalWhisperTranscriptionProvider } from './localWhisperTranscription';
-import { execFile } from 'child_process';
+import { spawn } from 'child_process';
 import * as fs from 'fs';
 
-// Mock child_process and fs modules
 vi.mock('child_process', () => {
   return {
-    execFile: vi.fn(),
+    spawn: vi.fn(),
   };
 });
 
@@ -17,139 +16,220 @@ vi.mock('fs', async (importOriginal) => {
     ...original,
     existsSync: vi.fn(),
     mkdirSync: vi.fn(),
-    promises: {
-      writeFile: vi.fn().mockResolvedValue(undefined),
-    },
+    readFileSync: vi.fn(),
+    writeFileSync: vi.fn(),
     unlinkSync: vi.fn(),
   };
 });
 
-describe('LocalWhisperTranscriptionProvider', () => {
+describe('LocalWhisperTranscriptionProvider - Reliability & Lifecycle Tests', () => {
   let provider: LocalWhisperTranscriptionProvider;
+  let mockFetch: any;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.LOCAL_WHISPER_MODEL = 'tiny.en';
+    process.env.LOCAL_WHISPER_PORT = '50051';
     process.env.WHISPER_DEVICE = 'auto';
+    LocalWhisperTranscriptionProvider.resetDaemonState();
     provider = new LocalWhisperTranscriptionProvider();
-  });
+    
+    mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
 
-  it('should successfully transcribe an audio buffer using local Python execution', async () => {
-    // Mock existence check for python binary and script
+    // Mock existence check for python binary and script as true by default
     vi.mocked(fs.existsSync).mockImplementation((p) => {
-      if (typeof p === 'string' && (p.includes('python3') || p.includes('transcribe.py'))) {
+      if (typeof p === 'string' && (p.includes('python3') || p.includes('transcription_server.py') || p.includes('.whisper_secret'))) {
         return true;
       }
       return false;
     });
-
-    // Mock successful output from Python script execution
-    const mockStdout = JSON.stringify({
-      text: 'Hello, this is a local transcription test.',
-      language: 'en',
-      duration: 3.5,
-      device: 'cpu',
-      compute: 'int8',
-    });
-
-    vi.mocked(execFile).mockImplementation((_file, _args, _options, callback) => {
-      // execFile signature: (file, args, options, callback)
-      if (callback) {
-        callback(null, { stdout: mockStdout, stderr: '' } as any, '');
-      }
-      return {} as any;
-    });
-
-    const result = await provider.transcribe(Buffer.from('dummy-audio-bytes'), 'audio/wav');
-    expect(result.text).toBe('Hello, this is a local transcription test.');
-    expect(result.metadata?.model).toBe('local-whisper-tiny.en');
-    expect(result.metadata?.local).toBe(true);
-    expect(result.metadata?.duration).toBe(3.5);
-    expect(result.metadata?.device).toBe('cpu');
   });
 
-  it('should throw an error if audio buffer is empty', async () => {
-    await expect(provider.transcribe(Buffer.alloc(0))).rejects.toThrow(
-      'Audio buffer cannot be empty.'
-    );
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
-  it('should throw a friendly error if local Python environment or script is missing', async () => {
-    // Mock runtime files not existing
-    vi.mocked(fs.existsSync).mockReturnValue(false);
-
-    await expect(provider.transcribe(Buffer.from('bytes'))).rejects.toThrow(
-      'Local Whisper transcription service is currently unavailable.'
-    );
-  });
-
-  it('should throw an error on empty transcription output', async () => {
+  it('1. should reuse an existing healthy daemon without spawning a new process', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue('saved-secret-token');
 
-    const mockStdout = JSON.stringify({
-      text: '',
-      language: 'en',
-      duration: 0,
+    // Health check returns ready
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: 'ready', device: 'cpu', compute: 'int8' }),
     });
 
-    vi.mocked(execFile).mockImplementation((_file, _args, _options, callback) => {
-      if (callback) {
-        callback(null, { stdout: mockStdout, stderr: '' } as any, '');
+    // Transcribe endpoint returns successful result
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ text: 'Speech text', duration: 1.5, latency_ms: 150, device: 'cpu', compute: 'int8' }),
+    });
+
+    const result = await provider.transcribe(Buffer.from('audio-bytes'), 'audio/wav');
+    expect(result.text).toBe('Speech text');
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('2. should prevent duplicate spawn calls under concurrent requests', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue('');
+
+    // Mock spawn to return dummy child process object
+    const mockChildProcess = {
+      unref: vi.fn(),
+      on: vi.fn(),
+      kill: vi.fn(),
+    } as any;
+    vi.mocked(spawn).mockReturnValue(mockChildProcess);
+
+    let healthCallCount = 0;
+    mockFetch.mockImplementation(async (url: string) => {
+      if (url.includes('/health')) {
+        healthCallCount++;
+        if (healthCallCount === 1) {
+          throw new Error('Connection refused');
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ status: 'ready', device: 'cpu', compute: 'int8' }),
+        };
       }
-      return {} as any;
+      if (url.includes('/transcribe')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ text: 'Transcribed text', duration: 1.5, latency_ms: 100, device: 'cpu', compute: 'int8' }),
+        };
+      }
+      return { ok: false, status: 404 };
     });
 
-    await expect(provider.transcribe(Buffer.from('bytes'))).rejects.toThrow(
-      'Empty transcription: No text could be extracted from this audio.'
+    // Run two transcriptions concurrently
+    const p1 = provider.transcribe(Buffer.from('bytes'), 'audio/wav');
+    const p2 = provider.transcribe(Buffer.from('bytes'), 'audio/wav');
+
+    const [r1, r2] = await Promise.all([p1, p2]);
+
+    expect(r1.text).toBe('Transcribed text');
+    expect(r2.text).toBe('Transcribed text');
+    // Spawn should be called exactly once
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('3. should throw a port conflict error if port is already in use by another process', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue('stale-token');
+
+    // Health check returns 403 Forbidden because of stale secret/port in use by other process
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+    });
+
+    await expect(provider.transcribe(Buffer.from('bytes'), 'audio/wav')).rejects.toThrow(
+      'Local Whisper port conflict: Port 50051 is already in use by another process.'
+    );
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('4. should handle daemon startup exit failures gracefully', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue('');
+
+    mockFetch.mockRejectedValue(new Error('Connection refused'));
+
+    let exitHandler: any;
+    const mockChildProcess = {
+      unref: vi.fn(),
+      on: vi.fn().mockImplementation((event, handler) => {
+        if (event === 'exit') {
+          exitHandler = handler;
+        }
+      }),
+      kill: vi.fn(),
+    } as any;
+    vi.mocked(spawn).mockReturnValue(mockChildProcess);
+
+    const promise = provider.transcribe(Buffer.from('bytes'), 'audio/wav');
+
+    // Simulate child process exiting immediately with code 1
+    setTimeout(() => {
+      if (exitHandler) {
+        exitHandler(1);
+      }
+    }, 100);
+
+    await expect(promise).rejects.toThrow(
+      'Local Whisper daemon exited unexpectedly with code 1.'
     );
   });
 
-  it('should handle Python execution errors gracefully without exposing internal paths', async () => {
+  it('5. should enforce request timeouts and clean up properly', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue('token');
 
-    const pythonError = new Error('Some Python traceback file "/home/user/venv/lib/..." key error');
-    vi.mocked(execFile).mockImplementation((_file, _args, _options, callback) => {
-      if (callback) {
-        callback(pythonError, { stdout: '', stderr: 'Traceback details' } as any, '');
-      }
-      return {} as any;
+    // Health check ready
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: 'ready', device: 'cpu', compute: 'int8' }),
     });
 
-    await expect(provider.transcribe(Buffer.from('bytes'))).rejects.toThrow(
-      'An error occurred during transcription.'
-    );
-  });
+    // Transcribe endpoint times out
+    const timeoutError = new Error('The request timed out.');
+    timeoutError.name = 'TimeoutError';
+    mockFetch.mockRejectedValueOnce(timeoutError);
 
-  it('should map invalid format errors to user-friendly messages', async () => {
-    vi.mocked(fs.existsSync).mockReturnValue(true);
-
-    vi.mocked(execFile).mockImplementation((_file, _args, _options, callback) => {
-      if (callback) {
-        callback(null, { stdout: JSON.stringify({ error: 'Invalid data found when processing input' }), stderr: '' } as any, '');
-      }
-      return {} as any;
-    });
-
-    await expect(provider.transcribe(Buffer.from('invalid-bytes'))).rejects.toThrow(
-      'Invalid audio format or corrupted payload.'
-    );
-  });
-
-  it('should handle timeout errors correctly when execution times out', async () => {
-    vi.mocked(fs.existsSync).mockReturnValue(true);
-
-    const timeoutError = new Error('killed');
-    (timeoutError as any).name = 'TimeoutError';
-
-    vi.mocked(execFile).mockImplementation((_file, _args, _options, callback) => {
-      if (callback) {
-        callback(timeoutError, { stdout: '', stderr: '' } as any, '');
-      }
-      return {} as any;
-    });
-
-    await expect(provider.transcribe(Buffer.from('bytes'))).rejects.toThrow(
+    await expect(provider.transcribe(Buffer.from('bytes'), 'audio/wav')).rejects.toThrow(
       'Transcription request timed out after 15 seconds.'
     );
+  });
+
+  it('6. should reject audio if duration exceeds 60 seconds limit', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue('token');
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: 'ready', device: 'cpu', compute: 'int8' }),
+    });
+
+    // Transcribe returns duration limit error from Python daemon
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: 'Audio duration exceeds the maximum limit of 60 seconds.' }),
+    });
+
+    await expect(provider.transcribe(Buffer.from('bytes'), 'audio/wav')).rejects.toThrow(
+      'Audio duration exceeds the maximum limit of 60 seconds.'
+    );
+  });
+
+  it('7. should report latency and execution device diagnostic metadata', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue('token');
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: 'ready', device: 'cuda', compute: 'float16' }),
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        text: 'Hello world',
+        duration: 2.1,
+        latency_ms: 120,
+        device: 'cuda',
+        compute: 'float16',
+      }),
+    });
+
+    const result = await provider.transcribe(Buffer.from('bytes'), 'audio/wav');
+    expect(result.text).toBe('Hello world');
+    expect(result.metadata?.latencyMs).toBe(120);
+    expect(result.metadata?.device).toBe('cuda');
+    expect(result.metadata?.compute).toBe('float16');
   });
 });

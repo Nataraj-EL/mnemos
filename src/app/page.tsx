@@ -221,7 +221,7 @@ export default function MemoryDashboard() {
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Sprint 17 unified session state
-  const [voiceSessionState, setVoiceSessionState] = useState<'idle' | 'recording' | 'transcribing' | 'review' | 'saving' | 'saved' | 'error'>('idle');
+  const [voiceSessionState, setVoiceSessionState] = useState<'idle' | 'recording' | 'processing' | 'transcribing' | 'review' | 'saving' | 'saved' | 'error'>('idle');
 
   // Sprint 19 UX Integration states
   const [savedConversationId, setSavedConversationId] = useState<string | null>(null);
@@ -632,7 +632,7 @@ export default function MemoryDashboard() {
   };
 
   const startRecording = async () => {
-    if (transcribeLoading || saveLoading || voiceSessionState === 'saving' || voiceSessionState === 'transcribing') {
+    if (transcribeLoading || saveLoading || voiceSessionState === 'saving' || voiceSessionState === 'transcribing' || voiceSessionState === 'processing') {
       return;
     }
     setTranscribeError(null);
@@ -687,12 +687,16 @@ export default function MemoryDashboard() {
 
   const uploadAudio = async (blob: Blob) => {
     setTranscribeLoading(true);
-    setVoiceSessionState('transcribing');
+    setVoiceSessionState('processing');
     setTranscribeError(null);
     setVoiceResponseText(null);
     setVoiceUsedMemories([]);
     setVoiceContextTokenCount(0);
     const start = Date.now();
+
+    const transcribingTimeout = setTimeout(() => {
+      setVoiceSessionState((current) => current === 'processing' ? 'transcribing' : current);
+    }, 1500);
 
     try {
       const formData = new FormData();
@@ -761,6 +765,7 @@ export default function MemoryDashboard() {
       setTranscribeError('An error occurred during voice upload.');
       setVoiceSessionState('error');
     } finally {
+      clearTimeout(transcribingTimeout);
       setTranscribeLoading(false);
     }
   };
@@ -1557,7 +1562,7 @@ export default function MemoryDashboard() {
                       className={`premium-btn ${voiceMode === 'transcribe' ? 'premium-btn-primary' : 'premium-btn-secondary'}`}
                       style={{ flex: 1, padding: '0.3rem', fontSize: '0.75rem', border: 'none', boxShadow: 'none' }}
                       type="button"
-                      disabled={voiceSessionState === 'recording' || voiceSessionState === 'transcribing' || voiceSessionState === 'saving'}
+                      disabled={voiceSessionState === 'recording' || voiceSessionState === 'transcribing' || voiceSessionState === 'saving' || voiceSessionState === 'processing'}
                     >
                       📝 Transcribe Only
                     </button>
@@ -1569,7 +1574,7 @@ export default function MemoryDashboard() {
                       className={`premium-btn ${voiceMode === 'ask' ? 'premium-btn-primary' : 'premium-btn-secondary'}`}
                       style={{ flex: 1, padding: '0.3rem', fontSize: '0.75rem', border: 'none', boxShadow: 'none' }}
                       type="button"
-                      disabled={voiceSessionState === 'recording' || voiceSessionState === 'transcribing' || voiceSessionState === 'saving'}
+                      disabled={voiceSessionState === 'recording' || voiceSessionState === 'transcribing' || voiceSessionState === 'saving' || voiceSessionState === 'processing'}
                     >
                       💬 Ask by Voice
                     </button>
@@ -1622,6 +1627,13 @@ export default function MemoryDashboard() {
                     </div>
                   )}
 
+                  {voiceSessionState === 'processing' && (
+                    <div style={{ padding: '0.5rem 0.75rem', border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', opacity: 0.8, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      {renderSpinner()}
+                      <span>Preparing Whisper...</span>
+                    </div>
+                  )}
+
                   {voiceSessionState === 'transcribing' && (
                     <div style={{ padding: '0.5rem 0.75rem', border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', opacity: 0.8, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       {renderSpinner()}
@@ -1637,7 +1649,7 @@ export default function MemoryDashboard() {
                   )}
 
                   {/* Audio trigger controls */}
-                  {voiceSessionState !== 'transcribing' && voiceSessionState !== 'saving' && (
+                  {voiceSessionState !== 'transcribing' && voiceSessionState !== 'saving' && voiceSessionState !== 'processing' && (
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                       {voiceSessionState === 'recording' ? (
                         <button
