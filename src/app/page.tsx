@@ -174,6 +174,12 @@ export default function MemoryDashboard() {
   // Sprint 17 unified session state
   const [voiceSessionState, setVoiceSessionState] = useState<'idle' | 'recording' | 'transcribing' | 'review' | 'saving' | 'saved' | 'error'>('idle');
 
+  // Sprint 19 UX Integration states
+  const [savedConversationId, setSavedConversationId] = useState<string | null>(null);
+  const [extractionState, setExtractionState] = useState<'idle' | 'extracting' | 'extracted' | 'extraction-error'>('idle');
+  const [extractionResultCount, setExtractionResultCount] = useState<number | null>(null);
+  const [extractionError, setExtractionError] = useState<string | null>(null);
+
   const resetVoiceSession = () => {
     setTranscript('');
     setIsRecording(false);
@@ -188,6 +194,10 @@ export default function MemoryDashboard() {
     setVoiceContextTokenCount(0);
     setSaveMessage(null);
     setVoiceSessionState('idle');
+    setSavedConversationId(null);
+    setExtractionState('idle');
+    setExtractionResultCount(null);
+    setExtractionError(null);
   };
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -397,6 +407,116 @@ export default function MemoryDashboard() {
     }
   };
 
+  const performExtraction = async (conversationId: string) => {
+    setExtractionState('extracting');
+    setExtractionError(null);
+    setExtractionResultCount(null);
+
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (process.env.NEXT_PUBLIC_MNEMOS_API_KEY) {
+        headers['Authorization'] = `Bearer ${process.env.NEXT_PUBLIC_MNEMOS_API_KEY}`;
+      }
+
+      const response = await fetch(`/api/v1/conversations/${conversationId}/intelligence`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          userId: userId.trim(),
+          operation: 'extract-memories'
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.status === 'success') {
+        setExtractionResultCount(data.data.extractedCount);
+        setExtractionState('extracted');
+        fetchMemories();
+      } else {
+        setExtractionError(data.error || 'Failed to extract memories.');
+        setExtractionState('extraction-error');
+      }
+    } catch (err) {
+      console.error('Failed to extract memories:', err);
+      setExtractionError('An unexpected error occurred during extraction.');
+      setExtractionState('extraction-error');
+    }
+  };
+
+  const handleSaveAndExtractMemories = async () => {
+    if (!transcript || !transcript.trim() || !userId.trim()) return;
+    if (voiceSessionState === 'saving' || voiceSessionState === 'saved') return;
+    if (extractionState === 'extracting') return;
+
+    setVoiceSessionState('saving');
+    setSaveLoading(true);
+    setSaveMessage(null);
+    setExtractionState('idle');
+    setExtractionResultCount(null);
+    setExtractionError(null);
+
+    let conversationId: string | null = null;
+
+    try {
+      const durationSeconds = recordingStart && recordingEnd ? Math.max(0, Math.round((recordingEnd - recordingStart) / 1000)) : 0;
+      
+      const payload = {
+        userId: userId.trim(),
+        transcript: transcript.trim(),
+        startedAt: recordingStart ? new Date(recordingStart).toISOString() : new Date().toISOString(),
+        endedAt: recordingEnd ? new Date(recordingEnd).toISOString() : new Date().toISOString(),
+        durationSeconds,
+      };
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (process.env.NEXT_PUBLIC_MNEMOS_API_KEY) {
+        headers['Authorization'] = `Bearer ${process.env.NEXT_PUBLIC_MNEMOS_API_KEY}`;
+      }
+
+      const response = await fetch('/api/v1/conversations', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.status === 'success') {
+        conversationId = data.data.conversation.id;
+        setSavedConversationId(conversationId);
+        setSaveMessage({ type: 'success', text: 'Conversation Saved' });
+        setVoiceSessionState('saved');
+        fetchConversations();
+      } else {
+        setSaveMessage({ type: 'error', text: data.error || 'Failed to save conversation.' });
+        setVoiceSessionState('error');
+        setSaveLoading(false);
+        return;
+      }
+    } catch (err) {
+      console.error('Failed to save conversation:', err);
+      setSaveMessage({ type: 'error', text: 'An unexpected error occurred while saving. Please retry.' });
+      setVoiceSessionState('error');
+      setSaveLoading(false);
+      return;
+    }
+
+    setSaveLoading(false);
+
+    if (conversationId) {
+      await performExtraction(conversationId);
+    }
+  };
+
+  const handleRetryExtractionAfterSave = async () => {
+    if (!savedConversationId || !userId.trim()) return;
+    if (extractionState === 'extracting') return;
+    await performExtraction(savedConversationId);
+  };
+
   const handleSelectConversation = async (id: string) => {
     if (!userId.trim()) return;
     try {
@@ -426,6 +546,10 @@ export default function MemoryDashboard() {
     setVoiceResponseText(null);
     setVoiceUsedMemories([]);
     setVoiceContextTokenCount(0);
+    setSavedConversationId(null);
+    setExtractionState('idle');
+    setExtractionResultCount(null);
+    setExtractionError(null);
     setRecordingStart(Date.now());
     setRecordingEnd(0);
     setVoiceSessionState('recording');
@@ -1437,7 +1561,7 @@ export default function MemoryDashboard() {
                           onClick={() => setContentInput(transcript)}
                           className="premium-btn premium-btn-secondary"
                           style={{ padding: '0.2rem 0.4rem', fontSize: '0.7rem' }}
-                          disabled={voiceSessionState === 'saving'}
+                          disabled={voiceSessionState === 'saving' || extractionState === 'extracting'}
                         >
                           📋 Copy to Ingest Form
                         </button>
@@ -1451,7 +1575,7 @@ export default function MemoryDashboard() {
                             setVoiceSessionState('review');
                           }
                         }}
-                        readOnly={voiceSessionState === 'saving' || voiceSessionState === 'saved'}
+                        readOnly={voiceSessionState === 'saving' || voiceSessionState === 'saved' || extractionState === 'extracting'}
                         style={{
                           width: '100%',
                           minHeight: '120px',
@@ -1483,12 +1607,61 @@ export default function MemoryDashboard() {
                             textAlign: 'center',
                             fontWeight: 600
                           }}>
-                            ✓ Conversation saved successfully!
+                            ✓ Conversation Saved
                           </div>
+
+                          {extractionState === 'extracting' && (
+                            <div style={{ padding: '0.5rem 0.75rem', border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', opacity: 0.8, display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'center' }}>
+                              {renderSpinner()}
+                              <span>Extracting memories...</span>
+                            </div>
+                          )}
+
+                          {extractionState === 'extracted' && extractionResultCount !== null && (
+                            <div style={{
+                              padding: '0.5rem 0.75rem',
+                              borderRadius: 'var(--radius-sm)',
+                              fontSize: '0.75rem',
+                              border: '1px solid var(--success)',
+                              backgroundColor: 'rgba(91, 138, 82, 0.05)',
+                              color: 'var(--success)',
+                              textAlign: 'center',
+                              fontWeight: 600
+                            }}>
+                              ✓ Memories Extracted: {extractionResultCount}
+                            </div>
+                          )}
+
+                          {extractionState === 'extraction-error' && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                              <div style={{
+                                padding: '0.5rem 0.75rem',
+                                borderRadius: 'var(--radius-sm)',
+                                fontSize: '0.75rem',
+                                border: '1px solid var(--error)',
+                                backgroundColor: 'rgba(179, 74, 60, 0.05)',
+                                color: 'var(--error)',
+                                textAlign: 'center'
+                              }}>
+                                Conversation Saved — Extraction Failed
+                                {extractionError && <div style={{ fontSize: '0.7rem', marginTop: '0.2rem', opacity: 0.8 }}>{extractionError}</div>}
+                              </div>
+                              <button
+                                onClick={handleRetryExtractionAfterSave}
+                                className="premium-btn premium-btn-primary"
+                                style={{ width: '100%' }}
+                                type="button"
+                              >
+                                🔄 Retry Extraction
+                              </button>
+                            </div>
+                          )}
+
                           <button
                             onClick={resetVoiceSession}
                             className="premium-btn premium-btn-secondary"
                             style={{ width: '100%' }}
+                            disabled={extractionState === 'extracting'}
                             type="button"
                           >
                             Clear & Start New Recording
@@ -1500,32 +1673,43 @@ export default function MemoryDashboard() {
                             onClick={resetVoiceSession}
                             className="premium-btn premium-btn-secondary"
                             style={{ flex: 1 }}
-                            disabled={voiceSessionState === 'saving'}
+                            disabled={voiceSessionState === 'saving' || extractionState === 'extracting'}
                             type="button"
                           >
                             ✕ Clear
                           </button>
+                          
                           <button
                             onClick={handleSaveConversation}
-                            className="premium-btn premium-btn-primary"
-                            disabled={saveLoading || !transcript || !transcript.trim() || voiceSessionState === 'saving'}
+                            className="premium-btn premium-btn-secondary"
+                            disabled={saveLoading || !transcript || !transcript.trim() || voiceSessionState === 'saving' || extractionState === 'extracting'}
                             style={{ flex: 2 }}
                             type="button"
                           >
-                            {voiceSessionState === 'saving' ? (
+                            {voiceSessionState === 'saving' && !savedConversationId ? (
                               <>
                                 {renderSpinner()}
                                 Saving...
                               </>
                             ) : (
+                              'Save'
+                            )}
+                          </button>
+
+                          <button
+                            onClick={handleSaveAndExtractMemories}
+                            className="premium-btn premium-btn-primary"
+                            disabled={saveLoading || !transcript || !transcript.trim() || voiceSessionState === 'saving' || extractionState === 'extracting'}
+                            style={{ flex: 3 }}
+                            type="button"
+                          >
+                            {voiceSessionState === 'saving' || extractionState === 'extracting' ? (
                               <>
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '0.25rem' }}>
-                                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                                  <polyline points="17 21 17 13 7 13 7 21" />
-                                  <polyline points="7 3 7 8 15 8" />
-                                </svg>
-                                Save Conversation
+                                {renderSpinner()}
+                                Processing...
                               </>
+                            ) : (
+                              'Save & Extract Memories'
                             )}
                           </button>
                         </div>
