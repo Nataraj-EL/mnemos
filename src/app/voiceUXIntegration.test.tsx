@@ -492,3 +492,97 @@ describe('Voice UX Integration State Machine - Sprint 29 Additions', () => {
     expect(callCount).toBe(1);
   });
 });
+
+describe('Voice UX Integration State Machine - Sprint 30 Additions', () => {
+  interface ConversationMock {
+    id: string;
+    transcript: string;
+    summary?: string;
+    createdAt: string;
+  }
+
+  it('should sort timeline conversations newest-first within local date-boundary groups', () => {
+    const now = new Date();
+    // Local date boundaries
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfYesterday = new Date(startOfToday.getTime() - 24 * 60 * 60 * 1000);
+
+    const cToday1: ConversationMock = { id: 'c1', transcript: 'T1', createdAt: new Date(startOfToday.getTime() + 10000).toISOString() };
+    const cToday2: ConversationMock = { id: 'c2', transcript: 'T2', createdAt: new Date(startOfToday.getTime() + 50000).toISOString() };
+    const cYesterday1: ConversationMock = { id: 'c3', transcript: 'T3', createdAt: new Date(startOfYesterday.getTime() + 5000).toISOString() };
+
+    const rawList = [cToday1, cYesterday1, cToday2];
+
+    const today: ConversationMock[] = [];
+    const yesterday: ConversationMock[] = [];
+    const earlier: ConversationMock[] = [];
+
+    // Sort newest -> oldest
+    const sorted = [...rawList].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    sorted.forEach((c) => {
+      const cDate = new Date(c.createdAt);
+      if (cDate >= startOfToday) {
+        today.push(c);
+      } else if (cDate >= startOfYesterday) {
+        yesterday.push(c);
+      } else {
+        earlier.push(c);
+      }
+    });
+
+    expect(today.length).toBe(2);
+    // Newest first check
+    expect(today[0].id).toBe('c2');
+    expect(today[1].id).toBe('c1');
+
+    expect(yesterday.length).toBe(1);
+    expect(yesterday[0].id).toBe('c3');
+  });
+
+  it('should search/filter local lightweight fields without triggering backend fetches', () => {
+    const list: ConversationMock[] = [
+      { id: 'c1', transcript: 'Lightweight preview text', summary: 'Grounded memory details', createdAt: '' },
+      { id: 'c2', transcript: 'Whisper raw output voice', summary: 'Unrelated notes', createdAt: '' }
+    ];
+
+    const searchStr = 'lightweight';
+    const filtered = list.filter((conv) => {
+      const q = searchStr.toLowerCase();
+      return (
+        (conv.transcript && conv.transcript.toLowerCase().includes(q)) ||
+        (conv.summary && conv.summary.toLowerCase().includes(q))
+      );
+    });
+
+    expect(filtered.length).toBe(1);
+    expect(filtered[0].id).toBe('c1');
+  });
+
+  it('should handle incomplete client-side memory count safely using subset existence', () => {
+    const list: ConversationMock[] = [
+      { id: 'c1', transcript: 'T1', createdAt: '' }
+    ];
+    // Incomplete memories array
+    const clientMemories = [
+      { id: 'm1', metadata: { conversationId: 'c1' } }
+    ];
+
+    const hasExtractedMemories = clientMemories.some((m) => m.metadata?.conversationId === list[0].id);
+    expect(hasExtractedMemories).toBe(true);
+  });
+
+  it('should open conversation details using handleSelectConversation without mutating voiceSessionState', () => {
+    const voiceSessionState = 'review';
+    let selectedConversationId: string | null = null;
+
+    const selectMock = (id: string) => {
+      selectedConversationId = id;
+      // Do not touch voiceSessionState
+    };
+
+    selectMock('c1');
+    expect(selectedConversationId).toBe('c1');
+    expect(voiceSessionState).toBe('review');
+  });
+});

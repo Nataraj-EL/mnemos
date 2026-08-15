@@ -536,6 +536,7 @@ export default function MemoryDashboard() {
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loadingConversations, setLoadingConversations] = useState(false);
+  const [timelineSearch, setTimelineSearch] = useState('');
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [selectedConvTab, setSelectedConvTab] = useState<'transcript' | 'summary' | 'memories'>('transcript');
   const [conversationMemories, setConversationMemories] = useState<Memory[]>([]);
@@ -2527,60 +2528,175 @@ export default function MemoryDashboard() {
                     </div>
                   )}
 
-                  {/* Recent Conversations history list */}
-                  <div style={{ marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+                  {/* Conversation Timeline (Sprint 30) */}
+                  <div style={{ marginTop: '1.25rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                       <h4 style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--primary)', margin: 0 }}>
-                        Recent Conversations
+                        Conversation Timeline
                       </h4>
                       <span className="badge" style={{ fontSize: '0.65rem', padding: '0.1rem 0.3rem' }}>
-                        Count: {conversations.length}
+                        Total: {conversations.length}
                       </span>
                     </div>
 
-                    {loadingConversations && conversations.length === 0 ? (
-                      <div style={{ fontSize: '0.75rem', opacity: 0.6, padding: '0.5rem 0', textAlign: 'center' }}>
-                        Loading history...
-                      </div>
-                    ) : conversations.length === 0 ? (
-                      <div style={{ fontSize: '0.75rem', opacity: 0.6, padding: '0.75rem 0', textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)' }}>
-                        No saved conversations yet.
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '180px', overflowY: 'auto', paddingRight: '0.15rem' }}>
-                        {conversations.map((conv) => (
-                          <div
-                            key={conv.id}
-                            onClick={() => handleSelectConversation(conv.id)}
+                    <input
+                      type="text"
+                      placeholder="🔍 Search timeline..."
+                      value={timelineSearch}
+                      onChange={(e) => setTimelineSearch(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '0.35rem 0.55rem',
+                        fontSize: '0.75rem',
+                        backgroundColor: 'var(--background)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-sm)',
+                        color: 'var(--text)',
+                        marginBottom: '0.6rem',
+                        outline: 'none',
+                      }}
+                    />
+
+                    {(() => {
+                      const filtered = conversations.filter((conv) => {
+                        if (!timelineSearch.trim()) return true;
+                        const q = timelineSearch.toLowerCase();
+                        return (
+                          (conv.transcript && conv.transcript.toLowerCase().includes(q)) ||
+                          (conv.summary && conv.summary.toLowerCase().includes(q))
+                        );
+                      });
+
+                      const now = new Date();
+                      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                      const startOfYesterday = new Date(startOfToday.getTime() - 24 * 60 * 60 * 1000);
+
+                      const today: Conversation[] = [];
+                      const yesterday: Conversation[] = [];
+                      const earlier: Conversation[] = [];
+
+                      // Sort newest -> oldest
+                      const sorted = [...filtered].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+                      sorted.forEach((c) => {
+                        const cDate = new Date(c.createdAt);
+                        if (cDate >= startOfToday) {
+                          today.push(c);
+                        } else if (cDate >= startOfYesterday) {
+                          yesterday.push(c);
+                        } else {
+                          earlier.push(c);
+                        }
+                      });
+
+                      const renderItem = (c: Conversation) => {
+                        const isSelected = selectedConversation?.id === c.id;
+                        const durationStr = c.durationSeconds ? `${c.durationSeconds}s` : null;
+                        const hasExtractedMemories = memories.some((m) => m.metadata?.conversationId === c.id);
+
+                        return (
+                          <button
+                            key={c.id}
+                            onClick={() => handleSelectConversation(c.id)}
                             style={{
-                              padding: '0.4rem 0.6rem',
-                              border: '1px solid var(--border)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'flex-start',
+                              textAlign: 'left',
+                              padding: '0.45rem 0.55rem',
+                              backgroundColor: isSelected ? 'rgba(99, 102, 241, 0.08)' : 'var(--background)',
+                              border: `1px solid ${isSelected ? 'var(--primary)' : 'var(--border)'}`,
                               borderRadius: 'var(--radius-sm)',
-                              backgroundColor: 'var(--background)',
                               cursor: 'pointer',
-                              transition: 'all 150ms ease',
-                              fontSize: '0.75rem'
+                              width: '100%',
+                              transition: 'all 0.15s ease',
+                              gap: '0.2rem',
                             }}
-                            onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--primary)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; }}
+                            type="button"
                           >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem', fontWeight: 600, opacity: 0.9 }}>
-                              <span>{new Date(conv.createdAt).toLocaleDateString()}</span>
-                              <span>{conv.durationSeconds || 0}s</span>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: '0.75rem', fontWeight: 600, opacity: 0.9 }}>
+                              <span style={{ color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginRight: '0.5rem' }}>
+                                {c.transcript.slice(0, 32)}{c.transcript.length > 32 ? '...' : ''}
+                              </span>
+                              <span style={{ fontSize: '0.65rem', opacity: 0.6, whiteSpace: 'nowrap' }}>
+                                {new Date(c.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
                             </div>
-                            <div style={{
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              opacity: 0.7,
-                              fontStyle: 'italic'
-                            }}>
-                              {conv.transcript}
+
+                            <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', fontSize: '0.65rem' }}>
+                              {durationStr && (
+                                <span className="badge" style={{ backgroundColor: 'rgba(99, 102, 241, 0.05)', color: 'var(--primary)', border: '1px solid rgba(99, 102, 241, 0.1)', padding: '0.05rem 0.2rem' }}>
+                                  ⏱️ {durationStr}
+                                </span>
+                              )}
+                              {c.summary && (
+                                <span className="badge" style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.1)', padding: '0.05rem 0.2rem' }}>
+                                  📝 Has Summary
+                                </span>
+                              )}
+                              {hasExtractedMemories && (
+                                <span className="badge" style={{ backgroundColor: 'rgba(245, 158, 11, 0.05)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.1)', padding: '0.05rem 0.2rem' }}>
+                                  🧠 Memories Available
+                                </span>
+                              )}
                             </div>
+                          </button>
+                        );
+                      };
+
+                      if (loadingConversations && conversations.length === 0) {
+                        return (
+                          <div style={{ fontSize: '0.75rem', opacity: 0.6, padding: '1rem 0', textAlign: 'center' }}>
+                            {renderSpinner()} Loading timeline...
                           </div>
-                        ))}
-                      </div>
-                    )}
+                        );
+                      }
+
+                      if (filtered.length === 0) {
+                        return (
+                          <div style={{ fontSize: '0.75rem', opacity: 0.6, padding: '1rem 0', textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)' }}>
+                            No matching timeline conversations found.
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '200px', overflowY: 'auto', paddingRight: '0.15rem' }}>
+                          {today.length > 0 && (
+                            <div>
+                              <div style={{ fontSize: '0.65rem', fontWeight: 'bold', textTransform: 'uppercase', opacity: 0.5, letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
+                                Today
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                                {today.map(renderItem)}
+                              </div>
+                            </div>
+                          )}
+
+                          {yesterday.length > 0 && (
+                            <div>
+                              <div style={{ fontSize: '0.65rem', fontWeight: 'bold', textTransform: 'uppercase', opacity: 0.5, letterSpacing: '0.05em', marginBottom: '0.25rem', marginTop: '0.4rem' }}>
+                                Yesterday
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                                {yesterday.map(renderItem)}
+                              </div>
+                            </div>
+                          )}
+
+                          {earlier.length > 0 && (
+                            <div>
+                              <div style={{ fontSize: '0.65rem', fontWeight: 'bold', textTransform: 'uppercase', opacity: 0.5, letterSpacing: '0.05em', marginBottom: '0.25rem', marginTop: '0.4rem' }}>
+                                Earlier
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                                {earlier.map(renderItem)}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
