@@ -1,4 +1,5 @@
 'use client';
+/* eslint-disable react-hooks/purity */
 
 import { useEffect, useState } from 'react';
 import { deriveLifecycleState } from '@/core/types';
@@ -154,6 +155,7 @@ export default function MemoryDashboard() {
 
     setSearchLoading(true);
     setSearchError(null);
+    const start = Date.now();
 
     try {
       const response = await fetch(
@@ -162,6 +164,19 @@ export default function MemoryDashboard() {
         )}`
       );
       const data = await response.json();
+      const latency = Date.now() - start;
+      const reqId = data.requestId || 'req-' + Math.random().toString(36).substring(2, 9);
+
+      setRequestMetrics((prev) => [
+        {
+          id: reqId,
+          timestamp: new Date().toISOString(),
+          endpoint: 'POST /api/memory/search',
+          latency,
+          status: response.ok ? '200 OK' : `${response.status} Error`,
+        },
+        ...prev,
+      ]);
 
       if (!response.ok) {
         setSearchError(data.error || 'Failed to execute search.');
@@ -170,6 +185,18 @@ export default function MemoryDashboard() {
       }
     } catch (err) {
       console.error('Search Error:', err);
+      const latency = Date.now() - start;
+      const reqId = 'req-' + Math.random().toString(36).substring(2, 9);
+      setRequestMetrics((prev) => [
+        {
+          id: reqId,
+          timestamp: new Date().toISOString(),
+          endpoint: 'POST /api/memory/search',
+          latency,
+          status: '500 Error',
+        },
+        ...prev,
+      ]);
       setSearchError('An error occurred during search.');
     } finally {
       setSearchLoading(false);
@@ -191,6 +218,7 @@ export default function MemoryDashboard() {
     setContextLoading(true);
     setContextError(null);
     setContextResult(null);
+    const start = Date.now();
 
     try {
       const response = await fetch('/api/memory/context', {
@@ -207,6 +235,20 @@ export default function MemoryDashboard() {
       });
 
       const data = await response.json();
+      const latency = Date.now() - start;
+      const reqId = data.requestId || 'req-' + Math.random().toString(36).substring(2, 9);
+
+      setRequestMetrics((prev) => [
+        {
+          id: reqId,
+          timestamp: new Date().toISOString(),
+          endpoint: 'POST /api/memory/context',
+          latency,
+          status: response.ok ? '200 OK' : `${response.status} Error`,
+        },
+        ...prev,
+      ]);
+
       if (!response.ok) {
         setContextError(data.error || 'Failed to assemble context.');
       } else {
@@ -214,6 +256,18 @@ export default function MemoryDashboard() {
       }
     } catch (err) {
       console.error('Context Assembly Error:', err);
+      const latency = Date.now() - start;
+      const reqId = 'req-' + Math.random().toString(36).substring(2, 9);
+      setRequestMetrics((prev) => [
+        {
+          id: reqId,
+          timestamp: new Date().toISOString(),
+          endpoint: 'POST /api/memory/context',
+          latency,
+          status: '500 Error',
+        },
+        ...prev,
+      ]);
       setContextError('An error occurred during context assembly.');
     } finally {
       setContextLoading(false);
@@ -241,6 +295,21 @@ export default function MemoryDashboard() {
   const [responseLoading, setResponseLoading] = useState(false);
   const [responseError, setResponseError] = useState<string | null>(null);
 
+  // Developer API & System Health Console
+  const [healthData, setHealthData] = useState<{
+    service: string;
+    database: string;
+    provider: string;
+  } | null>(null);
+  const [activeDocTab, setActiveDocTab] = useState<'ingest' | 'search' | 'context' | 'respond' | 'health'>('ingest');
+  const [requestMetrics, setRequestMetrics] = useState<{
+    id: string;
+    timestamp: string;
+    endpoint: string;
+    latency: number;
+    status: string;
+  }[]>([]);
+
   const handleResponseSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!responseQuery.trim() || !userId.trim()) return;
@@ -248,6 +317,7 @@ export default function MemoryDashboard() {
     setResponseLoading(true);
     setResponseError(null);
     setResponseResult(null);
+    const start = Date.now();
 
     try {
       const response = await fetch('/api/memory/respond', {
@@ -264,6 +334,20 @@ export default function MemoryDashboard() {
       });
 
       const data = await response.json();
+      const latency = Date.now() - start;
+      const reqId = data.requestId || 'req-' + Math.random().toString(36).substring(2, 9);
+
+      setRequestMetrics((prev) => [
+        {
+          id: reqId,
+          timestamp: new Date().toISOString(),
+          endpoint: 'POST /api/memory/respond',
+          latency,
+          status: response.ok ? '200 OK' : `${response.status} Error`,
+        },
+        ...prev,
+      ]);
+
       if (!response.ok) {
         setResponseError(data.error || 'Failed to generate contextual response.');
       } else {
@@ -271,6 +355,18 @@ export default function MemoryDashboard() {
       }
     } catch (err) {
       console.error('Response Generation Error:', err);
+      const latency = Date.now() - start;
+      const reqId = 'req-' + Math.random().toString(36).substring(2, 9);
+      setRequestMetrics((prev) => [
+        {
+          id: reqId,
+          timestamp: new Date().toISOString(),
+          endpoint: 'POST /api/memory/respond',
+          latency,
+          status: '500 Error',
+        },
+        ...prev,
+      ]);
       setResponseError('An error occurred during response generation.');
     } finally {
       setResponseLoading(false);
@@ -322,10 +418,20 @@ export default function MemoryDashboard() {
       }
       const data = await response.json();
       setHealth(data);
+
+      // Diagnostic developer health check
+      const v1Res = await fetch('/api/v1/memory/health');
+      const v1Data = await v1Res.json();
+      if (v1Data.status === 'success' || v1Data.data) {
+        setHealthData(v1Data.data);
+      } else {
+        setHealthData({ service: 'healthy', database: 'unhealthy', provider: 'unhealthy' });
+      }
     } catch (err) {
       console.error('Failed to fetch system status:', err);
       setHealthError(true);
       setHealth(null);
+      setHealthData({ service: 'healthy', database: 'unhealthy', provider: 'unhealthy' });
     } finally {
       setLoadingHealth(false);
     }
@@ -370,6 +476,7 @@ export default function MemoryDashboard() {
 
     setIngestLoading(true);
     setIngestMessage(null);
+    const start = Date.now();
 
     try {
       const response = await fetch('/api/memory/ingest', {
@@ -384,6 +491,19 @@ export default function MemoryDashboard() {
       });
 
       const data = await response.json();
+      const latency = Date.now() - start;
+      const reqId = data.requestId || 'req-' + Math.random().toString(36).substring(2, 9);
+
+      setRequestMetrics((prev) => [
+        {
+          id: reqId,
+          timestamp: new Date().toISOString(),
+          endpoint: 'POST /api/memory/ingest',
+          latency,
+          status: response.ok ? '200 OK' : `${response.status} Error`,
+        },
+        ...prev,
+      ]);
 
       if (!response.ok) {
         setIngestMessage({
@@ -400,6 +520,18 @@ export default function MemoryDashboard() {
       }
     } catch (err) {
       console.error('Ingestion Error:', err);
+      const latency = Date.now() - start;
+      const reqId = 'req-' + Math.random().toString(36).substring(2, 9);
+      setRequestMetrics((prev) => [
+        {
+          id: reqId,
+          timestamp: new Date().toISOString(),
+          endpoint: 'POST /api/memory/ingest',
+          latency,
+          status: '500 Error',
+        },
+        ...prev,
+      ]);
       setIngestMessage({
         type: 'error',
         text: 'An error occurred during submission.',
@@ -1614,6 +1746,296 @@ export default function MemoryDashboard() {
 
             </div>
           )}
+        </section>
+
+        {/* Developer API & System Health Console */}
+        <section className="card" style={{ marginTop: '2.5rem' }}>
+          <h3 className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <span>🛠️ Developer API & System Health</span>
+            <div style={{ display: 'flex', gap: '0.5rem', fontSize: '0.8rem', flexWrap: 'wrap' }}>
+              <span className="badge" style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.3rem',
+                padding: '0.25rem 0.5rem',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: healthData?.service === 'healthy' ? 'rgba(74, 117, 89, 0.15)' : 'rgba(179, 74, 60, 0.15)',
+                color: healthData?.service === 'healthy' ? 'var(--success)' : 'var(--error)',
+                border: `1px solid ${healthData?.service === 'healthy' ? 'rgba(74, 117, 89, 0.3)' : 'rgba(179, 74, 60, 0.3)'}`
+              }}>
+                <span className="dot-mini" style={{ width: '6px', height: '6px', borderRadius: '50%', display: 'inline-block', backgroundColor: healthData?.service === 'healthy' ? 'var(--success)' : 'var(--error)' }} />
+                Service: {healthData?.service || 'healthy'}
+              </span>
+              <span className="badge" style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.3rem',
+                padding: '0.25rem 0.5rem',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: healthData?.database === 'healthy' ? 'rgba(74, 117, 89, 0.15)' : 'rgba(179, 74, 60, 0.15)',
+                color: healthData?.database === 'healthy' ? 'var(--success)' : 'var(--error)',
+                border: `1px solid ${healthData?.database === 'healthy' ? 'rgba(74, 117, 89, 0.3)' : 'rgba(179, 74, 60, 0.3)'}`
+              }}>
+                <span className="dot-mini" style={{ width: '6px', height: '6px', borderRadius: '50%', display: 'inline-block', backgroundColor: healthData?.database === 'healthy' ? 'var(--success)' : 'var(--error)' }} />
+                Database: {healthData?.database || 'checking...'}
+              </span>
+              <span className="badge" style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.3rem',
+                padding: '0.25rem 0.5rem',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: healthData?.provider === 'healthy' ? 'rgba(74, 117, 89, 0.15)' : 'rgba(179, 74, 60, 0.15)',
+                color: healthData?.provider === 'healthy' ? 'var(--success)' : 'var(--error)',
+                border: `1px solid ${healthData?.provider === 'healthy' ? 'rgba(74, 117, 89, 0.3)' : 'rgba(179, 74, 60, 0.3)'}`
+              }}>
+                <span className="dot-mini" style={{ width: '6px', height: '6px', borderRadius: '50%', display: 'inline-block', backgroundColor: healthData?.provider === 'healthy' ? 'var(--success)' : 'var(--error)' }} />
+                Provider: {healthData?.provider || 'checking...'}
+              </span>
+            </div>
+          </h3>
+          <p style={{ fontSize: '0.9rem', opacity: 0.7, marginBottom: '1.5rem' }}>
+            Mnemos exposes high-performance versioned REST API endpoints for downstream AI agent or client application integrations.
+          </p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', alignItems: 'start' }}>
+            {/* Documentation Panel */}
+            <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '1.25rem', backgroundColor: 'var(--background)' }}>
+              <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem', overflowX: 'auto' }}>
+                {(['ingest', 'search', 'context', 'respond', 'health'] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveDocTab(tab)}
+                    style={{
+                      padding: '0.4rem 0.75rem',
+                      border: 'none',
+                      backgroundColor: activeDocTab === tab ? 'var(--surface)' : 'transparent',
+                      color: activeDocTab === tab ? 'var(--primary)' : 'var(--text)',
+                      fontWeight: activeDocTab === tab ? 600 : 400,
+                      borderRadius: 'var(--radius-sm)',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      borderBottom: activeDocTab === tab ? '2px solid var(--primary)' : 'none',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {tab === 'ingest' && 'POST Ingest'}
+                    {tab === 'search' && 'POST Search'}
+                    {tab === 'context' && 'POST Context'}
+                    {tab === 'respond' && 'POST Respond'}
+                    {tab === 'health' && 'GET Health'}
+                  </button>
+                ))}
+              </div>
+
+              {activeDocTab === 'ingest' && (
+                <div>
+                  <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>POST /api/v1/memory/ingest</h4>
+                  <p style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '1rem' }}>
+                    Process user input texts, extract semantic details, reconcile against existing memory states, and update records.
+                  </p>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', opacity: 0.8 }}>Request Template (cURL)</div>
+                  <pre style={{ padding: '0.75rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', overflowX: 'auto', marginBottom: '1rem', border: '1px solid var(--border)' }}>
+{`curl -X POST http://localhost:3000/api/v1/memory/ingest \\
+  -H "Content-Type: application/json" \\
+  -H "X-API-Key: placeholder_key" \\
+  -d '{
+    "userId": "user-123",
+    "content": "I prefer using PostgreSQL databases."
+  }'`}
+                  </pre>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', opacity: 0.8 }}>Example Success Response Payload</div>
+                  <pre style={{ padding: '0.75rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', overflowX: 'auto', border: '1px solid var(--border)' }}>
+{`{
+  "status": "success",
+  "data": {
+    "memories": [
+      {
+        "id": "mem-550e8400...",
+        "userId": "user-123",
+        "type": "PREFERENCE",
+        "content": "User prefers PostgreSQL databases."
+      }
+    ]
+  },
+  "requestId": "5c014087-586d..."
+}`}
+                  </pre>
+                </div>
+              )}
+
+              {activeDocTab === 'search' && (
+                <div>
+                  <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>POST /api/v1/memory/search</h4>
+                  <p style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '1rem' }}>
+                    Generate semantic search embeddings and fetch matching active candidate memories sorted by vector similarity.
+                  </p>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', opacity: 0.8 }}>Request Template (cURL)</div>
+                  <pre style={{ padding: '0.75rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', overflowX: 'auto', marginBottom: '1rem', border: '1px solid var(--border)' }}>
+{`curl -X POST http://localhost:3000/api/v1/memory/search \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "userId": "user-123",
+    "query": "What database options do I prefer?",
+    "limit": 5
+  }'`}
+                  </pre>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', opacity: 0.8 }}>Example Success Response Payload</div>
+                  <pre style={{ padding: '0.75rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', overflowX: 'auto', border: '1px solid var(--border)' }}>
+{`{
+  "status": "success",
+  "data": {
+    "results": [
+      {
+        "memory": {
+          "id": "mem-550e8400...",
+          "type": "PREFERENCE",
+          "content": "User prefers PostgreSQL databases."
+        },
+        "similarity": 0.849
+      }
+    ]
+  },
+  "requestId": "2aeb-4847..."
+}`}
+                  </pre>
+                </div>
+              )}
+
+              {activeDocTab === 'context' && (
+                <div>
+                  <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>POST /api/v1/memory/context</h4>
+                  <p style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '1rem' }}>
+                    Retrieve, score, downrank, deduplicate, and compile relevant memories into a formatted prompt context block.
+                  </p>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', opacity: 0.8 }}>Request Template (cURL)</div>
+                  <pre style={{ padding: '0.75rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', overflowX: 'auto', marginBottom: '1rem', border: '1px solid var(--border)' }}>
+{`curl -X POST http://localhost:3000/api/v1/memory/context \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "userId": "user-123",
+    "query": "preferred DB",
+    "limit": 10,
+    "maxTokens": 1500
+  }'`}
+                  </pre>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', opacity: 0.8 }}>Example Success Response Payload</div>
+                  <pre style={{ padding: '0.75rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', overflowX: 'auto', border: '1px solid var(--border)' }}>
+{`{
+  "status": "success",
+  "data": {
+    "query": "preferred DB",
+    "items": [...],
+    "context": "[PREFERENCE] [CURRENT] User prefers PostgreSQL...",
+    "tokenCount": 11,
+    "governance": {
+      "allowedCount": 1,
+      "downrankedCount": 0,
+      "excludedCount": 0,
+      "conflictsDetectedCount": 0,
+      "lowConfidenceCount": 0,
+      "injectionBlockedCount": 0,
+      "details": {}
+    }
+  },
+  "requestId": "3a1c-99da..."
+}`}
+                  </pre>
+                </div>
+              )}
+
+              {activeDocTab === 'respond' && (
+                <div>
+                  <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>POST /api/v1/memory/respond</h4>
+                  <p style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '1rem' }}>
+                    Generate an LLM response grounded strictly in the user&apos;s retrieved memory context.
+                  </p>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', opacity: 0.8 }}>Request Template (cURL)</div>
+                  <pre style={{ padding: '0.75rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', overflowX: 'auto', marginBottom: '1rem', border: '1px solid var(--border)' }}>
+{`curl -X POST http://localhost:3000/api/v1/memory/respond \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "userId": "user-123",
+    "query": "Should I host using SQLite or PostgreSQL?",
+    "limit": 10,
+    "maxTokens": 1500
+  }'`}
+                  </pre>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', opacity: 0.8 }}>Example Success Response Payload</div>
+                  <pre style={{ padding: '0.75rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', overflowX: 'auto', border: '1px solid var(--border)' }}>
+{`{
+  "status": "success",
+  "data": {
+    "response": "Based on your preferences, you should host using PostgreSQL...",
+    "usedMemories": [
+      { "id": "mem-550e8400...", "type": "PREFERENCE", "similarity": 0.83, "score": 0.95 }
+    ],
+    "contextTokenCount": 11,
+    "governance": {}
+  },
+  "requestId": "4e12-b11c..."
+}`}
+                  </pre>
+                </div>
+              )}
+
+              {activeDocTab === 'health' && (
+                <div>
+                  <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>GET /api/v1/memory/health</h4>
+                  <p style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '1rem' }}>
+                    Diagnostic endpoint to evaluate health status of system core runners, Postgres database connection, and external Gemini model providers.
+                  </p>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', opacity: 0.8 }}>Request Template (cURL)</div>
+                  <pre style={{ padding: '0.75rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', overflowX: 'auto', marginBottom: '1rem', border: '1px solid var(--border)' }}>
+{`curl -X GET http://localhost:3000/api/v1/memory/health`}
+                  </pre>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', opacity: 0.8 }}>Example Success Response Payload</div>
+                  <pre style={{ padding: '0.75rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', overflowX: 'auto', border: '1px solid var(--border)' }}>
+{`{
+  "status": "success",
+  "data": {
+    "service": "healthy",
+    "database": "healthy",
+    "provider": "healthy"
+  },
+  "requestId": "f82b-c831..."
+}`}
+                  </pre>
+                </div>
+              )}
+            </div>
+
+            {/* Request Metrics Observability Panel */}
+            <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '1.25rem', backgroundColor: 'var(--background)' }}>
+              <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.75rem' }}>📊 Recent Request Telemetry Trace</h4>
+              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1.25rem' }}>
+                Real-time API invocation metrics. Run query or search actions above to view dynamic traces.
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '350px', overflowY: 'auto' }}>
+                {requestMetrics.length === 0 ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', opacity: 0.5, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem' }}>
+                    No recent requests captured.
+                  </div>
+                ) : (
+                  requestMetrics.map((metric) => (
+                    <div key={metric.id} style={{ padding: '0.6rem 0.8rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', fontSize: '0.75rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem', fontWeight: 600 }}>
+                        <span style={{ color: 'var(--primary)' }}>{metric.endpoint}</span>
+                        <span style={{ color: metric.status.includes('OK') || metric.status.includes('200') ? 'var(--success)' : 'var(--error)' }}>
+                          {metric.status}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', opacity: 0.6, fontSize: '0.7rem' }}>
+                        <span>Lat: <strong>{metric.latency} ms</strong></span>
+                        <span>ID: <code>{metric.id.substring(0, 10)}...</code></span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
         </section>
       </main>
 

@@ -41,6 +41,7 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(10000), // 10-second timeout
       });
 
       if (!response.ok) {

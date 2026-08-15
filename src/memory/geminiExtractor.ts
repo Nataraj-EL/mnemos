@@ -108,6 +108,7 @@ Return your actions in the specified JSON schema format. Make sure the content o
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(10000), // 10-second timeout
       });
 
       if (!response.ok) {
