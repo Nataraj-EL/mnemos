@@ -176,3 +176,11 @@ export interface PromotedConfigStatus {
   currentConfig: TuningConfig | null;
   previousConfig: TuningConfig | null;
 }
+
+export interface PromotionHistoryRecord {
+  id: string;
+  timestamp: string;
+  action: 'promote' | 'rollback';
+  previousConfig: TuningConfig | null;
+  newConfig: TuningConfig | null;
+}

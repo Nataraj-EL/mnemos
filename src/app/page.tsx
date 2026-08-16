@@ -1728,6 +1728,66 @@ export default function MemoryDashboard() {
   const [promotedLoading, setPromotedLoading] = useState(false);
   const [promotedError, setPromotedError] = useState<string | null>(null);
 
+  // A/B Configuration Promotion History State
+  const [promotionHistory, setPromotionHistory] = useState<import('@/evaluation/types').PromotionHistoryRecord[]>([]);
+  const [promotionHistoryLoading, setPromotionHistoryLoading] = useState(false);
+  const [promotionHistoryError, setPromotionHistoryError] = useState<string | null>(null);
+
+  const fetchPromotionHistory = async () => {
+    setPromotionHistoryLoading(true);
+    setPromotionHistoryError(null);
+    try {
+      const response = await fetch('/api/evaluation/config/history');
+      if (response.ok) {
+        const data = await response.json();
+        setPromotionHistory(data);
+      } else {
+        const { PromotionHistoryManager } = await import('@/evaluation/promotionHistory');
+        setPromotionHistory(PromotionHistoryManager.listRecords());
+      }
+    } catch (err) {
+      console.error('Failed to fetch promotion history:', err);
+      try {
+        const { PromotionHistoryManager } = await import('@/evaluation/promotionHistory');
+        setPromotionHistory(PromotionHistoryManager.listRecords());
+      } catch (e) {
+        console.error('Local promotion history fallback failed:', e);
+        setPromotionHistoryError('Failed to load promotion history.');
+      }
+    } finally {
+      setPromotionHistoryLoading(false);
+    }
+  };
+
+  const handleClearPromotionHistory = async () => {
+    const confirmClear = confirm('Are you sure you want to clear the configuration change history audit trail?');
+    if (!confirmClear) return;
+
+    setPromotionHistoryLoading(true);
+    setPromotionHistoryError(null);
+    try {
+      const response = await fetch('/api/evaluation/config/history', { method: 'DELETE' });
+      if (response.ok) {
+        setPromotionHistory([]);
+      } else {
+        const { PromotionHistoryManager } = await import('@/evaluation/promotionHistory');
+        PromotionHistoryManager.clearHistory();
+        setPromotionHistory([]);
+      }
+    } catch (err) {
+      console.error('Failed to clear promotion history:', err);
+      try {
+        const { PromotionHistoryManager } = await import('@/evaluation/promotionHistory');
+        PromotionHistoryManager.clearHistory();
+        setPromotionHistory([]);
+      } catch (e) {
+        console.error('Local clear promotion history failed:', e);
+      }
+    } finally {
+      setPromotionHistoryLoading(false);
+    }
+  };
+
   const fetchPromotedConfigStatus = async () => {
     setPromotedLoading(true);
     setPromotedError(null);
@@ -1778,6 +1838,7 @@ export default function MemoryDashboard() {
       if (response.ok) {
         setPromotedConfigStatus(data);
         await fetchExperimentInsights();
+        await fetchPromotionHistory();
       } else {
         const { EvaluationConfigPromotionManager } = await import('@/evaluation/promotion');
         EvaluationConfigPromotionManager.promote(config);
@@ -1787,6 +1848,7 @@ export default function MemoryDashboard() {
           previousConfig: EvaluationConfigPromotionManager.getPreviousConfig(),
         });
         await fetchExperimentInsights();
+        await fetchPromotionHistory();
       }
     } catch (err) {
       console.error('Failed to promote configuration:', err);
@@ -1799,6 +1861,7 @@ export default function MemoryDashboard() {
           previousConfig: EvaluationConfigPromotionManager.getPreviousConfig(),
         });
         await fetchExperimentInsights();
+        await fetchPromotionHistory();
       } catch (e: unknown) {
         console.error('Local promotion failed:', e);
         setPromotedError(e instanceof Error ? e.message : 'Failed to promote configuration.');
@@ -1820,6 +1883,7 @@ export default function MemoryDashboard() {
       if (response.ok) {
         setPromotedConfigStatus(data);
         await fetchExperimentInsights();
+        await fetchPromotionHistory();
       } else {
         const { EvaluationConfigPromotionManager } = await import('@/evaluation/promotion');
         EvaluationConfigPromotionManager.rollback();
@@ -1829,6 +1893,7 @@ export default function MemoryDashboard() {
           previousConfig: EvaluationConfigPromotionManager.getPreviousConfig(),
         });
         await fetchExperimentInsights();
+        await fetchPromotionHistory();
       }
     } catch (err) {
       console.error('Failed to rollback configuration:', err);
@@ -1841,6 +1906,7 @@ export default function MemoryDashboard() {
           previousConfig: EvaluationConfigPromotionManager.getPreviousConfig(),
         });
         await fetchExperimentInsights();
+        await fetchPromotionHistory();
       } catch (e: unknown) {
         console.error('Local rollback failed:', e);
         setPromotedError(e instanceof Error ? e.message : 'Failed to rollback configuration.');
@@ -2081,6 +2147,7 @@ export default function MemoryDashboard() {
       fetchExperimentHistory();
       fetchExperimentInsights();
       fetchPromotedConfigStatus();
+      fetchPromotionHistory();
     }, 0);
     const healthInterval = setInterval(fetchHealth, 15000);
     return () => clearInterval(healthInterval);
@@ -5871,6 +5938,95 @@ export default function MemoryDashboard() {
                     </button>
                   </div>
                 </div>
+              )}
+            </div>
+
+            {/* Configuration Change History */}
+            <div className="card" style={{ padding: '1.25rem', marginTop: '1.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>📋 Configuration Change History</h3>
+                {promotionHistory.length > 0 && (
+                  <button
+                    onClick={handleClearPromotionHistory}
+                    disabled={promotionHistoryLoading}
+                    className="btn"
+                    style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem', border: '1px solid var(--border)', backgroundColor: 'transparent', cursor: 'pointer' }}
+                  >
+                    Clear Audit Trail
+                  </button>
+                )}
+              </div>
+              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1.25rem' }}>
+                Audit trail tracking all parameter promotions and rollbacks.
+                <span style={{ display: 'block', marginTop: '0.25rem', color: 'var(--primary)', fontWeight: 600 }}>
+                  ⚠️ Developer / Evaluation Only — Tracks local overrides transitions
+                </span>
+              </p>
+
+              {promotionHistoryLoading && <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Loading change logs...</div>}
+              {promotionHistoryError && <div style={{ fontSize: '0.75rem', color: 'var(--error)' }}>⚠️ {promotionHistoryError}</div>}
+
+              {!promotionHistoryLoading && !promotionHistoryError && (
+                <>
+                  {promotionHistory.length === 0 ? (
+                    <div style={{ fontSize: '0.75rem', opacity: 0.5, textAlign: 'center', padding: '1rem', border: '1px dashed var(--border)', borderRadius: 'var(--radius-md)' }}>
+                      No configuration change records in the audit log.
+                    </div>
+                  ) : (
+                    <div style={{ overflowX: 'auto', maxHeight: '250px' }}>
+                      <table style={{ width: '100%', fontSize: '0.65rem', textAlign: 'left', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid var(--border)', opacity: 0.5 }}>
+                            <th style={{ padding: '0.4rem' }}>Time</th>
+                            <th style={{ padding: '0.4rem' }}>Action</th>
+                            <th style={{ padding: '0.4rem' }}>Parameter Changes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {promotionHistory.map((record) => {
+                            const dateStr = new Date(record.timestamp).toLocaleTimeString();
+                            const actionColor = record.action === 'promote' ? 'var(--success)' : '#e67e22';
+                            const actionBg = record.action === 'promote' ? 'rgba(46,204,113,0.15)' : 'rgba(230,126,34,0.15)';
+
+                            const renderConfigDiff = (prev: import('@/evaluation/types').TuningConfig | null, next: import('@/evaluation/types').TuningConfig | null) => {
+                              if (!prev && !next) return <span>No parameter changes</span>;
+                              if (!prev && next) return <span>Set Config (minSim: {next.minSimilarity}, semWt: {next.semanticWeight})</span>;
+                              if (prev && !next) return <span>Cleared Config</span>;
+
+                              const p = prev as import('@/evaluation/types').TuningConfig;
+                              const n = next as import('@/evaluation/types').TuningConfig;
+
+                              const diffs: string[] = [];
+                              const keys: (keyof import('@/evaluation/types').TuningConfig)[] = ['semanticWeight', 'lexicalWeight', 'minSimilarity', 'maxConversationSnippets'];
+                              for (const key of keys) {
+                                if (p[key] !== n[key]) {
+                                  diffs.push(`${key}: ${p[key]} → ${n[key]}`);
+                                }
+                              }
+
+                              if (diffs.length === 0) return <span>No parameter changes</span>;
+                              return <span>{diffs.join(', ')}</span>;
+                            };
+
+                            return (
+                              <tr key={record.id} style={{ borderBottom: '1px solid var(--border)', opacity: 0.9 }}>
+                                <td style={{ padding: '0.4rem', whiteSpace: 'nowrap' }}>{dateStr}</td>
+                                <td style={{ padding: '0.4rem' }}>
+                                  <span style={{ fontSize: '0.55rem', padding: '0.1rem 0.3rem', borderRadius: 'var(--radius-xs)', backgroundColor: actionBg, color: actionColor, border: `1px solid ${actionColor}33`, fontWeight: 600, textTransform: 'uppercase' }}>
+                                    {record.action}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '0.4rem', fontFamily: 'monospace', opacity: 0.8 }}>
+                                  {renderConfigDiff(record.previousConfig, record.newConfig)}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 

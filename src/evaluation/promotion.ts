@@ -1,5 +1,6 @@
 import { TuningConfig } from './types';
 import { EvaluationExperimentRunner } from './experiment';
+import { PromotionHistoryManager } from './promotionHistory';
 
 export class EvaluationConfigPromotionManager {
   private static currentConfig: TuningConfig | null = null;
@@ -18,16 +19,26 @@ export class EvaluationConfigPromotionManager {
   public static promote(config: TuningConfig): void {
     EvaluationExperimentRunner.validateConfig(config);
 
-    this.previousConfig = this.currentConfig ? JSON.parse(JSON.stringify(this.currentConfig)) : null;
-    this.currentConfig = JSON.parse(JSON.stringify(config));
+    const oldConfig = this.currentConfig ? JSON.parse(JSON.stringify(this.currentConfig)) : null;
+    const newConfig = JSON.parse(JSON.stringify(config));
+
+    this.previousConfig = oldConfig;
+    this.currentConfig = newConfig;
+
+    PromotionHistoryManager.addRecord('promote', oldConfig, newConfig);
   }
 
   public static rollback(): void {
     if (!this.previousConfig) {
       return;
     }
+    const oldConfig = this.currentConfig ? JSON.parse(JSON.stringify(this.currentConfig)) : null;
+    const newConfig = this.previousConfig ? JSON.parse(JSON.stringify(this.previousConfig)) : null;
+
     this.currentConfig = this.previousConfig;
     this.previousConfig = null;
+
+    PromotionHistoryManager.addRecord('rollback', oldConfig, newConfig);
   }
 
   public static hasPromotedConfig(): boolean {
