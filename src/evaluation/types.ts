@@ -265,3 +265,21 @@ export interface EvaluationReportInsights {
     blocked: number;
   };
 }
+
+export interface EvaluationAlert {
+  id: string;
+  metric?: string;
+  severity: 'info' | 'warning' | 'critical';
+  message: string;
+  currentValue?: string | number;
+  delta?: number;
+  timestamp: string;
+}
+
+export interface EvaluationAlertsSummary {
+  alerts: EvaluationAlert[];
+  timestamp: string;
+  criticalCount: number;
+  warningCount: number;
+  infoCount: number;
+}

@@ -2054,6 +2054,38 @@ export default function MemoryDashboard() {
   const [reportInsightsLoading, setReportInsightsLoading] = useState(false);
   const [reportInsightsError, setReportInsightsError] = useState<string | null>(null);
 
+  const [alertsResult, setAlertsResult] = useState<import('@/evaluation/types').EvaluationAlertsSummary | null>(null);
+  const [alertsLoading, setAlertsLoading] = useState(false);
+  const [alertsError, setAlertsError] = useState<string | null>(null);
+
+  const fetchAlerts = async () => {
+    setAlertsLoading(true);
+    setAlertsError(null);
+    try {
+      const response = await fetch('/api/evaluation/alerts');
+      if (response.ok) {
+        const data = await response.json();
+        setAlertsResult(data);
+      } else {
+        const { EvaluationAlertManager } = await import('@/evaluation/alerts');
+        const localAlerts = await EvaluationAlertManager.generateAlerts();
+        setAlertsResult(localAlerts);
+      }
+    } catch (err) {
+      console.error('Failed to fetch evaluation alerts:', err);
+      try {
+        const { EvaluationAlertManager } = await import('@/evaluation/alerts');
+        const localAlerts = await EvaluationAlertManager.generateAlerts();
+        setAlertsResult(localAlerts);
+      } catch (e) {
+        console.error('Local alerts calculation failed:', e);
+        setAlertsError('Failed to fetch evaluation alerts.');
+      }
+    } finally {
+      setAlertsLoading(false);
+    }
+  };
+
   const fetchReportInsights = async () => {
     setReportInsightsLoading(true);
     setReportInsightsError(null);
@@ -2079,6 +2111,7 @@ export default function MemoryDashboard() {
       }
     } finally {
       setReportInsightsLoading(false);
+      await fetchAlerts();
     }
   };
 
@@ -7067,6 +7100,92 @@ export default function MemoryDashboard() {
                         </div>
                       </div>
                     </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Evaluation Alerts */}
+            <div className="card" style={{ padding: '1.25rem', marginTop: '1.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>⚠️ Evaluation Alerts</h3>
+                <button
+                  onClick={fetchAlerts}
+                  disabled={alertsLoading}
+                  className="btn"
+                  style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem', border: '1px solid var(--border)', backgroundColor: 'transparent', cursor: 'pointer' }}
+                >
+                  Refresh Alerts
+                </button>
+              </div>
+              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1.25rem' }}>
+                Longitudinal evaluation alerts categorized by severity (Critical, Warning, Info) with deterministic parameter suggestions.
+                <span style={{ display: 'block', marginTop: '0.25rem', color: 'var(--primary)', fontWeight: 600 }}>
+                  ⚠️ Developer / Evaluation Only — Advisory Alerts
+                </span>
+              </p>
+
+              {alertsLoading && <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Analyzing report alert conditions...</div>}
+              {alertsError && <div style={{ fontSize: '0.75rem', color: 'var(--error)' }}>⚠️ {alertsError}</div>}
+
+              {!alertsLoading && !alertsError && alertsResult && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {alertsResult.alerts.length === 0 ? (
+                    <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(255,255,255,0.01)', fontSize: '0.70rem', opacity: 0.6, textAlign: 'center' }}>
+                      No active system alerts. All quality and latency metrics are stable.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {alertsResult.alerts.map((alert, idx) => {
+                        const isCritical = alert.severity === 'critical';
+                        const isWarning = alert.severity === 'warning';
+                        const badgeColor = isCritical ? 'var(--error)' : isWarning ? '#e67e22' : 'var(--primary)';
+                        const bgColor = isCritical ? 'rgba(179,74,60,0.08)' : isWarning ? 'rgba(230,126,34,0.08)' : 'rgba(52,152,219,0.08)';
+                        const borderColor = isCritical ? 'rgba(179,74,60,0.2)' : isWarning ? 'rgba(230,126,34,0.2)' : 'rgba(52,152,219,0.2)';
+                        const deltaColor = alert.delta && alert.delta > 0
+                          ? (alert.metric === 'averageLatency' ? 'var(--error)' : 'var(--success)')
+                          : (alert.metric === 'averageLatency' ? 'var(--success)' : 'var(--error)');
+
+                        return (
+                          <div
+                            key={idx}
+                            style={{
+                              padding: '0.6rem 0.8rem',
+                              backgroundColor: bgColor,
+                              border: `1px solid ${borderColor}`,
+                              borderRadius: 'var(--radius-sm)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '0.25rem',
+                              fontSize: '0.65rem'
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span
+                                style={{
+                                  fontSize: '0.55rem',
+                                  padding: '0.1rem 0.35rem',
+                                  borderRadius: 'var(--radius-xs)',
+                                  backgroundColor: badgeColor,
+                                  color: '#fff',
+                                  fontWeight: 700,
+                                  textTransform: 'uppercase'
+                                }}
+                              >
+                                {alert.severity}
+                              </span>
+                              {alert.metric && <span style={{ opacity: 0.6, fontWeight: 600 }}>{alert.metric}</span>}
+                            </div>
+                            <div style={{ opacity: 0.9 }}>{alert.message}</div>
+                            {alert.delta !== undefined && (
+                              <div style={{ fontSize: '0.6rem', opacity: 0.6 }}>
+                                Delta: <strong style={{ color: deltaColor }}>{alert.delta > 0 ? '+' : ''}{alert.metric === 'averageLatency' ? `${Math.round(alert.delta)}ms` : `${(alert.delta * 100).toFixed(0)}%`}</strong>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
               )}

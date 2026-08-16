@@ -133,7 +133,7 @@ describe('Sprint 54: Evaluation Report Insights & Longitudinal Analytics Tests',
     it('should classify undefined or NaN values as notComparable', async () => {
       const olderReport: EvaluationReport = {
         ...sampleReport,
-        latestRunSummary: { ...baseSummary, retrievalRecall: undefined as any },
+        latestRunSummary: { ...baseSummary, retrievalRecall: undefined as unknown as number },
       };
       const newerReport: EvaluationReport = {
         ...sampleReport,
