@@ -117,3 +117,8 @@ export interface TuningBenchmarkSummary {
   realPipelineExecuted: boolean;
 }
 
+export interface EvaluationRunRecord {
+  id: string;
+  timestamp: string;
+  summary: EvalSummary;
+}

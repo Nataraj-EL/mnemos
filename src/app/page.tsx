@@ -1380,6 +1380,117 @@ export default function MemoryDashboard() {
   const [evalError, setEvalError] = useState<string | null>(null);
   const [baselineLabel, setBaselineLabel] = useState<string | null>(null);
 
+  const [historyRuns, setHistoryRuns] = useState<import('@/evaluation/types').EvaluationRunRecord[]>([]);
+  const [selectedBaseRunId, setSelectedBaseRunId] = useState<string>('');
+  const [selectedTargetRunId, setSelectedTargetRunId] = useState<string>('');
+  const [runsComparison, setRunsComparison] = useState<import('@/evaluation/regression').RegressionSummary | null>(null);
+
+  const fetchHistory = async () => {
+    try {
+      const response = await fetch('/api/evaluation/history');
+      if (response.ok) {
+        const data = await response.json();
+        setHistoryRuns(data);
+      } else {
+        const { EvaluationHistoryManager } = await import('@/evaluation/history');
+        setHistoryRuns(EvaluationHistoryManager.listRuns());
+      }
+    } catch (err) {
+      console.error('Failed to fetch history:', err);
+      try {
+        const { EvaluationHistoryManager } = await import('@/evaluation/history');
+        setHistoryRuns(EvaluationHistoryManager.listRuns());
+      } catch (e) {
+        console.error('Local fallback failed:', e);
+      }
+    }
+  };
+
+  const handleDeleteHistoryRun = async (id: string) => {
+    try {
+      const response = await fetch(`/api/evaluation/history?id=${id}`, { method: 'DELETE' });
+      if (response.ok) {
+        await fetchHistory();
+      } else {
+        const { EvaluationHistoryManager } = await import('@/evaluation/history');
+        EvaluationHistoryManager.deleteRun(id);
+        await fetchHistory();
+      }
+    } catch (err) {
+      console.error('Failed to delete history run:', err);
+      try {
+        const { EvaluationHistoryManager } = await import('@/evaluation/history');
+        EvaluationHistoryManager.deleteRun(id);
+        await fetchHistory();
+      } catch (e) {
+        console.error('Local delete failed:', e);
+      }
+    }
+  };
+
+  const handleClearHistory = async () => {
+    try {
+      const response = await fetch('/api/evaluation/history', { method: 'DELETE' });
+      if (response.ok) {
+        await fetchHistory();
+        setRunsComparison(null);
+      } else {
+        const { EvaluationHistoryManager } = await import('@/evaluation/history');
+        EvaluationHistoryManager.clearHistory();
+        await fetchHistory();
+        setRunsComparison(null);
+      }
+    } catch (err) {
+      console.error('Failed to clear history:', err);
+      try {
+        const { EvaluationHistoryManager } = await import('@/evaluation/history');
+        EvaluationHistoryManager.clearHistory();
+        await fetchHistory();
+        setRunsComparison(null);
+      } catch (e) {
+        console.error('Local clear failed:', e);
+      }
+    }
+  };
+
+  const handleCompareHistoryRuns = async () => {
+    if (!selectedBaseRunId || !selectedTargetRunId) return;
+    try {
+      const response = await fetch('/api/evaluation/history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ baseRunId: selectedBaseRunId, targetRunId: selectedTargetRunId }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setRunsComparison(data.comparison);
+      } else {
+        const { EvaluationHistoryManager } = await import('@/evaluation/history');
+        const { compareSummaries } = await import('@/evaluation/regression');
+        const baseRun = EvaluationHistoryManager.getRun(selectedBaseRunId);
+        const targetRun = EvaluationHistoryManager.getRun(selectedTargetRunId);
+        if (baseRun && targetRun) {
+          const comp = compareSummaries(targetRun.summary, baseRun.summary);
+          setRunsComparison(comp);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to compare history runs:', err);
+      try {
+        const { EvaluationHistoryManager } = await import('@/evaluation/history');
+        const { compareSummaries } = await import('@/evaluation/regression');
+        const baseRun = EvaluationHistoryManager.getRun(selectedBaseRunId);
+        const targetRun = EvaluationHistoryManager.getRun(selectedTargetRunId);
+        if (baseRun && targetRun) {
+          const comp = compareSummaries(targetRun.summary, baseRun.summary);
+          setRunsComparison(comp);
+        }
+      } catch (e) {
+        console.error('Local comparison failed:', e);
+      }
+    }
+  };
+
   const handleRunEvaluation = async () => {
     setEvalLoading(true);
     setEvalError(null);
@@ -1402,6 +1513,11 @@ export default function MemoryDashboard() {
           BaselineManager.setBaseline(localResult.summary);
         }
         setBaselineLabel(BaselineManager.getLabel());
+        
+        const { EvaluationHistoryManager } = await import('@/evaluation/history');
+        EvaluationHistoryManager.addRun(localResult.summary);
+        await fetchHistory();
+
         setEvalSummary({
           ...localResult.summary,
           regression,
@@ -1415,6 +1531,7 @@ export default function MemoryDashboard() {
         } else {
           setBaselineLabel(new Date().toISOString());
         }
+        await fetchHistory();
       }
     } catch (err) {
       console.error('Failed to execute evaluation:', err);
@@ -1535,6 +1652,7 @@ export default function MemoryDashboard() {
     setTimeout(() => {
       setMounted(true);
       fetchHealth();
+      fetchHistory();
     }, 0);
     const healthInterval = setInterval(fetchHealth, 15000);
     return () => clearInterval(healthInterval);
@@ -4292,6 +4410,240 @@ export default function MemoryDashboard() {
                         )}
                       </div>
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Evaluation Run History & Compare Panel */}
+              <hr style={{ border: '0', borderTop: '1px solid var(--border)', margin: '1.5rem 0 1.25rem 0' }} />
+              
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <span style={{ fontSize: '1.1rem' }}>📜</span>
+                  <h4 style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--primary)', margin: 0 }}>Evaluation Run History</h4>
+                </div>
+                {historyRuns.length > 0 && (
+                  <button
+                    onClick={handleClearHistory}
+                    style={{
+                      padding: '0.2rem 0.5rem',
+                      fontSize: '0.65rem',
+                      backgroundColor: 'rgba(179, 74, 60, 0.1)',
+                      color: 'var(--error)',
+                      border: '1px solid rgba(179, 74, 60, 0.2)',
+                      borderRadius: 'var(--radius-xs)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🗑️ Clear History
+                  </button>
+                )}
+              </div>
+
+              {historyRuns.length === 0 ? (
+                <div style={{ padding: '1rem', textAlign: 'center', fontSize: '0.75rem', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)' }}>
+                  No evaluation runs in history yet. Execute scenario benchmarks to populate.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center', padding: '0.75rem', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                      <span>Compare Baseline Run:</span>
+                      <select
+                        value={selectedBaseRunId}
+                        onChange={(e) => setSelectedBaseRunId(e.target.value)}
+                        style={{ padding: '0.15rem 0.4rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', backgroundColor: 'var(--surface)', color: 'var(--text)', fontSize: '0.7rem' }}
+                      >
+                        <option value="">-- Select Run --</option>
+                        {historyRuns.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {new Date(r.timestamp).toLocaleTimeString()} ({r.id.substring(4, 9)}) - Rec: {(r.summary.retrievalRecall * 100).toFixed(0)}%
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                      <span>Against Target Run:</span>
+                      <select
+                        value={selectedTargetRunId}
+                        onChange={(e) => setSelectedTargetRunId(e.target.value)}
+                        style={{ padding: '0.15rem 0.4rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', backgroundColor: 'var(--surface)', color: 'var(--text)', fontSize: '0.7rem' }}
+                      >
+                        <option value="">-- Select Run --</option>
+                        {historyRuns.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {new Date(r.timestamp).toLocaleTimeString()} ({r.id.substring(4, 9)}) - Rec: {(r.summary.retrievalRecall * 100).toFixed(0)}%
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <button
+                      onClick={handleCompareHistoryRuns}
+                      disabled={!selectedBaseRunId || !selectedTargetRunId}
+                      style={{
+                        padding: '0.2rem 0.6rem',
+                        fontSize: '0.7rem',
+                        backgroundColor: (selectedBaseRunId && selectedTargetRunId) ? 'var(--primary)' : 'var(--surface)',
+                        color: (selectedBaseRunId && selectedTargetRunId) ? 'black' : 'var(--text)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-xs)',
+                        cursor: (selectedBaseRunId && selectedTargetRunId) ? 'pointer' : 'default',
+                        opacity: (selectedBaseRunId && selectedTargetRunId) ? 1 : 0.5,
+                      }}
+                    >
+                      ⚖️ Compare Selected Runs
+                    </button>
+                  </div>
+
+                  <div style={{ overflowX: 'auto', maxHeight: '200px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
+                    <table style={{ width: '100%', fontSize: '0.7rem', textAlign: 'left', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)', opacity: 0.8 }}>
+                          <th style={{ padding: '0.4rem 0.5rem' }}>Timestamp</th>
+                          <th style={{ padding: '0.4rem 0.5rem' }}>Run ID</th>
+                          <th style={{ padding: '0.4rem 0.5rem' }}>Success (P/F)</th>
+                          <th style={{ padding: '0.4rem 0.5rem' }}>Recall / Prec</th>
+                          <th style={{ padding: '0.4rem 0.5rem' }}>Relevance / Faith</th>
+                          <th style={{ padding: '0.4rem 0.5rem' }}>Latency</th>
+                          <th style={{ padding: '0.4rem 0.5rem', textAlign: 'center' }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {historyRuns.map((r) => (
+                          <tr key={r.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                            <td style={{ padding: '0.4rem 0.5rem' }}>{new Date(r.timestamp).toLocaleTimeString()} ({new Date(r.timestamp).toLocaleDateString()})</td>
+                            <td style={{ padding: '0.4rem 0.5rem' }}><code>{r.id.substring(4, 9)}</code></td>
+                            <td style={{ padding: '0.4rem 0.5rem' }}>
+                              <span style={{ color: 'var(--success)' }}>{r.summary.passed}</span> / <span style={{ color: 'var(--error)' }}>{r.summary.failed}</span>
+                            </td>
+                            <td style={{ padding: '0.4rem 0.5rem' }}>
+                              {(r.summary.retrievalRecall * 100).toFixed(0)}% / {(r.summary.contextPrecision * 100).toFixed(0)}%
+                            </td>
+                            <td style={{ padding: '0.4rem 0.5rem' }}>
+                              {(r.summary.relevance * 100).toFixed(0)}% / {(r.summary.faithfulness * 100).toFixed(0)}%
+                            </td>
+                            <td style={{ padding: '0.4rem 0.5rem' }}>{Math.round(r.summary.averageLatency)} ms</td>
+                            <td style={{ padding: '0.4rem 0.5rem', textAlign: 'center' }}>
+                              <button
+                                onClick={() => handleDeleteHistoryRun(r.id)}
+                                style={{
+                                  padding: '0.1rem 0.3rem',
+                                  fontSize: '0.65rem',
+                                  backgroundColor: 'rgba(179, 74, 60, 0.1)',
+                                  color: 'var(--error)',
+                                  border: '1px solid rgba(179, 74, 60, 0.15)',
+                                  borderRadius: 'var(--radius-xs)',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                🗑️
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Run Comparison Detail */}
+              {runsComparison && (
+                <div style={{ marginTop: '1rem', padding: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <span style={{ fontSize: '1rem' }}>⚖️</span>
+                      <strong style={{ fontSize: '0.8rem', color: 'var(--primary)' }}>Run Comparison Results</strong>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600, fontSize: '0.75rem' }}>
+                      <span>Comparison Status:</span>
+                      {runsComparison.status === 'pass' && (
+                        <span style={{ color: 'var(--success)' }}>✓ PASS (No regressions detected)</span>
+                      )}
+                      {runsComparison.status === 'warning' && (
+                        <span style={{ color: 'orange' }}>⚠ WARNING (Tolerable regressions detected)</span>
+                      )}
+                      {runsComparison.status === 'fail' && (
+                        <span style={{ color: 'var(--error)' }}>✗ FAIL (Critical quality regressions detected)</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {runsComparison.failedThresholds && runsComparison.failedThresholds.length > 0 && (
+                    <div style={{ fontSize: '0.7rem', color: 'var(--error)', padding: '0.25rem 0.5rem', backgroundColor: 'rgba(179, 74, 60, 0.05)', borderRadius: 'var(--radius-xs)', border: '1px solid rgba(179, 74, 60, 0.15)', marginBottom: '0.5rem' }}>
+                      ⚠️ Regressions exceeding tolerances: <strong>{runsComparison.failedThresholds.join(', ')}</strong>
+                    </div>
+                  )}
+
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', fontSize: '0.7rem', textAlign: 'left', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--border)', opacity: 0.6 }}>
+                          <th style={{ padding: '0.35rem' }}>Metric</th>
+                          <th style={{ padding: '0.35rem' }}>Target Run</th>
+                          <th style={{ padding: '0.35rem' }}>Base Run</th>
+                          <th style={{ padding: '0.35rem' }}>Delta (Abs)</th>
+                          <th style={{ padding: '0.35rem' }}>Delta (%)</th>
+                          <th style={{ padding: '0.35rem' }}>Regression Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(runsComparison.deltas).map(([metric, delta]) => {
+                          const baseRecord = historyRuns.find((r) => r.id === selectedBaseRunId);
+                          const targetRecord = historyRuns.find((r) => r.id === selectedTargetRunId);
+                          
+                          const valBase = baseRecord ? (baseRecord.summary as unknown as Record<string, number | undefined>)[metric] : undefined;
+                          const valTarget = targetRecord ? (targetRecord.summary as unknown as Record<string, number | undefined>)[metric] : undefined;
+
+                          const formatMetric = (metricName: string, val: number | undefined) => {
+                            if (val === undefined) return 'N/A';
+                            if (metricName === 'averageLatency') return `${Math.round(val)} ms`;
+                            if (metricName === 'timeoutCount') return `${val}`;
+                            return `${(val * 100).toFixed(0)}%`;
+                          };
+
+                          let deltaTypeLabel = '—';
+                          let deltaTypeColor = 'var(--text)';
+                          if (delta.type === 'improvement') {
+                            deltaTypeLabel = '▲ Improvement';
+                            deltaTypeColor = 'var(--success)';
+                          } else if (delta.type === 'regression') {
+                            deltaTypeLabel = '▼ Regression';
+                            deltaTypeColor = 'var(--error)';
+                          } else if (delta.type === 'unchanged') {
+                            deltaTypeLabel = '— Unchanged';
+                            deltaTypeColor = 'var(--text)';
+                          } else if (delta.type === 'notComparable') {
+                            deltaTypeLabel = 'N/A Not Comparable';
+                            deltaTypeColor = 'var(--text)';
+                          }
+
+                          const formatDeltaAbsolute = (metricName: string, val: number | undefined) => {
+                            if (val === undefined) return 'N/A';
+                            const sign = val > 0 ? '+' : '';
+                            if (metricName === 'averageLatency') return `${sign}${Math.round(val)} ms`;
+                            if (metricName === 'timeoutCount') return `${sign}${val}`;
+                            return `${sign}${(val * 100).toFixed(0)}%`;
+                          };
+
+                          const absoluteText = delta.absolute !== undefined ? formatDeltaAbsolute(metric, delta.absolute) : 'N/A';
+                          const percentageText = delta.percentage !== undefined ? `${delta.percentage > 0 ? '+' : ''}${delta.percentage.toFixed(0)}%` : 'N/A';
+
+                          return (
+                            <tr key={metric} style={{ borderBottom: '1px solid var(--border)', opacity: 0.9 }}>
+                              <td style={{ padding: '0.35rem', fontWeight: 600 }}>{metric}</td>
+                              <td style={{ padding: '0.35rem' }}>{formatMetric(metric, valTarget)}</td>
+                              <td style={{ padding: '0.35rem' }}>{formatMetric(metric, valBase)}</td>
+                              <td style={{ padding: '0.35rem', color: deltaTypeColor }}>{absoluteText}</td>
+                              <td style={{ padding: '0.35rem', color: deltaTypeColor }}>{percentageText}</td>
+                              <td style={{ padding: '0.35rem', color: deltaTypeColor, fontWeight: 600 }}>{deltaTypeLabel}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               )}
