@@ -52,6 +52,11 @@ export interface EvalScenarioResult {
       memoryRetrievalHit: boolean;
       conversationRetrievalHit: boolean;
     };
+    resilience?: {
+      retryCount: number;
+      finalOutcome: 'success' | 'failure';
+      failureCategory?: string;
+    };
   };
 }
 

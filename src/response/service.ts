@@ -8,6 +8,7 @@ import { logTelemetry } from '@/core/logger';
 import { ConversationRetriever, ConversationSnippetResult } from '@/conversation/retriever';
 import { RETRIEVAL_SETTINGS } from '@/core/config';
 import { PerformanceTracker } from './tracker';
+import { ResilienceTracker } from './resilience';
 
 export interface ContextualResponseResult {
   response: string;
@@ -52,6 +53,11 @@ export interface ContextualResponseResult {
     cache?: {
       memoryRetrievalHit: boolean;
       conversationRetrievalHit: boolean;
+    };
+    resilience?: {
+      retryCount: number;
+      finalOutcome: 'success' | 'failure';
+      failureCategory?: string;
     };
   };
 }
@@ -412,6 +418,7 @@ export class ResponseService {
 
     const memoryHitTracker = { hit: false };
     const conversationHitTracker = { hit: false };
+    const resilienceTracker = isEval ? new ResilienceTracker() : undefined;
 
     try {
       // 1. Retrieve candidate memories & 2. Ancestor traversal
@@ -430,6 +437,7 @@ export class ResponseService {
             queryTimeout: RETRIEVAL_TIMEOUT,
             evaluationRun: true,
             cacheHitTracker: memoryHitTracker,
+            resilienceTracker,
             ...(minSimOverride !== undefined ? { minSimilarity: minSimOverride } : {}),
           });
 
@@ -543,6 +551,7 @@ export class ResponseService {
                 signal,
                 evaluationRun: true,
                 cacheHitTracker: conversationHitTracker,
+                resilienceTracker,
               });
             },
             CONVERSATION_TIMEOUT,
@@ -605,7 +614,7 @@ export class ResponseService {
           return await this.generator.generateResponse(
             query,
             combinedContext,
-            { signal }
+            { signal, resilienceTracker }
           );
         },
         GENERATION_TIMEOUT,
@@ -777,9 +786,18 @@ export class ResponseService {
             memoryRetrievalHit: memoryHitTracker.hit,
             conversationRetrievalHit: conversationHitTracker.hit,
           },
+          resilience: resilienceTracker ? {
+            retryCount: resilienceTracker.getRetryCount(),
+            finalOutcome: resilienceTracker.getOutcome(),
+            failureCategory: resilienceTracker.getFailureCategory(),
+          } : undefined,
         } : undefined,
       };
     } catch (error: unknown) {
+      if (resilienceTracker) {
+        resilienceTracker.setOutcome('failure');
+        resilienceTracker.setFailureCategory(error instanceof Error ? error.name : 'UnknownError');
+      }
       if (tracker) {
         tracker.stop('total');
       }

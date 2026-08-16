@@ -1,4 +1,5 @@
 import { EmbeddingProvider } from './embedding';
+import { withRetry, ResilienceTracker } from '@/response/resilience';
 
 export class GeminiEmbeddingProvider implements EmbeddingProvider {
   private apiKey: string | undefined;
@@ -11,7 +12,10 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
     this.dimension = Number(process.env.EMBEDDING_DIMENSION || '768');
   }
 
-  async generateEmbedding(text: string, options?: { signal?: AbortSignal }): Promise<number[]> {
+  async generateEmbedding(
+    text: string,
+    options?: { signal?: AbortSignal; resilienceTracker?: ResilienceTracker }
+  ): Promise<number[]> {
     if (!this.apiKey) {
       throw new Error('GEMINI_API_KEY environment variable is not defined.');
     }
@@ -34,32 +38,44 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
       outputDimensionality: this.dimension,
     };
 
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-        signal: options?.signal || AbortSignal.timeout(10000),
-      });
+    return await withRetry(async () => {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+          signal: options?.signal || AbortSignal.timeout(10000),
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Gemini Embedding API error (HTTP ${response.status}): ${errorText}`);
+        if (!response.ok) {
+          const errorText = await response.text();
+          const err = new Error(`Gemini Embedding API error (HTTP ${response.status}): ${errorText}`);
+          if (response.status === 429) {
+            const retryAfterHeader = response.headers.get('Retry-After');
+            if (retryAfterHeader) {
+              const seconds = parseInt(retryAfterHeader, 10);
+              if (!isNaN(seconds)) {
+                (err as unknown as { retryAfterMs?: number }).retryAfterMs = seconds * 1000;
+              }
+            }
+          }
+          throw err;
+        }
+
+        const json = await response.json();
+        const vector = json?.embedding?.values;
+
+        if (!vector || !Array.isArray(vector)) {
+          throw new Error('Malformed response: "embedding.values" array is missing or invalid.');
+        }
+
+        return vector;
+      } catch (error) {
+        console.error('Error during Gemini embedding generation:', error);
+        throw error;
       }
-
-      const json = await response.json();
-      const vector = json?.embedding?.values;
-
-      if (!vector || !Array.isArray(vector)) {
-        throw new Error('Malformed response: "embedding.values" array is missing or invalid.');
-      }
-
-      return vector;
-    } catch (error) {
-      console.error('Error during Gemini embedding generation:', error);
-      throw error;
-    }
+    }, { signal: options?.signal, onRetry: () => options?.resilienceTracker?.incrementRetries() });
   }
 }

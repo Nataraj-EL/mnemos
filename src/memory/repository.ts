@@ -1,6 +1,7 @@
 import { Memory, MemoryType } from '@/core/types';
 import { getDbPool } from '@/db';
 import { RetrievalCache } from '@/response/cache';
+import { withRetry } from '@/response/resilience';
 
 export interface MemoryRepository {
   create(memory: Omit<Memory, 'id' | 'createdAt' | 'updatedAt'>): Promise<Memory>;
@@ -67,7 +68,7 @@ export class PgMemoryRepository implements MemoryRepository {
       FROM memories
       WHERE id = $1;
     `;
-    const result = await pool.query(query, [id]);
+    const result = await withRetry(() => pool.query(query, [id]));
     if (!result || !result.rows || result.rows.length === 0) {
       return null;
     }
@@ -200,7 +201,7 @@ export class PgMemoryRepository implements MemoryRepository {
       ORDER BY created_at DESC;
     `;
 
-    const result = await pool.query(query, values);
+    const result = await withRetry(() => pool.query(query, values));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return result.rows.map((row: any) => mapRowToMemory(row));
   }

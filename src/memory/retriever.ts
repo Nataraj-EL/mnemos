@@ -4,6 +4,7 @@ import { getDbPool } from '@/db';
 import { RETRIEVAL_SETTINGS } from '@/core/config';
 import { PerformanceTracker } from '@/response/tracker';
 import { RetrievalCache } from '@/response/cache';
+import { withRetry, ResilienceTracker } from '@/response/resilience';
 
 export interface RetrievalOptions {
   limit?: number;
@@ -15,6 +16,7 @@ export interface RetrievalOptions {
   evaluationRun?: boolean;
   bypassCache?: boolean;
   cacheHitTracker?: { hit: boolean };
+  resilienceTracker?: ResilienceTracker;
 }
 
 export interface RetrievalResult {
@@ -146,9 +148,18 @@ export class MemoryRetriever {
             let vector: number[];
             if (options?.signal) {
               const provider = this.embeddingProvider as unknown as {
-                generateEmbedding(text: string, opts?: { signal?: AbortSignal }): Promise<number[]>;
+                generateEmbedding(text: string, opts?: { signal?: AbortSignal; resilienceTracker?: ResilienceTracker }): Promise<number[]>;
               };
-              vector = await provider.generateEmbedding(query, { signal: options.signal });
+              const opts: { signal?: AbortSignal; resilienceTracker?: ResilienceTracker } = { signal: options.signal };
+              if (options.resilienceTracker !== undefined) {
+                opts.resilienceTracker = options.resilienceTracker;
+              }
+              vector = await provider.generateEmbedding(query, opts);
+            } else if (options?.resilienceTracker) {
+              const provider = this.embeddingProvider as unknown as {
+                generateEmbedding(text: string, opts?: { resilienceTracker?: ResilienceTracker }): Promise<number[]>;
+              };
+              vector = await provider.generateEmbedding(query, { resilienceTracker: options.resilienceTracker });
             } else {
               vector = await this.embeddingProvider.generateEmbedding(query);
             }
@@ -198,18 +209,18 @@ export class MemoryRetriever {
 
       let result;
       if (options?.queryTimeout !== undefined) {
-        result = await pool.query({
+        result = await withRetry(() => pool.query({
           text: sql,
           values: [queryEmbeddingStr, userId, minSimilarity, limit],
           query_timeout: options.queryTimeout,
-        } as unknown as Parameters<typeof pool.query>[0]);
+        } as unknown as Parameters<typeof pool.query>[0]), { signal: options?.signal, onRetry: () => options?.resilienceTracker?.incrementRetries() });
       } else {
-        result = await pool.query(sql, [
+        result = await withRetry(() => pool.query(sql, [
           queryEmbeddingStr,
           userId,
           minSimilarity,
           limit,
-        ]);
+        ]), { signal: options?.signal, onRetry: () => options?.resilienceTracker?.incrementRetries() });
       }
 
       if (options?.signal?.aborted) {
@@ -256,13 +267,13 @@ export class MemoryRetriever {
       const params = [userId, ...words, limit];
       let result;
       if (options?.queryTimeout !== undefined) {
-        result = await pool.query({
+        result = await withRetry(() => pool.query({
           text: sql,
           values: params,
           query_timeout: options.queryTimeout,
-        } as unknown as Parameters<typeof pool.query>[0]);
+        } as unknown as Parameters<typeof pool.query>[0]), { signal: options?.signal, onRetry: () => options?.resilienceTracker?.incrementRetries() });
       } else {
-        result = await pool.query(sql, params);
+        result = await withRetry(() => pool.query(sql, params), { signal: options?.signal, onRetry: () => options?.resilienceTracker?.incrementRetries() });
       }
 
       if (options?.signal?.aborted) {

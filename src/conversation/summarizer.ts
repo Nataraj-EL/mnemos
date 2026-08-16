@@ -1,3 +1,5 @@
+import { withRetry } from '@/response/resilience';
+
 export interface ConversationSummarizer {
   summarize(text: string): Promise<string>;
 }
@@ -62,32 +64,44 @@ ${safeText}
     const urlModel = this.model.startsWith('models/') ? this.model.substring(7) : this.model;
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${urlModel}:generateContent?key=${this.apiKey}`;
 
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(10000), // 10-second timeout
-      });
+    return await withRetry(async () => {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+          signal: AbortSignal.timeout(10000), // 10-second timeout
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Gemini API error (HTTP ${response.status}): ${errorText}`);
+        if (!response.ok) {
+          const errorText = await response.text();
+          const err = new Error(`Gemini API error (HTTP ${response.status}): ${errorText}`);
+          if (response.status === 429) {
+            const retryAfterHeader = response.headers.get('Retry-After');
+            if (retryAfterHeader) {
+              const seconds = parseInt(retryAfterHeader, 10);
+              if (!isNaN(seconds)) {
+                (err as unknown as { retryAfterMs?: number }).retryAfterMs = seconds * 1000;
+              }
+            }
+          }
+          throw err;
+        }
+
+        const jsonResponse = await response.json();
+        const textResponse = jsonResponse?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!textResponse) {
+          throw new Error('Malformed response: No text candidate returned by Gemini.');
+        }
+
+        return textResponse.trim();
+      } catch (error) {
+        console.error('Error during Gemini conversation summarization:', error);
+        throw error;
       }
-
-      const jsonResponse = await response.json();
-      const textResponse = jsonResponse?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-      if (!textResponse) {
-        throw new Error('Malformed response: No text candidate returned by Gemini.');
-      }
-
-      return textResponse.trim();
-    } catch (error) {
-      console.error('Error during Gemini conversation summarization:', error);
-      throw error;
-    }
+    });
   }
 }

@@ -1,6 +1,7 @@
 import { Conversation } from './types';
 import { getDbPool } from '@/db';
 import { RetrievalCache } from '@/response/cache';
+import { withRetry, ResilienceTracker } from '@/response/resilience';
 
 export interface ConversationRepository {
   create(conv: Omit<Conversation, 'id' | 'createdAt'>): Promise<Conversation>;
@@ -11,7 +12,8 @@ export interface ConversationRepository {
   searchSimilarity(
     userId: string,
     queryEmbedding: number[],
-    limit?: number
+    limit?: number,
+    options?: { signal?: AbortSignal; resilienceTracker?: ResilienceTracker }
   ): Promise<{ conversation: Conversation; similarity: number }[]>;
 }
 
@@ -74,7 +76,7 @@ export class PgConversationRepository implements ConversationRepository {
       FROM conversations
       WHERE id = $1;
     `;
-    const result = await pool.query(query, [id]);
+    const result = await withRetry(() => pool.query(query, [id]));
     if (!result || !result.rows || result.rows.length === 0) {
       return null;
     }
@@ -91,7 +93,7 @@ export class PgConversationRepository implements ConversationRepository {
       ORDER BY created_at DESC
       LIMIT $2;
     `;
-    const result = await pool.query(query, [userId, limit]);
+    const result = await withRetry(() => pool.query(query, [userId, limit]));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return result.rows.map((row: any) => mapRowToConversation(row));
   }
@@ -146,7 +148,8 @@ export class PgConversationRepository implements ConversationRepository {
   async searchSimilarity(
     userId: string,
     queryEmbedding: number[],
-    limit: number = 3
+    limit: number = 3,
+    options?: { signal?: AbortSignal; resilienceTracker?: ResilienceTracker }
   ): Promise<{ conversation: Conversation; similarity: number }[]> {
     const pool = getDbPool();
     const queryEmbeddingStr = `[${queryEmbedding.join(',')}]`;
@@ -159,7 +162,10 @@ export class PgConversationRepository implements ConversationRepository {
       ORDER BY embedding <=> $1::vector ASC
       LIMIT $3;
     `;
-    const result = await pool.query(query, [queryEmbeddingStr, userId, limit]);
+    const result = await withRetry(() => pool.query(query, [queryEmbeddingStr, userId, limit]), {
+      signal: options?.signal,
+      onRetry: () => options?.resilienceTracker?.incrementRetries()
+    });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return result.rows.map((row: any) => ({
       conversation: mapRowToConversation(row),

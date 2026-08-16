@@ -3,6 +3,7 @@ import { PgConversationRepository } from './repository';
 import { GeminiEmbeddingProvider } from '@/memory/geminiEmbedding';
 import { RETRIEVAL_SETTINGS } from '@/core/config';
 import { RetrievalCache } from '@/response/cache';
+import { withRetry, ResilienceTracker } from '@/response/resilience';
 
 export interface ConversationSnippetResult {
   conversationId: string;
@@ -57,6 +58,7 @@ export class ConversationRetriever {
       cacheHitTracker?: { hit: boolean };
       queryTimeout?: number;
       signal?: AbortSignal;
+      resilienceTracker?: ResilienceTracker;
     }
   ): Promise<ConversationSnippetResult[]> {
     if (!userId || !userId.trim()) {
@@ -131,6 +133,9 @@ export class ConversationRetriever {
       lexicalWeight?: number;
       evaluationRun?: boolean;
       bypassCache?: boolean;
+      queryTimeout?: number;
+      signal?: AbortSignal;
+      resilienceTracker?: ResilienceTracker;
     }
   ): Promise<{ snippets: ConversationSnippetResult[]; isFallback: boolean }> {
     const limitConversations = options?.limitConversations ?? 3;
@@ -159,8 +164,14 @@ export class ConversationRetriever {
     let isFallback = false;
     try {
       const embeddingProvider = new GeminiEmbeddingProvider();
-      queryEmbedding = await embeddingProvider.generateEmbedding(query);
+      queryEmbedding = await embeddingProvider.generateEmbedding(query, {
+        signal: options?.signal,
+        resilienceTracker: options?.resilienceTracker
+      });
     } catch (err) {
+      if (options?.signal?.aborted || (err instanceof Error && err.message.includes('aborted'))) {
+        throw err;
+      }
       console.warn('Embedding generation failed in ConversationRetriever, falling back to keyword search:', err);
       isFallback = true;
     }
@@ -171,12 +182,18 @@ export class ConversationRetriever {
     if (queryEmbedding) {
       try {
         const repo = new PgConversationRepository();
-        const similarityResults = await repo.searchSimilarity(userId, queryEmbedding, limitConversations);
+        const similarityResults = await repo.searchSimilarity(userId, queryEmbedding, limitConversations, {
+          signal: options?.signal,
+          resilienceTracker: options?.resilienceTracker
+        });
         const filteredResults = similarityResults.filter((r) => r.similarity >= minSimilarity);
         if (filteredResults.length > 0) {
           resultsToProcess = filteredResults;
         }
       } catch (searchErr) {
+        if (options?.signal?.aborted || (searchErr instanceof Error && searchErr.message.includes('aborted'))) {
+          throw searchErr;
+        }
         console.warn('Semantic search query failed in database, falling back to keyword search:', searchErr);
       }
     }
@@ -194,7 +211,10 @@ export class ConversationRetriever {
         LIMIT $${keywords.length + 2};
       `;
       const params = [userId, ...keywords.map((k) => `%${k}%`), limitConversations];
-      const result = await pool.query(sql, params);
+      const result = await withRetry(() => pool.query(sql, params), {
+        signal: options?.signal,
+        onRetry: () => options?.resilienceTracker?.incrementRetries()
+      });
       resultsToProcess = result.rows.map((row) => ({
         conversation: {
           id: row.id,
