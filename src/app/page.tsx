@@ -1449,6 +1449,7 @@ export default function MemoryDashboard() {
       }
     } finally {
       await fetchQualityGateResult();
+      await fetchReportResult();
     }
   };
 
@@ -1842,6 +1843,7 @@ export default function MemoryDashboard() {
         await fetchExperimentInsights();
         await fetchPromotionHistory();
         await fetchQualityGateResult();
+        await fetchReportResult();
       } else {
         const { EvaluationConfigPromotionManager } = await import('@/evaluation/promotion');
         EvaluationConfigPromotionManager.promote(config);
@@ -1853,6 +1855,7 @@ export default function MemoryDashboard() {
         await fetchExperimentInsights();
         await fetchPromotionHistory();
         await fetchQualityGateResult();
+        await fetchReportResult();
       }
     } catch (err) {
       console.error('Failed to promote configuration:', err);
@@ -1867,6 +1870,7 @@ export default function MemoryDashboard() {
         await fetchExperimentInsights();
         await fetchPromotionHistory();
         await fetchQualityGateResult();
+        await fetchReportResult();
       } catch (e: unknown) {
         console.error('Local promotion failed:', e);
         setPromotedError(e instanceof Error ? e.message : 'Failed to promote configuration.');
@@ -1890,6 +1894,7 @@ export default function MemoryDashboard() {
         await fetchExperimentInsights();
         await fetchPromotionHistory();
         await fetchQualityGateResult();
+        await fetchReportResult();
       } else {
         const { EvaluationConfigPromotionManager } = await import('@/evaluation/promotion');
         EvaluationConfigPromotionManager.rollback();
@@ -1901,6 +1906,7 @@ export default function MemoryDashboard() {
         await fetchExperimentInsights();
         await fetchPromotionHistory();
         await fetchQualityGateResult();
+        await fetchReportResult();
       }
     } catch (err) {
       console.error('Failed to rollback configuration:', err);
@@ -1915,6 +1921,7 @@ export default function MemoryDashboard() {
         await fetchExperimentInsights();
         await fetchPromotionHistory();
         await fetchQualityGateResult();
+        await fetchReportResult();
       } catch (e: unknown) {
         console.error('Local rollback failed:', e);
         setPromotedError(e instanceof Error ? e.message : 'Failed to rollback configuration.');
@@ -1999,6 +2006,38 @@ export default function MemoryDashboard() {
       }
     } finally {
       setQualityGateLoading(false);
+    }
+  };
+  const [reportResult, setReportResult] = useState<import('@/evaluation/types').EvaluationReport | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
+
+  const fetchReportResult = async () => {
+    setReportLoading(true);
+    setReportError(null);
+    try {
+      const response = await fetch('/api/evaluation/report');
+      if (response.ok) {
+        const data = await response.json();
+        setReportResult(data);
+      } else {
+        const { EvaluationReportManager } = await import('@/evaluation/report');
+        const localReport = await EvaluationReportManager.generateReport();
+        setReportResult(localReport);
+      }
+    } catch (err) {
+      console.error('Failed to fetch report result:', err);
+      try {
+        const { EvaluationReportManager } = await import('@/evaluation/report');
+        const localReport = await EvaluationReportManager.generateReport();
+        setReportResult(localReport);
+      } catch (e) {
+        console.error('Local report compilation failed:', e);
+        setReportError('Failed to fetch report result.');
+      }
+    } finally {
+      setReportLoading(false);
     }
   };
   const [baseExpId, setBaseExpId] = useState('');
@@ -2234,6 +2273,7 @@ export default function MemoryDashboard() {
       fetchPromotedConfigStatus();
       fetchPromotionHistory();
       fetchQualityGateResult();
+      fetchReportResult();
     }, 0);
     const healthInterval = setInterval(fetchHealth, 15000);
     return () => clearInterval(healthInterval);
@@ -6250,6 +6290,183 @@ export default function MemoryDashboard() {
                         })}
                       </div>
                     </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Evaluation Report & Export */}
+            <div className="card" style={{ padding: '1.25rem', marginTop: '1.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>📊 Consolidated Evaluation Report</h3>
+                <button
+                  onClick={fetchReportResult}
+                  disabled={reportLoading}
+                  className="btn"
+                  style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem', border: '1px solid var(--border)', backgroundColor: 'transparent', cursor: 'pointer' }}
+                >
+                  Regenerate Report
+                </button>
+              </div>
+              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1.25rem' }}>
+                Consolidated performance metrics, active tuning overrides, and shareable release readiness export records.
+                <span style={{ display: 'block', marginTop: '0.25rem', color: 'var(--primary)', fontWeight: 600 }}>
+                  ⚠️ Developer / Evaluation Only — Advisory Consolidated Report
+                </span>
+              </p>
+
+              {reportLoading && <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Generating report data...</div>}
+              {reportError && <div style={{ fontSize: '0.75rem', color: 'var(--error)' }}>⚠️ {reportError}</div>}
+
+              {!reportLoading && !reportError && reportResult && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {/* Summary Block */}
+                  {!reportResult.latestRunSummary ? (
+                    <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(255,255,255,0.01)', fontSize: '0.7rem', opacity: 0.7 }}>
+                      No evaluation history available to generate a report.
+                    </div>
+                  ) : (
+                    <>
+                      {/* Grid: Status badges */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                        <div style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'rgba(0,0,0,0.1)' }}>
+                          <span style={{ fontSize: '0.6rem', opacity: 0.6, display: 'block' }}>Quality Gate Status</span>
+                          <span
+                            style={{
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              color:
+                                reportResult.qualityGate?.status === 'block'
+                                  ? 'var(--error)'
+                                  : reportResult.qualityGate?.status === 'warning'
+                                  ? '#e67e22'
+                                  : 'var(--success)'
+                            }}
+                          >
+                            {reportResult.qualityGate?.status.toUpperCase() || 'PASS'}
+                          </span>
+                        </div>
+                        <div style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'rgba(0,0,0,0.1)' }}>
+                          <span style={{ fontSize: '0.6rem', opacity: 0.6, display: 'block' }}>Regression Status</span>
+                          <span
+                            style={{
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              color:
+                                reportResult.regressionStatus === 'fail'
+                                  ? 'var(--error)'
+                                  : reportResult.regressionStatus === 'warning'
+                                  ? '#e67e22'
+                                  : reportResult.regressionStatus === 'pass'
+                                  ? 'var(--success)'
+                                  : 'var(--primary)'
+                            }}
+                          >
+                            {reportResult.regressionStatus.toUpperCase()}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Promoted Overrides */}
+                      <div style={{ fontSize: '0.7rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '0.75rem' }}>
+                        <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>Promoted Active Override:</div>
+                        {reportResult.promotedConfig ? (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.25rem', fontSize: '0.65rem', opacity: 0.8 }}>
+                            <div>Semantic Weight: <strong>{reportResult.promotedConfig.semanticWeight}</strong></div>
+                            <div>Lexical Weight: <strong>{reportResult.promotedConfig.lexicalWeight}</strong></div>
+                            <div>Min Similarity: <strong>{reportResult.promotedConfig.minSimilarity}</strong></div>
+                            <div>Snippets Limit: <strong>{reportResult.promotedConfig.maxConversationSnippets}</strong></div>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '0.65rem', opacity: 0.5 }}>None (Using production settings defaults).</div>
+                        )}
+                      </div>
+
+                      {/* Experiment Summary */}
+                      {reportResult.experimentSummary && (
+                        <div style={{ fontSize: '0.7rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '0.75rem', backgroundColor: 'rgba(0,0,0,0.1)' }}>
+                          <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>Latest Experiment Insight:</div>
+                          <div style={{ fontSize: '0.65rem', opacity: 0.9 }}>
+                            Recommendation: <strong style={{ color: 'var(--primary)', textTransform: 'uppercase' }}>{reportResult.experimentSummary.recommendation}</strong>
+                            <p style={{ margin: '0.2rem 0 0 0', opacity: 0.8 }}>{reportResult.experimentSummary.explanation}</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Recommendations Action List */}
+                      {reportResult.recommendations.length > 0 && (
+                        <div style={{ fontSize: '0.7rem' }}>
+                          <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>System Tuning Recommendations:</div>
+                          <ul style={{ margin: '0 0 0 1rem', padding: 0, display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                            {reportResult.recommendations.map((rec, i) => (
+                              <li key={i} style={{ opacity: 0.8 }}>{rec}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Trend Insights */}
+                      {reportResult.trendSummary && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', fontSize: '0.65rem' }}>
+                          <div>
+                            <span style={{ fontWeight: 600, color: 'var(--success)' }}>Improving Trends:</span>
+                            {reportResult.trendSummary.improving.length > 0 ? (
+                              <div style={{ opacity: 0.8 }}>{reportResult.trendSummary.improving.join(', ')}</div>
+                            ) : (
+                              <div style={{ opacity: 0.5 }}>None</div>
+                            )}
+                          </div>
+                          <div>
+                            <span style={{ fontWeight: 600, color: 'var(--error)' }}>Regressing Trends:</span>
+                            {reportResult.trendSummary.degrading.length > 0 ? (
+                              <div style={{ opacity: 0.8 }}>{reportResult.trendSummary.degrading.join(', ')}</div>
+                            ) : (
+                              <div style={{ opacity: 0.5 }}>None</div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Export buttons */}
+                      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginTop: '0.5rem' }}>
+                        <button
+                          onClick={() => {
+                            try {
+                              navigator.clipboard.writeText(JSON.stringify(reportResult, null, 2));
+                              setCopyStatus('Copied successfully!');
+                              setTimeout(() => setCopyStatus(null), 2000);
+                            } catch {
+                              setCopyStatus('Failed to copy to clipboard!');
+                              setTimeout(() => setCopyStatus(null), 2000);
+                            }
+                          }}
+                          className="btn btn-primary"
+                          style={{ fontSize: '0.7rem', padding: '0.4rem 0.8rem' }}
+                        >
+                          📋 Copy JSON Report
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            const blob = new Blob([JSON.stringify(reportResult, null, 2)], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `evaluation-report-${new Date().toISOString().split('T')[0]}.json`;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                          }}
+                          className="btn"
+                          style={{ fontSize: '0.7rem', padding: '0.4rem 0.8rem', border: '1px solid var(--border)' }}
+                        >
+                          💾 Download JSON Report
+                        </button>
+
+                        {copyStatus && <span style={{ fontSize: '0.65rem', opacity: 0.8, color: copyStatus.includes('Failed') ? 'var(--error)' : 'var(--success)' }}>{copyStatus}</span>}
+                      </div>
+                    </>
                   )}
                 </div>
               )}

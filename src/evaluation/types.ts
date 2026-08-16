@@ -199,3 +199,28 @@ export interface QualityGateResult {
   insufficientHistory?: boolean;
   baselineAvailable?: boolean;
 }
+
+export interface EvaluationReport {
+  timestamp: string;
+  latestRunSummary: EvalSummary | null;
+  qualityGate: QualityGateResult | null;
+  baselineAvailable: boolean;
+  regressionStatus: 'pass' | 'warning' | 'fail' | 'notComparable';
+  healthMetrics: {
+    timeoutCount?: number;
+    retryRate?: number;
+    fallbackRate?: number;
+    cacheHitRate?: number;
+    successRate?: number;
+  } | null;
+  trendSummary: {
+    improving: string[];
+    degrading: string[];
+  } | null;
+  promotedConfig: TuningConfig | null;
+  recommendations: string[];
+  experimentSummary: {
+    recommendation?: 'control' | 'candidate' | 'draw';
+    explanation?: string;
+  } | null;
+}
