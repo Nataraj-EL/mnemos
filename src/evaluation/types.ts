@@ -82,5 +82,6 @@ export interface TuningBenchmarkSummary {
   matrixResults: TuningResult[];
   bestConfig: TuningConfig;
   recommendationExplanation: string;
+  realPipelineExecuted: boolean;
 }
 

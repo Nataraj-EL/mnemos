@@ -111,6 +111,7 @@ interface TuningBenchmarkSummary {
   matrixResults: TuningResult[];
   bestConfig: TuningConfig;
   recommendationExplanation: string;
+  realPipelineExecuted: boolean;
 }
 
 interface HealthResponse {
@@ -1482,6 +1483,7 @@ export default function MemoryDashboard() {
   const [tuningSummary, setTuningSummary] = useState<TuningBenchmarkSummary | null>(null);
   const [tuningLoading, setTuningLoading] = useState(false);
   const [tuningError, setTuningError] = useState<string | null>(null);
+  const [tuningMode, setTuningMode] = useState<'mock' | 'real'>('real');
 
   const handleRunTuning = async () => {
     setTuningLoading(true);
@@ -1489,7 +1491,11 @@ export default function MemoryDashboard() {
     setTuningSummary(null);
 
     try {
-      const response = await fetch('/api/evaluation/tune', { method: 'POST' });
+      const response = await fetch('/api/evaluation/tune', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ benchmarkMode: tuningMode }),
+      });
       const data = await response.json();
       if (!response.ok) {
         setTuningError(data.error || 'Failed to execute parameter optimization.');
@@ -4075,26 +4081,80 @@ export default function MemoryDashboard() {
                 Run systematic matrix simulations to optimize semantic/lexical weights, thresholds, and snippet lengths.
               </p>
 
-              <button
-                onClick={handleRunTuning}
-                className="premium-btn premium-btn-primary"
-                disabled={tuningLoading}
-                style={{ marginBottom: '1rem' }}
-              >
-                {tuningLoading ? (
-                  <>
-                    {renderSpinner()}
-                    Tuning Matrix...
-                  </>
-                ) : (
-                  <>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '0.25rem' }}>
-                      <circle cx="12" cy="12" r="3"/><path d="M3 20h18L12 4z"/>
-                    </svg>
-                    Optimize Parameters & Benchmark
-                  </>
+              {/* Benchmark Mode Selector */}
+              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', backgroundColor: 'rgba(0,0,0,0.15)', padding: '0.25rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                <button
+                  onClick={() => setTuningMode('real')}
+                  disabled={tuningLoading}
+                  style={{
+                    flex: 1,
+                    padding: '0.4rem',
+                    borderRadius: 'var(--radius-xs)',
+                    border: 'none',
+                    backgroundColor: tuningMode === 'real' ? 'var(--primary)' : 'transparent',
+                    color: tuningMode === 'real' ? '#fff' : 'var(--text)',
+                    fontSize: '0.7rem',
+                    fontWeight: 600,
+                    cursor: tuningLoading ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  ⚡ Real Database Pipeline
+                </button>
+                <button
+                  onClick={() => setTuningMode('mock')}
+                  disabled={tuningLoading}
+                  style={{
+                    flex: 1,
+                    padding: '0.4rem',
+                    borderRadius: 'var(--radius-xs)',
+                    border: 'none',
+                    backgroundColor: tuningMode === 'mock' ? 'var(--primary)' : 'transparent',
+                    color: tuningMode === 'mock' ? '#fff' : 'var(--text)',
+                    fontSize: '0.7rem',
+                    fontWeight: 600,
+                    cursor: tuningLoading ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  🧪 Mock Sandbox Mode
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+                <button
+                  onClick={handleRunTuning}
+                  className="premium-btn premium-btn-primary"
+                  disabled={tuningLoading}
+                  style={{ marginBottom: 0 }}
+                >
+                  {tuningLoading ? (
+                    <>
+                      {renderSpinner()}
+                      Tuning Matrix...
+                    </>
+                  ) : (
+                    <>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '0.25rem' }}>
+                        <circle cx="12" cy="12" r="3"/><path d="M3 20h18L12 4z"/>
+                      </svg>
+                      Optimize Parameters & Benchmark
+                    </>
+                  )}
+                </button>
+
+                {tuningSummary && (
+                  tuningSummary.realPipelineExecuted ? (
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.25rem 0.5rem', borderRadius: '12px', fontSize: '0.6rem', fontWeight: 'bold', textTransform: 'uppercase', backgroundColor: 'rgba(212, 175, 55, 0.1)', color: '#d4af37', border: '1px solid #d4af37' }}>
+                      ⚡ Real Database Pipeline Active
+                    </div>
+                  ) : (
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.25rem 0.5rem', borderRadius: '12px', fontSize: '0.6rem', fontWeight: 'bold', textTransform: 'uppercase', backgroundColor: 'rgba(52, 152, 219, 0.1)', color: '#3498db', border: '1px solid #3498db' }}>
+                      🧪 Mock / Sandbox Mode Active
+                    </div>
+                  )
                 )}
-              </button>
+              </div>
 
               {tuningError && (
                 <div style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--error)', backgroundColor: 'rgba(179, 74, 60, 0.05)', color: 'var(--error)', fontSize: '0.75rem', marginBottom: '1rem' }}>

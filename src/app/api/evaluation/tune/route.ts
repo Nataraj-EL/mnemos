@@ -1,9 +1,9 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { TuningRunner, getIsTuningActive } from '@/evaluation/tuner';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   // Developer authorization boundary: protect non-development/production environments
   if (process.env.NODE_ENV !== 'development') {
     return NextResponse.json(
@@ -19,9 +19,19 @@ export async function POST() {
     );
   }
 
+  let benchmarkMode: 'mock' | 'real' = 'real';
+  try {
+    const body = await req.json();
+    if (body?.benchmarkMode === 'mock' || body?.benchmarkMode === 'real') {
+      benchmarkMode = body.benchmarkMode;
+    }
+  } catch {
+    // Default to 'real' if body is missing or malformed
+  }
+
   try {
     const tuner = new TuningRunner();
-    const result = await tuner.runTuning();
+    const result = await tuner.runTuning(undefined, undefined, benchmarkMode);
     return NextResponse.json(result);
   } catch (error) {
     console.error('Parameter Tuning Route Execution Error:', error);

@@ -3,6 +3,9 @@ import { EVAL_DATASET } from './dataset';
 import { ContextAssembler } from '@/context/assembler';
 import { ResponseGenerator } from '@/response/generator';
 import { ResponseService } from '@/response/service';
+import { GeminiEmbeddingProvider } from '@/memory/geminiEmbedding';
+import { MemoryRetriever } from '@/memory/retriever';
+import { ConversationRetriever } from '@/conversation/retriever';
 
 export class EvaluationRunner {
   private assembler: ContextAssembler;
@@ -54,77 +57,131 @@ export class EvaluationRunner {
       };
   }
 
-  async runScenario(scenario: EvalScenario, config?: Partial<TuningConfig>): Promise<EvalScenarioResult> {
+  async runScenario(
+    scenario: EvalScenario,
+    config?: Partial<TuningConfig>,
+    options?: { benchmarkMode?: 'mock' | 'real' }
+  ): Promise<EvalScenarioResult> {
     const startTime = Date.now();
+    const benchmarkMode = options?.benchmarkMode ?? 'mock';
 
     try {
-      const minSim = config?.minSimilarity !== undefined ? config.minSimilarity : 0.7;
+      let retrievedIds: string[] = [];
+      let serviceResult;
 
-      // 1. Simulate database retrieval: filter by userId and active status
-      const candidates = scenario.inputMemories
-        .filter((m) => m.userId === scenario.userId && m.metadata.status !== 'superseded')
-        .map((m) => {
-          const isExpected = scenario.expectedRelevantIds.includes(m.id);
-          const similarity = isExpected ? 0.9 : 0.2;
-          return { memory: m, similarity };
-        })
-        .filter((c) => c.similarity >= minSim);
+      const idMap = new Map<string, string>();
+      const getUuidForMockId = (id: string) => {
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (uuidRegex.test(id)) return id;
+        let hash = 0;
+        for (let i = 0; i < id.length; i++) {
+          hash = (hash << 5) - hash + id.charCodeAt(i);
+          hash |= 0;
+        }
+        const hex = Math.abs(hash).toString(16).padStart(12, '0');
+        return `e0a12e84-1111-2222-3333-${hex}`;
+      };
 
-      // Setup ConversationRetriever mock
-      const mockConvRetriever = {
-        retrieveSnippets: async (_uid: string, q: string, opts?: Record<string, unknown>) => {
-          const lq = q.toLowerCase();
-          if (lq.includes('yesterday') || lq.includes('combined')) {
-            const sem = (opts?.semanticWeight as number) ?? 1.0;
-            return [
-              {
-                conversationId: 'conv-999',
-                createdAt: new Date(),
-                text: 'We talked about PostgreSQL database setups.',
-                matchedSnippet: 'We talked about PostgreSQL database setups.',
-                similarity: 0.95,
-                score: 0.95 * sem
-              }
-            ];
+      for (const m of scenario.inputMemories) {
+        idMap.set(getUuidForMockId(m.id), m.id);
+      }
+      idMap.set(getUuidForMockId('conv-999'), 'conv-999');
+
+      if (benchmarkMode === 'real') {
+        const embeddingProvider = new GeminiEmbeddingProvider();
+        const realRetriever = new MemoryRetriever(embeddingProvider);
+        const realCandidates = await realRetriever.retrieve(scenario.userId, scenario.query, {
+          minSimilarity: config?.minSimilarity,
+          limit: 10,
+        });
+        retrievedIds = realCandidates.map((c) => String(c.memory.metadata?.originalId || c.memory.id));
+
+        const responseService = new ResponseService(
+          realRetriever,
+          this.assembler,
+          this.generator,
+          undefined,
+          new ConversationRetriever()
+        );
+
+        serviceResult = await responseService.respond(scenario.userId, scenario.query, {
+          maxTokens: scenario.maxTokens,
+          evaluationRun: true,
+          semanticWeight: config?.semanticWeight,
+          lexicalWeight: config?.lexicalWeight,
+          minSimilarity: config?.minSimilarity,
+          diversityThreshold: config?.diversityThreshold,
+          maxConversationSnippets: config?.maxConversationSnippets,
+        });
+      } else {
+        const minSim = config?.minSimilarity !== undefined ? config.minSimilarity : 0.7;
+
+        // Simulate database retrieval: filter by userId and active status
+        const candidates = scenario.inputMemories
+          .filter((m) => m.userId === scenario.userId && m.metadata.status !== 'superseded')
+          .map((m) => {
+            const isExpected = scenario.expectedRelevantIds.includes(m.id);
+            const similarity = isExpected ? 0.9 : 0.2;
+            return { memory: m, similarity };
+          })
+          .filter((c) => c.similarity >= minSim);
+
+        retrievedIds = candidates.map((c) => c.memory.id);
+
+        // Setup ConversationRetriever mock
+        const mockConvRetriever = {
+          retrieveSnippets: async (_uid: string, q: string, opts?: Record<string, unknown>) => {
+            const lq = q.toLowerCase();
+            if (lq.includes('yesterday') || lq.includes('combined')) {
+              const sem = (opts?.semanticWeight as number) ?? 1.0;
+              return [
+                {
+                  conversationId: 'conv-999',
+                  createdAt: new Date(),
+                  text: 'We talked about PostgreSQL database setups.',
+                  matchedSnippet: 'We talked about PostgreSQL database setups.',
+                  similarity: 0.95,
+                  score: 0.95 * sem
+                }
+              ];
+            }
+            return [];
           }
-          return [];
-        }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any;
 
-      // Instantiate ResponseService
-      const mockRetriever = {
-        retrieve: async (_uid: string, _q: string, opts?: Record<string, unknown>) => {
-          const actualMinSim = opts?.minSimilarity !== undefined ? (opts.minSimilarity as number) : minSim;
-          return candidates.filter((c) => c.similarity >= actualMinSim);
-        }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any;
+        // Instantiate ResponseService
+        const mockRetriever = {
+          retrieve: async (_uid: string, _q: string, opts?: Record<string, unknown>) => {
+            const actualMinSim = opts?.minSimilarity !== undefined ? (opts.minSimilarity as number) : minSim;
+            return candidates.filter((c) => c.similarity >= actualMinSim);
+          }
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any;
 
-      const responseService = new ResponseService(
-        mockRetriever,
-        this.assembler,
-        this.generator,
-        undefined,
-        mockConvRetriever
-      );
+        const responseService = new ResponseService(
+          mockRetriever,
+          this.assembler,
+          this.generator,
+          undefined,
+          mockConvRetriever
+        );
 
-      // Execute response generation
-      const serviceResult = await responseService.respond(scenario.userId, scenario.query, {
-        maxTokens: scenario.maxTokens,
-        evaluationRun: true,
-        semanticWeight: config?.semanticWeight,
-        lexicalWeight: config?.lexicalWeight,
-        minSimilarity: config?.minSimilarity,
-        diversityThreshold: config?.diversityThreshold,
-        maxConversationSnippets: config?.maxConversationSnippets,
-      });
+        serviceResult = await responseService.respond(scenario.userId, scenario.query, {
+          maxTokens: scenario.maxTokens,
+          evaluationRun: true,
+          semanticWeight: config?.semanticWeight,
+          lexicalWeight: config?.lexicalWeight,
+          minSimilarity: config?.minSimilarity,
+          diversityThreshold: config?.diversityThreshold,
+          maxConversationSnippets: config?.maxConversationSnippets,
+        });
+      }
 
       const latencyMs = Date.now() - startTime;
 
       const expectedIds = scenario.expectedRelevantIds;
-      const selectedIds = serviceResult.usedMemories.map((m) => m.id);
-      const retrievedIds = candidates.map((c) => c.memory.id);
+      const selectedIds = serviceResult.usedMemories.map((m) => idMap.get(m.id) || m.id);
 
       // Retrieval Recall
       const retrievedExpected = expectedIds.filter((id) => retrievedIds.includes(id));
@@ -251,13 +308,14 @@ export class EvaluationRunner {
 
   async runAll(
     scenarios: EvalScenario[] = EVAL_DATASET,
-    config?: Partial<TuningConfig>
+    config?: Partial<TuningConfig>,
+    options?: { benchmarkMode?: 'mock' | 'real' }
   ): Promise<{ results: EvalScenarioResult[]; summary: EvalSummary }> {
     const results: EvalScenarioResult[] = [];
     let totalLatency = 0;
 
     for (const scenario of scenarios) {
-      const res = await this.runScenario(scenario, config);
+      const res = await this.runScenario(scenario, config, options);
       results.push(res);
       totalLatency += res.latencyMs;
     }

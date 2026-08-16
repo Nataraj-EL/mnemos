@@ -1,6 +1,8 @@
 import { EvalScenario, EvalScenarioResult, TuningConfig, TuningResult, TuningBenchmarkSummary, EvalScenarioMetrics } from './types';
 import { EVAL_DATASET } from './dataset';
 import { EvaluationRunner } from './runner';
+import { getDbPool } from '@/db';
+import { GeminiEmbeddingProvider } from '@/memory/geminiEmbedding';
 
 export interface ScoringWeights {
   relevance: number;
@@ -110,39 +112,181 @@ export class TuningRunner {
     this.timeoutMs = timeoutMs;
   }
 
+  private getUuidForMockId(id: string): string {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidRegex.test(id)) {
+      return id;
+    }
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) {
+      hash = (hash << 5) - hash + id.charCodeAt(i);
+      hash |= 0;
+    }
+    const hex = Math.abs(hash).toString(16).padStart(12, '0');
+    return `e0a12e84-1111-2222-3333-${hex}`;
+  }
+
+  private async ingestSyntheticData(scenarios: EvalScenario[], evalRunId: string): Promise<void> {
+    const pool = getDbPool();
+    const embeddingProvider = new GeminiEmbeddingProvider();
+    const embeddingCache = new Map<string, number[]>();
+    const evalUserId = 'eval-user-sprint36-dedicated';
+
+    for (const scenario of scenarios) {
+      scenario.userId = evalUserId;
+
+      // Ingest memories
+      for (const memory of scenario.inputMemories) {
+        memory.userId = evalUserId;
+
+        let embedding = embeddingCache.get(memory.content);
+        if (!embedding) {
+          try {
+            embedding = await embeddingProvider.generateEmbedding(memory.content);
+            embeddingCache.set(memory.content, embedding);
+          } catch (e) {
+            console.error(`[Tuning Setup] Embedding generation failed for memory "${memory.content}":`, e);
+            throw new Error(`Embedding setup failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+          }
+        }
+
+        const metadata = {
+          ...memory.metadata,
+          isSyntheticEval: true,
+          originalId: memory.id,
+          evalRunId,
+        };
+
+        const embeddingStr = `[${embedding.join(',')}]`;
+        const memoryUuid = this.getUuidForMockId(memory.id);
+
+        await pool.query(
+          `INSERT INTO memories (id, user_id, type, content, metadata, embedding, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+           ON CONFLICT (id) DO UPDATE SET
+             user_id = EXCLUDED.user_id,
+             type = EXCLUDED.type,
+             content = EXCLUDED.content,
+             metadata = EXCLUDED.metadata,
+             embedding = EXCLUDED.embedding,
+             updated_at = CURRENT_TIMESTAMP`,
+          [
+            memoryUuid,
+            evalUserId,
+            memory.type,
+            memory.content,
+            JSON.stringify(metadata),
+            embeddingStr
+          ]
+        );
+      }
+
+      // Ingest conversations
+      const lq = scenario.query.toLowerCase();
+      if (lq.includes('yesterday') || lq.includes('combined')) {
+        const convUuid = this.getUuidForMockId('conv-999');
+        let convEmbedding = embeddingCache.get('We talked about PostgreSQL database setups.');
+        if (!convEmbedding) {
+          try {
+            convEmbedding = await embeddingProvider.generateEmbedding('We talked about PostgreSQL database setups.');
+            embeddingCache.set('We talked about PostgreSQL database setups.', convEmbedding);
+          } catch (e) {
+            console.error(`[Tuning Setup] Embedding generation failed for conversation:`, e);
+            throw new Error(`Embedding setup failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+          }
+        }
+        const embeddingStr = `[${convEmbedding.join(',')}]`;
+        const convSummary = `PostgreSQL setups summary [evalRunId: ${evalRunId}]`;
+
+        await pool.query(
+          `INSERT INTO conversations (id, user_id, started_at, ended_at, duration_seconds, transcript, summary, embedding, created_at)
+           VALUES ($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+           ON CONFLICT (id) DO UPDATE SET
+             user_id = EXCLUDED.user_id,
+             duration_seconds = EXCLUDED.duration_seconds,
+             transcript = EXCLUDED.transcript,
+             summary = EXCLUDED.summary,
+             embedding = EXCLUDED.embedding`,
+          [
+            convUuid,
+            evalUserId,
+            120,
+            'We talked about PostgreSQL database setups.',
+            convSummary,
+            embeddingStr
+          ]
+        );
+      }
+    }
+  }
+
+  private async cleanupSyntheticData(evalRunId: string): Promise<void> {
+    const pool = getDbPool();
+    // 1. Delete matching memories
+    await pool.query(
+      `DELETE FROM memories
+       WHERE metadata->>'isSyntheticEval' = 'true'
+         AND metadata->>'evalRunId' = $1`,
+      [evalRunId]
+    );
+
+    // 2. Delete conversations matching run token
+    const convUuid = this.getUuidForMockId('conv-999');
+    await pool.query(
+      `DELETE FROM conversations
+       WHERE id = $1 AND summary LIKE $2`,
+      [convUuid, `%[evalRunId: ${evalRunId}]%`]
+    );
+  }
+
   /**
    * Runs grounding evaluation benchmark dataset across the parameter tuning matrix configurations.
    */
   async runTuning(
     scenarios: EvalScenario[] = EVAL_DATASET,
-    matrix: TuningConfig[] = generateTuningMatrix()
+    matrix: TuningConfig[] = generateTuningMatrix(),
+    benchmarkMode: 'mock' | 'real' = 'real'
   ): Promise<TuningBenchmarkSummary> {
     if (isTuningActive) {
       throw new Error('Concurrent tuning execution blocked. A tuning run is already in progress.');
     }
     isTuningActive = true;
 
+    const evalRunId = 'run-' + Math.random().toString(36).substring(2, 9);
+
     try {
       if (matrix.length > 30) {
         throw new Error(`Execution blocked: configuration matrix size is ${matrix.length}, which exceeds the max limit of 30.`);
       }
 
+      if (benchmarkMode === 'real') {
+        await this.ingestSyntheticData(scenarios, evalRunId);
+      }
+
       // Wrap matrix execution in a timeout boundary
-      const executionPromise = this.executeTuningMatrix(scenarios, matrix);
+      const executionPromise = this.executeTuningMatrix(scenarios, matrix, benchmarkMode);
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Tuning execution timeout exceeded.')), this.timeoutMs)
       );
 
-      return await Promise.race([executionPromise, timeoutPromise]);
+      const summary = await Promise.race([executionPromise, timeoutPromise]);
+      return {
+        ...summary,
+        realPipelineExecuted: benchmarkMode === 'real',
+      };
     } finally {
+      if (benchmarkMode === 'real') {
+        await this.cleanupSyntheticData(evalRunId);
+      }
       isTuningActive = false;
     }
   }
 
   private async executeTuningMatrix(
     scenarios: EvalScenario[],
-    matrix: TuningConfig[]
-  ): Promise<TuningBenchmarkSummary> {
+    matrix: TuningConfig[],
+    benchmarkMode: 'mock' | 'real'
+  ): Promise<Omit<TuningBenchmarkSummary, 'realPipelineExecuted'>> {
     const matrixResults: TuningResult[] = [];
     const totalScenarios = scenarios.length;
 
@@ -163,7 +307,7 @@ export class TuningRunner {
 
       for (const scenario of scenarios) {
         try {
-          const result: EvalScenarioResult = await this.runner.runScenario(scenario, config);
+          const result: EvalScenarioResult = await this.runner.runScenario(scenario, config, { benchmarkMode });
           if (result.passed) {
             passedCount++;
           } else {
