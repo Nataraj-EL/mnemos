@@ -301,3 +301,17 @@ export interface EvaluationAlertHistorySummary {
   acknowledgedCount: number;
   resolvedCount: number;
 }
+
+export interface AlertCorrelation {
+  alertId: string;
+  metric?: string;
+  likelyCause: 'configuration' | 'experiment' | 'evaluation' | 'unknown';
+  confidence: 'high' | 'medium' | 'low';
+  explanation: string;
+  relatedRecordIds: string[];
+}
+
+export interface AlertCorrelationSummary {
+  correlations: AlertCorrelation[];
+  timestamp: string;
+}

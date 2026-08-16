@@ -2058,6 +2058,31 @@ export default function MemoryDashboard() {
   const [alertsHistoryLoading, setAlertsHistoryLoading] = useState(false);
   const [alertsHistoryError, setAlertsHistoryError] = useState<string | null>(null);
 
+  const [correlationsList, setCorrelationsList] = useState<import('@/evaluation/types').AlertCorrelation[]>([]);
+
+  const fetchCorrelations = async () => {
+    try {
+      const response = await fetch('/api/evaluation/alerts/correlation?includeResolved=true');
+      if (response.ok) {
+        const data = await response.json();
+        setCorrelationsList(data.correlations || []);
+      } else {
+        const { EvaluationAlertCorrelationManager } = await import('@/evaluation/alertCorrelation');
+        const list = await EvaluationAlertCorrelationManager.correlateAlerts(true);
+        setCorrelationsList(list);
+      }
+    } catch (err) {
+      console.error('Failed to fetch correlations:', err);
+      try {
+        const { EvaluationAlertCorrelationManager } = await import('@/evaluation/alertCorrelation');
+        const list = await EvaluationAlertCorrelationManager.correlateAlerts(true);
+        setCorrelationsList(list);
+      } catch (e) {
+        console.error('Local correlations run failed:', e);
+      }
+    }
+  };
+
   const fetchAlertsHistory = async () => {
     setAlertsHistoryLoading(true);
     setAlertsHistoryError(null);
@@ -2116,6 +2141,7 @@ export default function MemoryDashboard() {
       }
     } finally {
       setAlertsHistoryLoading(false);
+      await fetchCorrelations();
     }
   };
 
@@ -7318,6 +7344,75 @@ export default function MemoryDashboard() {
                                 Delta: <strong style={{ color: deltaColor }}>{alert.delta > 0 ? '+' : ''}{alert.metric === 'averageLatency' ? `${Math.round(alert.delta)}ms` : `${(alert.delta * 100).toFixed(0)}%`}</strong>
                               </div>
                             )}
+
+                            {/* Root Cause Correlation Section */}
+                            {(() => {
+                              const correlation = correlationsList.find((c) => c.alertId === rec.id);
+                              if (!correlation) return null;
+                              return (
+                                <div
+                                  style={{
+                                    marginTop: '0.4rem',
+                                    padding: '0.45rem',
+                                    backgroundColor: 'rgba(0,0,0,0.12)',
+                                    borderRadius: 'var(--radius-xs)',
+                                    border: '1px solid rgba(255,255,255,0.04)',
+                                    fontSize: '0.6rem',
+                                    lineHeight: '0.8rem'
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', marginBottom: '0.2rem' }}>
+                                    <strong style={{ opacity: 0.8 }}>Correlation Cause:</strong>
+                                    <span
+                                      style={{
+                                        fontSize: '0.5rem',
+                                        padding: '0.05rem 0.25rem',
+                                        borderRadius: '2px',
+                                        backgroundColor: 'rgba(255,255,255,0.1)',
+                                        textTransform: 'uppercase',
+                                        fontWeight: 'bold'
+                                      }}
+                                    >
+                                      {correlation.likelyCause}
+                                    </span>
+                                    <strong style={{ opacity: 0.8, marginLeft: '0.25rem' }}>Confidence:</strong>
+                                    <span
+                                      style={{
+                                        fontSize: '0.5rem',
+                                        padding: '0.05rem 0.25rem',
+                                        borderRadius: '2px',
+                                        backgroundColor:
+                                          correlation.confidence === 'high'
+                                            ? 'rgba(46,204,113,0.15)'
+                                            : correlation.confidence === 'medium'
+                                            ? 'rgba(230,126,34,0.15)'
+                                            : 'rgba(255,255,255,0.1)',
+                                        color:
+                                          correlation.confidence === 'high'
+                                            ? 'var(--success)'
+                                            : correlation.confidence === 'medium'
+                                            ? '#e67e22'
+                                            : 'inherit',
+                                        fontWeight: 'bold',
+                                        textTransform: 'uppercase'
+                                      }}
+                                    >
+                                      {correlation.confidence}
+                                    </span>
+                                  </div>
+                                  <p style={{ margin: '0.15rem 0', opacity: 0.85 }}>{correlation.explanation}</p>
+                                  {correlation.relatedRecordIds.length > 0 && (
+                                    <div style={{ opacity: 0.6, fontSize: '0.55rem', fontFamily: 'monospace', marginTop: '0.1rem' }}>
+                                      Related records: {correlation.relatedRecordIds.join(', ')}
+                                    </div>
+                                  )}
+                                  <div style={{ fontSize: '0.5rem', opacity: 0.5, fontStyle: 'italic', marginTop: '0.15rem' }}>
+                                    ⚠️ Developer / Evaluation Only — Correlation, Not Causation
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
                             <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem', justifyContent: 'flex-end' }}>
                               <button
                                 onClick={() => handleAlertAction(rec.id, 'acknowledge')}
