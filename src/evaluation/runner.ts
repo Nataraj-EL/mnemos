@@ -6,6 +6,7 @@ import { ResponseService } from '@/response/service';
 import { GeminiEmbeddingProvider } from '@/memory/geminiEmbedding';
 import { MemoryRetriever } from '@/memory/retriever';
 import { ConversationRetriever } from '@/conversation/retriever';
+import { EvaluationConfigPromotionManager } from './promotion';
 
 export class EvaluationRunner {
   private assembler: ContextAssembler;
@@ -65,6 +66,25 @@ export class EvaluationRunner {
     const startTime = Date.now();
     const benchmarkMode = options?.benchmarkMode ?? 'mock';
 
+    const promotedConfig = EvaluationConfigPromotionManager.getCurrentConfig() || ({} as Partial<TuningConfig>);
+    const resolvedConfig = {
+      semanticWeight: config?.semanticWeight !== undefined ? config.semanticWeight
+                     : promotedConfig.semanticWeight !== undefined ? promotedConfig.semanticWeight
+                     : 0.7,
+      lexicalWeight: config?.lexicalWeight !== undefined ? config.lexicalWeight
+                    : promotedConfig.lexicalWeight !== undefined ? promotedConfig.lexicalWeight
+                    : 0.3,
+      minSimilarity: config?.minSimilarity !== undefined ? config.minSimilarity
+                    : promotedConfig.minSimilarity !== undefined ? promotedConfig.minSimilarity
+                    : 0.5,
+      diversityThreshold: config?.diversityThreshold !== undefined ? config.diversityThreshold
+                         : promotedConfig.diversityThreshold !== undefined ? promotedConfig.diversityThreshold
+                         : 0.3,
+      maxConversationSnippets: config?.maxConversationSnippets !== undefined ? config.maxConversationSnippets
+                              : promotedConfig.maxConversationSnippets !== undefined ? promotedConfig.maxConversationSnippets
+                              : 10,
+    };
+
     try {
       let retrievedIds: string[] = [];
       let serviceResult;
@@ -91,7 +111,7 @@ export class EvaluationRunner {
         const embeddingProvider = new GeminiEmbeddingProvider();
         const realRetriever = new MemoryRetriever(embeddingProvider);
         const realCandidates = await realRetriever.retrieve(scenario.userId, scenario.query, {
-          minSimilarity: config?.minSimilarity,
+          minSimilarity: resolvedConfig.minSimilarity,
           limit: 10,
         });
         retrievedIds = realCandidates.map((c) => String(c.memory.metadata?.originalId || c.memory.id));
@@ -107,14 +127,14 @@ export class EvaluationRunner {
         serviceResult = await responseService.respond(scenario.userId, scenario.query, {
           maxTokens: scenario.maxTokens,
           evaluationRun: true,
-          semanticWeight: config?.semanticWeight,
-          lexicalWeight: config?.lexicalWeight,
-          minSimilarity: config?.minSimilarity,
-          diversityThreshold: config?.diversityThreshold,
-          maxConversationSnippets: config?.maxConversationSnippets,
+          semanticWeight: resolvedConfig.semanticWeight,
+          lexicalWeight: resolvedConfig.lexicalWeight,
+          minSimilarity: resolvedConfig.minSimilarity,
+          diversityThreshold: resolvedConfig.diversityThreshold,
+          maxConversationSnippets: resolvedConfig.maxConversationSnippets,
         });
       } else {
-        const minSim = config?.minSimilarity !== undefined ? config.minSimilarity : 0.7;
+        const minSim = resolvedConfig.minSimilarity;
 
         // Simulate database retrieval: filter by userId and active status
         const candidates = scenario.inputMemories
@@ -170,11 +190,11 @@ export class EvaluationRunner {
         serviceResult = await responseService.respond(scenario.userId, scenario.query, {
           maxTokens: scenario.maxTokens,
           evaluationRun: true,
-          semanticWeight: config?.semanticWeight,
-          lexicalWeight: config?.lexicalWeight,
-          minSimilarity: config?.minSimilarity,
-          diversityThreshold: config?.diversityThreshold,
-          maxConversationSnippets: config?.maxConversationSnippets,
+          semanticWeight: resolvedConfig.semanticWeight,
+          lexicalWeight: resolvedConfig.lexicalWeight,
+          minSimilarity: resolvedConfig.minSimilarity,
+          diversityThreshold: resolvedConfig.diversityThreshold,
+          maxConversationSnippets: resolvedConfig.maxConversationSnippets,
         });
       }
 

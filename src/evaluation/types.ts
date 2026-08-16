@@ -170,3 +170,9 @@ export interface ExperimentInsights {
   improvingMetrics: string[];
   degradingMetrics: string[];
 }
+
+export interface PromotedConfigStatus {
+  hasPromotedConfig: boolean;
+  currentConfig: TuningConfig | null;
+  previousConfig: TuningConfig | null;
+}

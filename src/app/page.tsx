@@ -1723,6 +1723,133 @@ export default function MemoryDashboard() {
   const [expInsightsLoading, setExpInsightsLoading] = useState(false);
   const [expInsightsError, setExpInsightsError] = useState<string | null>(null);
 
+  // A/B Configuration Promotion State
+  const [promotedConfigStatus, setPromotedConfigStatus] = useState<import('@/evaluation/types').PromotedConfigStatus | null>(null);
+  const [promotedLoading, setPromotedLoading] = useState(false);
+  const [promotedError, setPromotedError] = useState<string | null>(null);
+
+  const fetchPromotedConfigStatus = async () => {
+    setPromotedLoading(true);
+    setPromotedError(null);
+    try {
+      const response = await fetch('/api/evaluation/config');
+      if (response.ok) {
+        const data = await response.json();
+        setPromotedConfigStatus(data);
+      } else {
+        const { EvaluationConfigPromotionManager } = await import('@/evaluation/promotion');
+        setPromotedConfigStatus({
+          hasPromotedConfig: EvaluationConfigPromotionManager.hasPromotedConfig(),
+          currentConfig: EvaluationConfigPromotionManager.getCurrentConfig(),
+          previousConfig: EvaluationConfigPromotionManager.getPreviousConfig(),
+        });
+      }
+    } catch (err) {
+      console.error('Failed to fetch promoted config status:', err);
+      try {
+        const { EvaluationConfigPromotionManager } = await import('@/evaluation/promotion');
+        setPromotedConfigStatus({
+          hasPromotedConfig: EvaluationConfigPromotionManager.hasPromotedConfig(),
+          currentConfig: EvaluationConfigPromotionManager.getCurrentConfig(),
+          previousConfig: EvaluationConfigPromotionManager.getPreviousConfig(),
+        });
+      } catch (e) {
+        console.error('Local promotion status fallback failed:', e);
+        setPromotedError('Failed to load promoted configuration status.');
+      }
+    } finally {
+      setPromotedLoading(false);
+    }
+  };
+
+  const handlePromoteConfig = async (config: import('@/evaluation/types').TuningConfig) => {
+    const confirmPromote = confirm('Are you sure you want to promote this configuration for subsequent evaluation runs?\nThis will overwrite the active evaluation configuration.');
+    if (!confirmPromote) return;
+
+    setPromotedLoading(true);
+    setPromotedError(null);
+    try {
+      const response = await fetch('/api/evaluation/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setPromotedConfigStatus(data);
+        await fetchExperimentInsights();
+      } else {
+        const { EvaluationConfigPromotionManager } = await import('@/evaluation/promotion');
+        EvaluationConfigPromotionManager.promote(config);
+        setPromotedConfigStatus({
+          hasPromotedConfig: EvaluationConfigPromotionManager.hasPromotedConfig(),
+          currentConfig: EvaluationConfigPromotionManager.getCurrentConfig(),
+          previousConfig: EvaluationConfigPromotionManager.getPreviousConfig(),
+        });
+        await fetchExperimentInsights();
+      }
+    } catch (err) {
+      console.error('Failed to promote configuration:', err);
+      try {
+        const { EvaluationConfigPromotionManager } = await import('@/evaluation/promotion');
+        EvaluationConfigPromotionManager.promote(config);
+        setPromotedConfigStatus({
+          hasPromotedConfig: EvaluationConfigPromotionManager.hasPromotedConfig(),
+          currentConfig: EvaluationConfigPromotionManager.getCurrentConfig(),
+          previousConfig: EvaluationConfigPromotionManager.getPreviousConfig(),
+        });
+        await fetchExperimentInsights();
+      } catch (e: unknown) {
+        console.error('Local promotion failed:', e);
+        setPromotedError(e instanceof Error ? e.message : 'Failed to promote configuration.');
+      }
+    } finally {
+      setPromotedLoading(false);
+    }
+  };
+
+  const handleRollbackConfig = async () => {
+    const confirmRollback = confirm('Are you sure you want to rollback to the previous configuration?');
+    if (!confirmRollback) return;
+
+    setPromotedLoading(true);
+    setPromotedError(null);
+    try {
+      const response = await fetch('/api/evaluation/config', { method: 'DELETE' });
+      const data = await response.json();
+      if (response.ok) {
+        setPromotedConfigStatus(data);
+        await fetchExperimentInsights();
+      } else {
+        const { EvaluationConfigPromotionManager } = await import('@/evaluation/promotion');
+        EvaluationConfigPromotionManager.rollback();
+        setPromotedConfigStatus({
+          hasPromotedConfig: EvaluationConfigPromotionManager.hasPromotedConfig(),
+          currentConfig: EvaluationConfigPromotionManager.getCurrentConfig(),
+          previousConfig: EvaluationConfigPromotionManager.getPreviousConfig(),
+        });
+        await fetchExperimentInsights();
+      }
+    } catch (err) {
+      console.error('Failed to rollback configuration:', err);
+      try {
+        const { EvaluationConfigPromotionManager } = await import('@/evaluation/promotion');
+        EvaluationConfigPromotionManager.rollback();
+        setPromotedConfigStatus({
+          hasPromotedConfig: EvaluationConfigPromotionManager.hasPromotedConfig(),
+          currentConfig: EvaluationConfigPromotionManager.getCurrentConfig(),
+          previousConfig: EvaluationConfigPromotionManager.getPreviousConfig(),
+        });
+        await fetchExperimentInsights();
+      } catch (e: unknown) {
+        console.error('Local rollback failed:', e);
+        setPromotedError(e instanceof Error ? e.message : 'Failed to rollback configuration.');
+      }
+    } finally {
+      setPromotedLoading(false);
+    }
+  };
+
   const [baseExpId, setBaseExpId] = useState('');
   const [targetExpId, setTargetExpId] = useState('');
   const [expComparisonResult, setExpComparisonResult] = useState<{ comparison: import('@/evaluation/regression').RegressionSummary } | null>(null);
@@ -1953,6 +2080,7 @@ export default function MemoryDashboard() {
       fetchRecommendations();
       fetchExperimentHistory();
       fetchExperimentInsights();
+      fetchPromotedConfigStatus();
     }, 0);
     const healthInterval = setInterval(fetchHealth, 15000);
     return () => clearInterval(healthInterval);
@@ -5654,6 +5782,95 @@ export default function MemoryDashboard() {
                     </div>
                   )}
                 </>
+              )}
+            </div>
+
+            {/* Evaluation Configuration Promotion */}
+            <div className="card" style={{ padding: '1.25rem', marginTop: '1.5rem' }}>
+              <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>⚙️ Evaluation Configuration</h3>
+              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1.25rem' }}>
+                Review and promote tested parameters as the active evaluation configuration.
+                <span style={{ display: 'block', marginTop: '0.25rem', color: 'var(--primary)', fontWeight: 600 }}>
+                  ⚠️ Developer / Evaluation Only — Does Not Modify Production Runtime
+                </span>
+              </p>
+
+              {promotedLoading && <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Processing configuration...</div>}
+              {promotedError && <div style={{ fontSize: '0.75rem', color: 'var(--error)' }}>⚠️ {promotedError}</div>}
+
+              {!promotedLoading && promotedConfigStatus && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  {/* Grid of Current and Previous promoted configs */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
+                    {/* Current Config */}
+                    <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(255,255,255,0.01)' }}>
+                      <h4 style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)', marginBottom: '0.5rem' }}>Active Config Override</h4>
+                      {promotedConfigStatus.hasPromotedConfig && promotedConfigStatus.currentConfig ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.65rem' }}>
+                          <div>Semantic Weight: <strong>{promotedConfigStatus.currentConfig.semanticWeight}</strong></div>
+                          <div>Lexical Weight: <strong>{promotedConfigStatus.currentConfig.lexicalWeight}</strong></div>
+                          <div>Min Similarity: <strong>{promotedConfigStatus.currentConfig.minSimilarity}</strong></div>
+                          <div>Snippets Limit: <strong>{promotedConfigStatus.currentConfig.maxConversationSnippets}</strong></div>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: '0.65rem', opacity: 0.5 }}>None (Using production settings defaults).</div>
+                      )}
+                    </div>
+
+                    {/* Previous Config */}
+                    <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(255,255,255,0.01)' }}>
+                      <h4 style={{ fontSize: '0.75rem', fontWeight: 600, opacity: 0.8, marginBottom: '0.5rem' }}>Previous Config</h4>
+                      {promotedConfigStatus.previousConfig ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.65rem' }}>
+                          <div>Semantic Weight: <strong>{promotedConfigStatus.previousConfig.semanticWeight}</strong></div>
+                          <div>Lexical Weight: <strong>{promotedConfigStatus.previousConfig.lexicalWeight}</strong></div>
+                          <div>Min Similarity: <strong>{promotedConfigStatus.previousConfig.minSimilarity}</strong></div>
+                          <div>Snippets Limit: <strong>{promotedConfigStatus.previousConfig.maxConversationSnippets}</strong></div>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: '0.65rem', opacity: 0.5 }}>None (No previous rollback target).</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Actions Area */}
+                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                    {experimentInsights?.bestConfig ? (
+                      <button
+                        onClick={() => handlePromoteConfig(experimentInsights.bestConfig!)}
+                        disabled={promotedLoading || !experimentInsights.bestConfig}
+                        className="btn btn-primary"
+                        style={{ fontSize: '0.7rem', padding: '0.4rem 0.8rem' }}
+                      >
+                        🚀 Promote Recommended Config
+                      </button>
+                    ) : (
+                      <button
+                        disabled
+                        className="btn btn-secondary"
+                        style={{ fontSize: '0.7rem', padding: '0.4rem 0.8rem', opacity: 0.5, cursor: 'not-allowed' }}
+                      >
+                        No Recommended Config Available
+                      </button>
+                    )}
+
+                    <button
+                      onClick={handleRollbackConfig}
+                      disabled={promotedLoading || !promotedConfigStatus.previousConfig}
+                      className="btn"
+                      style={{
+                        fontSize: '0.7rem',
+                        padding: '0.4rem 0.8rem',
+                        border: '1px solid var(--border)',
+                        backgroundColor: 'transparent',
+                        opacity: promotedConfigStatus.previousConfig ? 1 : 0.5,
+                        cursor: promotedConfigStatus.previousConfig ? 'pointer' : 'not-allowed'
+                      }}
+                    >
+                      ↩️ Rollback Previous Config
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
 
