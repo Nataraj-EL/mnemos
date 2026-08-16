@@ -283,3 +283,21 @@ export interface EvaluationAlertsSummary {
   warningCount: number;
   infoCount: number;
 }
+
+export type EvaluationAlertStatus = 'open' | 'acknowledged' | 'resolved';
+
+export interface EvaluationAlertRecord {
+  id: string;
+  alert: EvaluationAlert;
+  status: EvaluationAlertStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EvaluationAlertHistorySummary {
+  records: EvaluationAlertRecord[];
+  timestamp: string;
+  openCount: number;
+  acknowledgedCount: number;
+  resolvedCount: number;
+}

@@ -2054,35 +2054,122 @@ export default function MemoryDashboard() {
   const [reportInsightsLoading, setReportInsightsLoading] = useState(false);
   const [reportInsightsError, setReportInsightsError] = useState<string | null>(null);
 
-  const [alertsResult, setAlertsResult] = useState<import('@/evaluation/types').EvaluationAlertsSummary | null>(null);
-  const [alertsLoading, setAlertsLoading] = useState(false);
-  const [alertsError, setAlertsError] = useState<string | null>(null);
+  const [alertsHistoryResult, setAlertsHistoryResult] = useState<import('@/evaluation/types').EvaluationAlertHistorySummary | null>(null);
+  const [alertsHistoryLoading, setAlertsHistoryLoading] = useState(false);
+  const [alertsHistoryError, setAlertsHistoryError] = useState<string | null>(null);
 
-  const fetchAlerts = async () => {
-    setAlertsLoading(true);
-    setAlertsError(null);
+  const fetchAlertsHistory = async () => {
+    setAlertsHistoryLoading(true);
+    setAlertsHistoryError(null);
     try {
-      const response = await fetch('/api/evaluation/alerts');
+      const response = await fetch('/api/evaluation/alerts/history');
       if (response.ok) {
         const data = await response.json();
-        setAlertsResult(data);
+        setAlertsHistoryResult(data);
       } else {
+        const { EvaluationAlertHistoryManager } = await import('@/evaluation/alertHistory');
         const { EvaluationAlertManager } = await import('@/evaluation/alerts');
-        const localAlerts = await EvaluationAlertManager.generateAlerts();
-        setAlertsResult(localAlerts);
+        const activeSummary = await EvaluationAlertManager.generateAlerts();
+        for (const alert of activeSummary.alerts) {
+          EvaluationAlertHistoryManager.addAlertRecord(alert);
+        }
+        const records = EvaluationAlertHistoryManager.listAlerts();
+        let openCount = 0;
+        let acknowledgedCount = 0;
+        let resolvedCount = 0;
+        for (const rec of records) {
+          if (rec.status === 'open') openCount++;
+          else if (rec.status === 'acknowledged') acknowledgedCount++;
+          else if (rec.status === 'resolved') resolvedCount++;
+        }
+        setAlertsHistoryResult({
+          records,
+          timestamp: new Date().toISOString(),
+          openCount,
+          acknowledgedCount,
+          resolvedCount,
+        });
       }
     } catch (err) {
-      console.error('Failed to fetch evaluation alerts:', err);
+      console.error('Failed to fetch evaluation alerts history:', err);
       try {
-        const { EvaluationAlertManager } = await import('@/evaluation/alerts');
-        const localAlerts = await EvaluationAlertManager.generateAlerts();
-        setAlertsResult(localAlerts);
+        const { EvaluationAlertHistoryManager } = await import('@/evaluation/alertHistory');
+        const records = EvaluationAlertHistoryManager.listAlerts();
+        let openCount = 0;
+        let acknowledgedCount = 0;
+        let resolvedCount = 0;
+        for (const rec of records) {
+          if (rec.status === 'open') openCount++;
+          else if (rec.status === 'acknowledged') acknowledgedCount++;
+          else if (rec.status === 'resolved') resolvedCount++;
+        }
+        setAlertsHistoryResult({
+          records,
+          timestamp: new Date().toISOString(),
+          openCount,
+          acknowledgedCount,
+          resolvedCount,
+        });
       } catch (e) {
-        console.error('Local alerts calculation failed:', e);
-        setAlertsError('Failed to fetch evaluation alerts.');
+        console.error('Local alerts history calculation failed:', e);
+        setAlertsHistoryError('Failed to fetch alerts history.');
       }
     } finally {
-      setAlertsLoading(false);
+      setAlertsHistoryLoading(false);
+    }
+  };
+
+  const handleAlertAction = async (id: string, action: 'acknowledge' | 'resolve' | 'reopen') => {
+    try {
+      const response = await fetch('/api/evaluation/alerts/history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action }),
+      });
+      if (response.ok) {
+        await fetchAlertsHistory();
+      } else {
+        const { EvaluationAlertHistoryManager } = await import('@/evaluation/alertHistory');
+        if (action === 'acknowledge') EvaluationAlertHistoryManager.acknowledge(id);
+        else if (action === 'resolve') EvaluationAlertHistoryManager.resolve(id);
+        else if (action === 'reopen') EvaluationAlertHistoryManager.reopen(id);
+        await fetchAlertsHistory();
+      }
+    } catch (err) {
+      console.error(`Failed to trigger alert action ${action}:`, err);
+      try {
+        const { EvaluationAlertHistoryManager } = await import('@/evaluation/alertHistory');
+        if (action === 'acknowledge') EvaluationAlertHistoryManager.acknowledge(id);
+        else if (action === 'resolve') EvaluationAlertHistoryManager.resolve(id);
+        else if (action === 'reopen') EvaluationAlertHistoryManager.reopen(id);
+        await fetchAlertsHistory();
+      } catch (e) {
+        console.error('Local alert action update failed:', e);
+      }
+    }
+  };
+
+  const handleClearAlertsHistory = async () => {
+    const confirmClear = confirm('Are you sure you want to clear the entire alerts tracking history?');
+    if (!confirmClear) return;
+    try {
+      const response = await fetch('/api/evaluation/alerts/history', { method: 'DELETE' });
+      if (response.ok) {
+        await fetchAlertsHistory();
+      } else {
+        const { EvaluationAlertHistoryManager } = await import('@/evaluation/alertHistory');
+        EvaluationAlertHistoryManager.clearHistory();
+        await fetchAlertsHistory();
+      }
+    } catch (err) {
+      console.error('Failed to clear alert history:', err);
+      try {
+        const { EvaluationAlertHistoryManager } = await import('@/evaluation/alertHistory');
+        EvaluationAlertHistoryManager.clearHistory();
+        await fetchAlertsHistory();
+      } catch (e) {
+        console.error('Local alert history clear failed:', e);
+      }
     }
   };
 
@@ -2111,7 +2198,7 @@ export default function MemoryDashboard() {
       }
     } finally {
       setReportInsightsLoading(false);
-      await fetchAlerts();
+      await fetchAlertsHistory();
     }
   };
 
@@ -7105,54 +7192,87 @@ export default function MemoryDashboard() {
               )}
             </div>
 
-            {/* Evaluation Alerts */}
+            {/* Evaluation Alerts & Resolution Tracking */}
             <div className="card" style={{ padding: '1.25rem', marginTop: '1.5rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>⚠️ Evaluation Alerts</h3>
-                <button
-                  onClick={fetchAlerts}
-                  disabled={alertsLoading}
-                  className="btn"
-                  style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem', border: '1px solid var(--border)', backgroundColor: 'transparent', cursor: 'pointer' }}
-                >
-                  Refresh Alerts
-                </button>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>⚠️ Evaluation Alerts & Resolution Tracking</h3>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    onClick={handleClearAlertsHistory}
+                    disabled={!alertsHistoryResult || alertsHistoryResult.records.length === 0}
+                    className="btn"
+                    style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem', border: '1px solid var(--border)', backgroundColor: 'transparent', cursor: 'pointer', color: 'var(--error)' }}
+                  >
+                    Clear Alert History
+                  </button>
+                  <button
+                    onClick={fetchAlertsHistory}
+                    disabled={alertsHistoryLoading}
+                    className="btn"
+                    style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem', border: '1px solid var(--border)', backgroundColor: 'transparent', cursor: 'pointer' }}
+                  >
+                    Refresh Alerts
+                  </button>
+                </div>
               </div>
               <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1.25rem' }}>
-                Longitudinal evaluation alerts categorized by severity (Critical, Warning, Info) with deterministic parameter suggestions.
+                Track developer alerts history, manage lifecycle transitions, and log metric resolutions.
                 <span style={{ display: 'block', marginTop: '0.25rem', color: 'var(--primary)', fontWeight: 600 }}>
-                  ⚠️ Developer / Evaluation Only — Advisory Alerts
+                  ⚠️ Developer / Evaluation Only — Alert Tracking
                 </span>
               </p>
 
-              {alertsLoading && <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Analyzing report alert conditions...</div>}
-              {alertsError && <div style={{ fontSize: '0.75rem', color: 'var(--error)' }}>⚠️ {alertsError}</div>}
+              {alertsHistoryLoading && <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Loading alerts status logs...</div>}
+              {alertsHistoryError && <div style={{ fontSize: '0.75rem', color: 'var(--error)' }}>⚠️ {alertsHistoryError}</div>}
 
-              {!alertsLoading && !alertsError && alertsResult && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {alertsResult.alerts.length === 0 ? (
+              {!alertsHistoryLoading && !alertsHistoryError && alertsHistoryResult && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {/* Counts Dashboard */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', textAlign: 'center', fontSize: '0.65rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem' }}>
+                    <div style={{ backgroundColor: 'rgba(179,74,60,0.05)', padding: '0.35rem', borderRadius: 'var(--radius-xs)', border: '1px solid rgba(179,74,60,0.1)' }}>
+                      <span style={{ display: 'block', color: 'var(--error)', opacity: 0.8, fontSize: '0.55rem' }}>Open</span>
+                      <strong style={{ fontSize: '0.8rem', color: 'var(--error)' }}>{alertsHistoryResult.openCount}</strong>
+                    </div>
+                    <div style={{ backgroundColor: 'rgba(230,126,34,0.05)', padding: '0.35rem', borderRadius: 'var(--radius-xs)', border: '1px solid rgba(230,126,34,0.1)' }}>
+                      <span style={{ display: 'block', color: '#e67e22', opacity: 0.8, fontSize: '0.55rem' }}>Acknowledged</span>
+                      <strong style={{ fontSize: '0.8rem', color: '#e67e22' }}>{alertsHistoryResult.acknowledgedCount}</strong>
+                    </div>
+                    <div style={{ backgroundColor: 'rgba(46,204,113,0.05)', padding: '0.35rem', borderRadius: 'var(--radius-xs)', border: '1px solid rgba(46,204,113,0.1)' }}>
+                      <span style={{ display: 'block', color: 'var(--success)', opacity: 0.8, fontSize: '0.55rem' }}>Resolved</span>
+                      <strong style={{ fontSize: '0.8rem', color: 'var(--success)' }}>{alertsHistoryResult.resolvedCount}</strong>
+                    </div>
+                  </div>
+
+                  {alertsHistoryResult.records.length === 0 ? (
                     <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(255,255,255,0.01)', fontSize: '0.70rem', opacity: 0.6, textAlign: 'center' }}>
-                      No active system alerts. All quality and latency metrics are stable.
+                      No active or historical evaluation alerts. System is stable.
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      {alertsResult.alerts.map((alert, idx) => {
+                      {alertsHistoryResult.records.map((rec) => {
+                        const alert = rec.alert;
                         const isCritical = alert.severity === 'critical';
                         const isWarning = alert.severity === 'warning';
-                        const badgeColor = isCritical ? 'var(--error)' : isWarning ? '#e67e22' : 'var(--primary)';
-                        const bgColor = isCritical ? 'rgba(179,74,60,0.08)' : isWarning ? 'rgba(230,126,34,0.08)' : 'rgba(52,152,219,0.08)';
-                        const borderColor = isCritical ? 'rgba(179,74,60,0.2)' : isWarning ? 'rgba(230,126,34,0.2)' : 'rgba(52,152,219,0.2)';
+                        const severityBadgeColor = isCritical ? 'var(--error)' : isWarning ? '#e67e22' : 'var(--primary)';
+
+                        const isOpen = rec.status === 'open';
+                        const isAck = rec.status === 'acknowledged';
+                        const isResolved = rec.status === 'resolved';
+
+                        const statusBadgeColor = isResolved ? 'var(--success)' : isAck ? '#e67e22' : 'var(--error)';
+                        const dateStr = new Date(rec.createdAt).toLocaleTimeString();
+
                         const deltaColor = alert.delta && alert.delta > 0
                           ? (alert.metric === 'averageLatency' ? 'var(--error)' : 'var(--success)')
                           : (alert.metric === 'averageLatency' ? 'var(--success)' : 'var(--error)');
 
                         return (
                           <div
-                            key={idx}
+                            key={rec.id}
                             style={{
                               padding: '0.6rem 0.8rem',
-                              backgroundColor: bgColor,
-                              border: `1px solid ${borderColor}`,
+                              backgroundColor: isResolved ? 'rgba(46,204,113,0.03)' : isAck ? 'rgba(230,126,34,0.05)' : 'rgba(179,74,60,0.05)',
+                              border: `1px solid ${isResolved ? 'rgba(46,204,113,0.1)' : isAck ? 'rgba(230,126,34,0.1)' : 'rgba(179,74,60,0.1)'}`,
                               borderRadius: 'var(--radius-sm)',
                               display: 'flex',
                               flexDirection: 'column',
@@ -7161,27 +7281,69 @@ export default function MemoryDashboard() {
                             }}
                           >
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <span
-                                style={{
-                                  fontSize: '0.55rem',
-                                  padding: '0.1rem 0.35rem',
-                                  borderRadius: 'var(--radius-xs)',
-                                  backgroundColor: badgeColor,
-                                  color: '#fff',
-                                  fontWeight: 700,
-                                  textTransform: 'uppercase'
-                                }}
-                              >
-                                {alert.severity}
-                              </span>
+                              <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                                <span
+                                  style={{
+                                    fontSize: '0.55rem',
+                                    padding: '0.1rem 0.35rem',
+                                    borderRadius: 'var(--radius-xs)',
+                                    backgroundColor: severityBadgeColor,
+                                    color: '#fff',
+                                    fontWeight: 700,
+                                    textTransform: 'uppercase'
+                                  }}
+                                >
+                                  {alert.severity}
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: '0.55rem',
+                                    padding: '0.1rem 0.35rem',
+                                    borderRadius: 'var(--radius-xs)',
+                                    border: `1px solid ${statusBadgeColor}`,
+                                    color: statusBadgeColor,
+                                    fontWeight: 700,
+                                    textTransform: 'uppercase'
+                                  }}
+                                >
+                                  {rec.status}
+                                </span>
+                                <span style={{ opacity: 0.5, fontSize: '0.55rem' }}>{dateStr}</span>
+                              </div>
                               {alert.metric && <span style={{ opacity: 0.6, fontWeight: 600 }}>{alert.metric}</span>}
                             </div>
-                            <div style={{ opacity: 0.9 }}>{alert.message}</div>
+                            <div style={{ opacity: 0.9, marginTop: '0.15rem' }}>{alert.message}</div>
                             {alert.delta !== undefined && (
                               <div style={{ fontSize: '0.6rem', opacity: 0.6 }}>
                                 Delta: <strong style={{ color: deltaColor }}>{alert.delta > 0 ? '+' : ''}{alert.metric === 'averageLatency' ? `${Math.round(alert.delta)}ms` : `${(alert.delta * 100).toFixed(0)}%`}</strong>
                               </div>
                             )}
+                            <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem', justifyContent: 'flex-end' }}>
+                              <button
+                                onClick={() => handleAlertAction(rec.id, 'acknowledge')}
+                                disabled={!isOpen}
+                                className="btn"
+                                style={{ fontSize: '0.55rem', padding: '0.15rem 0.4rem', border: '1px solid var(--border)', backgroundColor: isOpen ? 'rgba(0,0,0,0.1)' : 'transparent', cursor: isOpen ? 'pointer' : 'not-allowed', opacity: isOpen ? 1 : 0.4 }}
+                              >
+                                Acknowledge
+                              </button>
+                              <button
+                                onClick={() => handleAlertAction(rec.id, 'resolve')}
+                                disabled={!isOpen && !isAck}
+                                className="btn btn-success"
+                                style={{ fontSize: '0.55rem', padding: '0.15rem 0.4rem', border: 'none', backgroundColor: (isOpen || isAck) ? 'var(--success)' : 'transparent', color: (isOpen || isAck) ? '#fff' : 'inherit', cursor: (isOpen || isAck) ? 'pointer' : 'not-allowed', opacity: (isOpen || isAck) ? 1 : 0.4 }}
+                              >
+                                Resolve
+                              </button>
+                              <button
+                                onClick={() => handleAlertAction(rec.id, 'reopen')}
+                                disabled={!isResolved}
+                                className="btn"
+                                style={{ fontSize: '0.55rem', padding: '0.15rem 0.4rem', border: '1px solid var(--border)', backgroundColor: isResolved ? 'rgba(0,0,0,0.1)' : 'transparent', cursor: isResolved ? 'pointer' : 'not-allowed', opacity: isResolved ? 1 : 0.4 }}
+                              >
+                                Reopen
+                              </button>
+                            </div>
                           </div>
                         );
                       })}
