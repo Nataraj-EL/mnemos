@@ -2050,6 +2050,38 @@ export default function MemoryDashboard() {
   const [reportComparisonLoading, setReportComparisonLoading] = useState(false);
   const [reportComparisonError, setReportComparisonError] = useState<string | null>(null);
 
+  const [reportInsightsResult, setReportInsightsResult] = useState<import('@/evaluation/types').EvaluationReportInsights | null>(null);
+  const [reportInsightsLoading, setReportInsightsLoading] = useState(false);
+  const [reportInsightsError, setReportInsightsError] = useState<string | null>(null);
+
+  const fetchReportInsights = async () => {
+    setReportInsightsLoading(true);
+    setReportInsightsError(null);
+    try {
+      const response = await fetch('/api/evaluation/report/insights');
+      if (response.ok) {
+        const data = await response.json();
+        setReportInsightsResult(data);
+      } else {
+        const { EvaluationReportInsightsManager } = await import('@/evaluation/reportInsights');
+        const localInsights = await EvaluationReportInsightsManager.generateInsights();
+        setReportInsightsResult(localInsights);
+      }
+    } catch (err) {
+      console.error('Failed to fetch report insights:', err);
+      try {
+        const { EvaluationReportInsightsManager } = await import('@/evaluation/reportInsights');
+        const localInsights = await EvaluationReportInsightsManager.generateInsights();
+        setReportInsightsResult(localInsights);
+      } catch (e) {
+        console.error('Local insights calculation failed:', e);
+        setReportInsightsError('Failed to fetch report insights.');
+      }
+    } finally {
+      setReportInsightsLoading(false);
+    }
+  };
+
   const fetchReportHistory = async () => {
     setReportHistoryLoading(true);
     setReportHistoryError(null);
@@ -2073,6 +2105,7 @@ export default function MemoryDashboard() {
       }
     } finally {
       setReportHistoryLoading(false);
+      await fetchReportInsights();
     }
   };
 
@@ -6887,6 +6920,151 @@ export default function MemoryDashboard() {
                             </div>
                           </div>
                         )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Longitudinal Report Insights */}
+            <div className="card" style={{ padding: '1.25rem', marginTop: '1.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>📈 Longitudinal Evaluation Insights</h3>
+                <button
+                  onClick={fetchReportInsights}
+                  disabled={reportInsightsLoading}
+                  className="btn"
+                  style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem', border: '1px solid var(--border)', backgroundColor: 'transparent', cursor: 'pointer' }}
+                >
+                  Refresh Insights
+                </button>
+              </div>
+              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1.25rem' }}>
+                Identify long-term quality trends, gate pass history distribution, and sequential metric regressions.
+                <span style={{ display: 'block', marginTop: '0.25rem', color: 'var(--primary)', fontWeight: 600 }}>
+                  ⚠️ Developer / Evaluation Only — Advisory Long-Term Insights
+                </span>
+              </p>
+
+              {reportInsightsLoading && <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Analyzing report history logs...</div>}
+              {reportInsightsError && <div style={{ fontSize: '0.75rem', color: 'var(--error)' }}>⚠️ {reportInsightsError}</div>}
+
+              {!reportInsightsLoading && !reportInsightsError && reportInsightsResult && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {reportInsightsResult.insufficientHistory ? (
+                    <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(255,255,255,0.01)', fontSize: '0.70rem', opacity: 0.8 }}>
+                      Insufficient saved history to run longitudinal comparison. (Requires at least 2 saved report snapshots, currently has {reportInsightsResult.gateHistorySummary.total}).
+                    </div>
+                  ) : (
+                    <>
+                      {/* Trend Status Block */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '0.75rem', alignItems: 'center' }}>
+                        <div style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'rgba(0,0,0,0.1)' }}>
+                          <span style={{ fontSize: '0.6rem', opacity: 0.6, display: 'block' }}>Primary Trend Status</span>
+                          <span
+                            style={{
+                              fontSize: '0.9rem',
+                              fontWeight: 700,
+                              color:
+                                reportInsightsResult.status === 'degrading'
+                                  ? 'var(--error)'
+                                  : reportInsightsResult.status === 'improving'
+                                  ? 'var(--success)'
+                                  : 'var(--primary)'
+                            }}
+                          >
+                            {reportInsightsResult.status.toUpperCase()}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.6rem', opacity: 0.8 }}>
+                          <div>Latest: <strong style={{ fontFamily: 'monospace' }}>{reportInsightsResult.latestReportId}</strong></div>
+                          <div>Previous: <strong style={{ fontFamily: 'monospace' }}>{reportInsightsResult.previousReportId}</strong></div>
+                        </div>
+                      </div>
+
+                      {/* Recurring Degradations Alert */}
+                      {reportInsightsResult.recurringDegradations.length > 0 && (
+                        <div style={{ padding: '0.6rem 0.8rem', backgroundColor: 'rgba(179,74,60,0.1)', border: '1px solid var(--error)', borderRadius: 'var(--radius-sm)', fontSize: '0.65rem' }}>
+                          <span style={{ fontWeight: 700, color: 'var(--error)' }}>⚠️ Sequential Regressions Detected:</span>
+                          <p style={{ margin: '0.2rem 0 0 0', opacity: 0.9 }}>
+                            The following metrics have degraded across at least 2 consecutive report saves:
+                            <strong style={{ display: 'block', marginTop: '0.15rem', color: 'var(--error)' }}>
+                              {reportInsightsResult.recurringDegradations.join(', ')}
+                            </strong>
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Metric Trends Grid */}
+                      <div>
+                        <div style={{ fontSize: '0.7rem', fontWeight: 600, marginBottom: '0.4rem' }}>Recent Performance Shifts:</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.5rem' }}>
+                          {Object.entries(reportInsightsResult.trends).map(([metric, trend]) => {
+                            const isLatency = metric === 'averageLatency';
+                            const deltaVal = trend.delta;
+                            let color = 'inherit';
+                            let prefix = '';
+                            let formatted = 'Stable';
+
+                            if (trend.type === 'improving') {
+                              color = 'var(--success)';
+                              prefix = '+';
+                              formatted = 'Improving';
+                            } else if (trend.type === 'degrading') {
+                              color = 'var(--error)';
+                              formatted = 'Degrading';
+                            } else if (trend.type === 'notComparable') {
+                              formatted = 'N/A';
+                            }
+
+                            return (
+                              <div
+                                key={metric}
+                                style={{
+                                  padding: '0.4rem 0.5rem',
+                                  border: '1px solid var(--border)',
+                                  borderRadius: 'var(--radius-xs)',
+                                  backgroundColor: 'rgba(255,255,255,0.01)',
+                                  fontSize: '0.6rem'
+                                }}
+                              >
+                                <div style={{ opacity: 0.7, fontWeight: 600, marginBottom: '0.15rem' }}>{metric}</div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <span style={{ color, fontWeight: 700 }}>{formatted}</span>
+                                  {typeof deltaVal === 'number' && deltaVal !== 0 && (
+                                    <span style={{ opacity: 0.7 }}>
+                                      {prefix}{isLatency ? `${Math.round(deltaVal)}ms` : `${(deltaVal * 100).toFixed(0)}%`}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Gate History Analytics */}
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.8rem', fontSize: '0.65rem' }}>
+                        <span style={{ fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>Quality Gates Release Analytics:</span>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem', textAlign: 'center' }}>
+                          <div style={{ backgroundColor: 'rgba(0,0,0,0.1)', padding: '0.35rem', borderRadius: 'var(--radius-xs)' }}>
+                            <span style={{ display: 'block', opacity: 0.6, fontSize: '0.55rem' }}>Total Saved</span>
+                            <strong style={{ fontSize: '0.8rem' }}>{reportInsightsResult.gateHistorySummary.total}</strong>
+                          </div>
+                          <div style={{ backgroundColor: 'rgba(46,204,113,0.05)', padding: '0.35rem', borderRadius: 'var(--radius-xs)', border: '1px solid rgba(46,204,113,0.1)' }}>
+                            <span style={{ display: 'block', color: 'var(--success)', opacity: 0.8, fontSize: '0.55rem' }}>Passed</span>
+                            <strong style={{ fontSize: '0.8rem', color: 'var(--success)' }}>{reportInsightsResult.gateHistorySummary.passed}</strong>
+                          </div>
+                          <div style={{ backgroundColor: 'rgba(230,126,34,0.05)', padding: '0.35rem', borderRadius: 'var(--radius-xs)', border: '1px solid rgba(230,126,34,0.1)' }}>
+                            <span style={{ display: 'block', color: '#e67e22', opacity: 0.8, fontSize: '0.55rem' }}>Warned</span>
+                            <strong style={{ fontSize: '0.8rem', color: '#e67e22' }}>{reportInsightsResult.gateHistorySummary.warned}</strong>
+                          </div>
+                          <div style={{ backgroundColor: 'rgba(179,74,60,0.05)', padding: '0.35rem', borderRadius: 'var(--radius-xs)', border: '1px solid rgba(179,74,60,0.1)' }}>
+                            <span style={{ display: 'block', color: 'var(--error)', opacity: 0.8, fontSize: '0.55rem' }}>Blocked</span>
+                            <strong style={{ fontSize: '0.8rem', color: 'var(--error)' }}>{reportInsightsResult.gateHistorySummary.blocked}</strong>
+                          </div>
+                        </div>
                       </div>
                     </>
                   )}

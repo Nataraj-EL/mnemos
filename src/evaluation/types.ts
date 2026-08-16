@@ -244,3 +244,24 @@ export interface ReportComparisonResult {
   };
   deltas: Record<string, { base: number | string; target: number | string; absolute?: number }>;
 }
+
+export interface HistoricalMetricTrend {
+  delta?: number;
+  type: 'improving' | 'stable' | 'degrading' | 'notComparable';
+}
+
+export interface EvaluationReportInsights {
+  insufficientHistory: boolean;
+  timestamp: string;
+  latestReportId?: string;
+  previousReportId?: string;
+  status: 'improving' | 'stable' | 'degrading';
+  trends: Record<string, HistoricalMetricTrend>;
+  recurringDegradations: string[];
+  gateHistorySummary: {
+    total: number;
+    passed: number;
+    warned: number;
+    blocked: number;
+  };
+}
