@@ -157,3 +157,16 @@ export interface ExperimentRunRecord {
   recommendation: 'control' | 'candidate' | 'draw';
   recommendationExplanation: string;
 }
+
+export interface ExperimentInsights {
+  insufficientHistory: boolean;
+  totalExperiments: number;
+  controlWins: number;
+  candidateWins: number;
+  draws: number;
+  bestConfig: TuningConfig | null;
+  bestConfigSource: 'candidate' | 'control' | null;
+  averageDeltas: Record<string, number>;
+  improvingMetrics: string[];
+  degradingMetrics: string[];
+}

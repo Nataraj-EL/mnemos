@@ -1679,6 +1679,7 @@ export default function MemoryDashboard() {
       if (response.ok) {
         setExperimentResult(data);
         await fetchExperimentHistory();
+        await fetchExperimentInsights();
       } else {
         console.warn('Server experiment endpoint failed. Running locally in browser...', data.error);
         if (data.error && data.error.includes('already in progress')) {
@@ -1692,6 +1693,7 @@ export default function MemoryDashboard() {
         ExperimentHistoryManager.addRecord(localResult);
         setExperimentResult(localResult);
         await fetchExperimentHistory();
+        await fetchExperimentInsights();
       }
     } catch (err: unknown) {
       console.error('Failed to run A/B experiment:', err);
@@ -1702,6 +1704,7 @@ export default function MemoryDashboard() {
         ExperimentHistoryManager.addRecord(localResult);
         setExperimentResult(localResult);
         await fetchExperimentHistory();
+        await fetchExperimentInsights();
       } catch (e: unknown) {
         setExperimentError(e instanceof Error ? e.message : 'An unexpected error occurred during the A/B experiment.');
       }
@@ -1714,6 +1717,11 @@ export default function MemoryDashboard() {
   const [experimentHistory, setExperimentHistory] = useState<import('@/evaluation/types').ExperimentRunRecord[]>([]);
   const [expHistoryLoading, setExpHistoryLoading] = useState(false);
   const [expHistoryError, setExpHistoryError] = useState<string | null>(null);
+
+  // A/B Experiment Insights State
+  const [experimentInsights, setExperimentInsights] = useState<import('@/evaluation/types').ExperimentInsights | null>(null);
+  const [expInsightsLoading, setExpInsightsLoading] = useState(false);
+  const [expInsightsError, setExpInsightsError] = useState<string | null>(null);
 
   const [baseExpId, setBaseExpId] = useState('');
   const [targetExpId, setTargetExpId] = useState('');
@@ -1747,15 +1755,43 @@ export default function MemoryDashboard() {
     }
   };
 
+  const fetchExperimentInsights = async () => {
+    setExpInsightsLoading(true);
+    setExpInsightsError(null);
+    try {
+      const response = await fetch('/api/evaluation/experiments/insights');
+      if (response.ok) {
+        const data = await response.json();
+        setExperimentInsights(data);
+      } else {
+        const { ExperimentInsightsManager } = await import('@/evaluation/experimentInsights');
+        setExperimentInsights(ExperimentInsightsManager.generateInsights());
+      }
+    } catch (err) {
+      console.error('Failed to fetch experiment insights:', err);
+      try {
+        const { ExperimentInsightsManager } = await import('@/evaluation/experimentInsights');
+        setExperimentInsights(ExperimentInsightsManager.generateInsights());
+      } catch (e) {
+        console.error('Local insights fallback failed:', e);
+        setExpInsightsError('Failed to load experiment insights.');
+      }
+    } finally {
+      setExpInsightsLoading(false);
+    }
+  };
+
   const handleDeleteExperiment = async (id: string) => {
     try {
       const response = await fetch(`/api/evaluation/experiments/history?id=${id}`, { method: 'DELETE' });
       if (response.ok) {
         await fetchExperimentHistory();
+        await fetchExperimentInsights();
       } else {
         const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
         ExperimentHistoryManager.deleteRecord(id);
         await fetchExperimentHistory();
+        await fetchExperimentInsights();
       }
     } catch (err) {
       console.error('Failed to delete experiment:', err);
@@ -1763,6 +1799,7 @@ export default function MemoryDashboard() {
         const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
         ExperimentHistoryManager.deleteRecord(id);
         await fetchExperimentHistory();
+        await fetchExperimentInsights();
       } catch (e) {
         console.error('Local delete failed:', e);
       }
@@ -1774,10 +1811,12 @@ export default function MemoryDashboard() {
       const response = await fetch('/api/evaluation/experiments/history', { method: 'DELETE' });
       if (response.ok) {
         await fetchExperimentHistory();
+        await fetchExperimentInsights();
       } else {
         const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
         ExperimentHistoryManager.clearHistory();
         await fetchExperimentHistory();
+        await fetchExperimentInsights();
       }
     } catch (err) {
       console.error('Failed to clear experiment history:', err);
@@ -1785,6 +1824,7 @@ export default function MemoryDashboard() {
         const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
         ExperimentHistoryManager.clearHistory();
         await fetchExperimentHistory();
+        await fetchExperimentInsights();
       } catch (e) {
         console.error('Local clear failed:', e);
       }
@@ -1912,6 +1952,7 @@ export default function MemoryDashboard() {
       fetchInsights();
       fetchRecommendations();
       fetchExperimentHistory();
+      fetchExperimentInsights();
     }, 0);
     const healthInterval = setInterval(fetchHealth, 15000);
     return () => clearInterval(healthInterval);
@@ -5494,6 +5535,124 @@ export default function MemoryDashboard() {
                       </div>
                     )}
                   </div>
+                </>
+              )}
+            </div>
+
+            {/* A/B Experiment Insights */}
+            <div className="card" style={{ padding: '1.25rem', marginTop: '1.5rem' }}>
+              <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>💡 Experiment Insights — Advisory Only</h3>
+              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1.25rem' }}>
+                Statistical trends and suggested configurations compiled from session-scoped history runs.
+              </p>
+
+              {expInsightsLoading && <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Loading insights...</div>}
+              {expInsightsError && <div style={{ fontSize: '0.75rem', color: 'var(--error)' }}>⚠️ {expInsightsError}</div>}
+
+              {!expInsightsLoading && !expInsightsError && experimentInsights && (
+                <>
+                  {experimentInsights.insufficientHistory ? (
+                    <div style={{ fontSize: '0.75rem', opacity: 0.8, backgroundColor: 'rgba(230, 126, 34, 0.05)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid #e67e22', color: '#e67e22', textAlign: 'center' }}>
+                      ⚠️ Insufficient history. Execute at least 2 distinct A/B experiments to generate aggregated insights and track metrics shift.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                      {/* Stats Distribution Grid */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1rem' }}>
+                        <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'rgba(255,255,255,0.01)', textAlign: 'center' }}>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--primary)' }}>{experimentInsights.totalExperiments}</div>
+                          <div style={{ fontSize: '0.65rem', opacity: 0.6 }}>Total Experiments</div>
+                        </div>
+
+                        <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'rgba(255,255,255,0.01)', display: 'flex', justifyContent: 'space-around', alignItems: 'center' }}>
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--primary)' }}>{experimentInsights.controlWins}</div>
+                            <div style={{ fontSize: '0.65rem', opacity: 0.6 }}>Ctrl Wins (A)</div>
+                          </div>
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--success)' }}>{experimentInsights.candidateWins}</div>
+                            <div style={{ fontSize: '0.65rem', opacity: 0.6 }}>Cand Wins (B)</div>
+                          </div>
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text)' }}>{experimentInsights.draws}</div>
+                            <div style={{ fontSize: '0.65rem', opacity: 0.6 }}>Draws</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Best Tested Configuration Display */}
+                      {experimentInsights.bestConfig ? (
+                        <div style={{ padding: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(46, 204, 113, 0.03)', borderLeft: '4px solid var(--success)' }}>
+                          <h4 style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--success)', margin: '0 0 0.5rem 0' }}>🏆 Optimal Tested Parameter Matrix</h4>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem', fontSize: '0.7rem', marginBottom: '0.5rem', textAlign: 'center' }}>
+                            <div style={{ padding: '0.35rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                              <span style={{ display: 'block', opacity: 0.5, fontSize: '0.55rem' }}>SEMANTIC</span>
+                              <strong>{experimentInsights.bestConfig.semanticWeight}</strong>
+                            </div>
+                            <div style={{ padding: '0.35rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                              <span style={{ display: 'block', opacity: 0.5, fontSize: '0.55rem' }}>LEXICAL</span>
+                              <strong>{experimentInsights.bestConfig.lexicalWeight}</strong>
+                            </div>
+                            <div style={{ padding: '0.35rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                              <span style={{ display: 'block', opacity: 0.5, fontSize: '0.55rem' }}>MIN SIM</span>
+                              <strong>{experimentInsights.bestConfig.minSimilarity}</strong>
+                            </div>
+                            <div style={{ padding: '0.35rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                              <span style={{ display: 'block', opacity: 0.5, fontSize: '0.55rem' }}>SNIPPETS</span>
+                              <strong>{experimentInsights.bestConfig.maxConversationSnippets}</strong>
+                            </div>
+                          </div>
+                          <p style={{ fontSize: '0.65rem', opacity: 0.8, margin: 0 }}>
+                            💡 <strong>Recommendation Source:</strong> Extracted from the winning <strong>{experimentInsights.bestConfigSource} configuration</strong> run that achieved the highest net comparison margin.
+                          </p>
+                        </div>
+                      ) : (
+                        <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(255,255,255,0.01)', fontSize: '0.7rem', opacity: 0.7 }}>
+                          No decisive winning configurations identified yet (all logged runs resulted in draws).
+                        </div>
+                      )}
+
+                      {/* Metric Trends (Improving/Degrading) */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                        <div>
+                          <h4 style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--success)', marginBottom: '0.5rem' }}>📈 Improving Metrics</h4>
+                          {experimentInsights.improvingMetrics.length > 0 ? (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                              {experimentInsights.improvingMetrics.map((m) => (
+                                <span key={m} style={{ fontSize: '0.6rem', padding: '0.15rem 0.4rem', borderRadius: 'var(--radius-xs)', backgroundColor: 'rgba(46,204,113,0.15)', color: 'var(--success)', border: '1px solid rgba(46,204,113,0.3)' }}>
+                                  {m} ({experimentInsights.averageDeltas[m] > 0 ? '+' : ''}
+                                  {m === 'averageLatency' ? `${Math.round(experimentInsights.averageDeltas[m])}ms` : `${(experimentInsights.averageDeltas[m] * 100).toFixed(0)}%`})
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: '0.65rem', opacity: 0.5 }}>No metrics show significant improvements.</div>
+                          )}
+                        </div>
+
+                        <div>
+                          <h4 style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--error)', marginBottom: '0.5rem' }}>📉 Degrading Metrics</h4>
+                          {experimentInsights.degradingMetrics.length > 0 ? (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                              {experimentInsights.degradingMetrics.map((m) => (
+                                <span key={m} style={{ fontSize: '0.6rem', padding: '0.15rem 0.4rem', borderRadius: 'var(--radius-xs)', backgroundColor: 'rgba(179,74,60,0.15)', color: 'var(--error)', border: '1px solid rgba(179,74,60,0.3)' }}>
+                                  {m} ({experimentInsights.averageDeltas[m] > 0 ? '+' : ''}
+                                  {m === 'averageLatency' ? `${Math.round(experimentInsights.averageDeltas[m])}ms` : `${(experimentInsights.averageDeltas[m] * 100).toFixed(0)}%`})
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: '0.65rem', opacity: 0.5 }}>No metrics show significant regressions.</div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Advisory Warning Note */}
+                      <div style={{ fontSize: '0.65rem', opacity: 0.6, borderTop: '1px solid var(--border)', paddingTop: '0.5rem', textAlign: 'center', fontStyle: 'italic' }}>
+                        * Advisory Only. Running configuration parameters are not automatically promoted to production defaults.
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>

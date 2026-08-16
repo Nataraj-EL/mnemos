@@ -97,7 +97,7 @@ describe('Sprint 46: Experiment History & Longitudinal Analysis Tests', () => {
         controlSummary: {
           ...mockSummary,
           diagnostics: { rawData: 'secret key', sql: 'SELECT * FROM users' },
-        } as any,
+        } as unknown as EvalSummary,
       };
 
       const record = ExperimentHistoryManager.addRecord(complexResult);
@@ -107,7 +107,7 @@ describe('Sprint 46: Experiment History & Longitudinal Analysis Tests', () => {
       expect(record.timestamp).toBeDefined();
 
       // Verify secrets and diagnostics are removed
-      expect((record.controlSummary as any).diagnostics).toBeUndefined();
+      expect((record.controlSummary as unknown as { diagnostics?: unknown }).diagnostics).toBeUndefined();
     });
 
     it('should be safe from outer object mutations after recording', () => {
