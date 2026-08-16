@@ -1384,6 +1384,28 @@ export default function MemoryDashboard() {
   const [selectedBaseRunId, setSelectedBaseRunId] = useState<string>('');
   const [selectedTargetRunId, setSelectedTargetRunId] = useState<string>('');
   const [runsComparison, setRunsComparison] = useState<import('@/evaluation/regression').RegressionSummary | null>(null);
+  const [evalInsights, setEvalInsights] = useState<import('@/evaluation/insights').EvaluationInsightsSummary | null>(null);
+
+  const fetchInsights = async () => {
+    try {
+      const response = await fetch('/api/evaluation/insights');
+      if (response.ok) {
+        const data = await response.json();
+        setEvalInsights(data);
+      } else {
+        const { EvaluationInsightsManager } = await import('@/evaluation/insights');
+        setEvalInsights(EvaluationInsightsManager.generateInsights());
+      }
+    } catch (err) {
+      console.error('Failed to fetch insights:', err);
+      try {
+        const { EvaluationInsightsManager } = await import('@/evaluation/insights');
+        setEvalInsights(EvaluationInsightsManager.generateInsights());
+      } catch (e) {
+        console.error('Local fallback insights failed:', e);
+      }
+    }
+  };
 
   const fetchHistory = async () => {
     try {
@@ -1411,10 +1433,12 @@ export default function MemoryDashboard() {
       const response = await fetch(`/api/evaluation/history?id=${id}`, { method: 'DELETE' });
       if (response.ok) {
         await fetchHistory();
+        await fetchInsights();
       } else {
         const { EvaluationHistoryManager } = await import('@/evaluation/history');
         EvaluationHistoryManager.deleteRun(id);
         await fetchHistory();
+        await fetchInsights();
       }
     } catch (err) {
       console.error('Failed to delete history run:', err);
@@ -1422,6 +1446,7 @@ export default function MemoryDashboard() {
         const { EvaluationHistoryManager } = await import('@/evaluation/history');
         EvaluationHistoryManager.deleteRun(id);
         await fetchHistory();
+        await fetchInsights();
       } catch (e) {
         console.error('Local delete failed:', e);
       }
@@ -1433,11 +1458,13 @@ export default function MemoryDashboard() {
       const response = await fetch('/api/evaluation/history', { method: 'DELETE' });
       if (response.ok) {
         await fetchHistory();
+        await fetchInsights();
         setRunsComparison(null);
       } else {
         const { EvaluationHistoryManager } = await import('@/evaluation/history');
         EvaluationHistoryManager.clearHistory();
         await fetchHistory();
+        await fetchInsights();
         setRunsComparison(null);
       }
     } catch (err) {
@@ -1446,6 +1473,7 @@ export default function MemoryDashboard() {
         const { EvaluationHistoryManager } = await import('@/evaluation/history');
         EvaluationHistoryManager.clearHistory();
         await fetchHistory();
+        await fetchInsights();
         setRunsComparison(null);
       } catch (e) {
         console.error('Local clear failed:', e);
@@ -1517,6 +1545,7 @@ export default function MemoryDashboard() {
         const { EvaluationHistoryManager } = await import('@/evaluation/history');
         EvaluationHistoryManager.addRun(localResult.summary);
         await fetchHistory();
+        await fetchInsights();
 
         setEvalSummary({
           ...localResult.summary,
@@ -1532,6 +1561,7 @@ export default function MemoryDashboard() {
           setBaselineLabel(new Date().toISOString());
         }
         await fetchHistory();
+        await fetchInsights();
       }
     } catch (err) {
       console.error('Failed to execute evaluation:', err);
@@ -1653,6 +1683,7 @@ export default function MemoryDashboard() {
       setMounted(true);
       fetchHealth();
       fetchHistory();
+      fetchInsights();
     }, 0);
     const healthInterval = setInterval(fetchHealth, 15000);
     return () => clearInterval(healthInterval);
@@ -4411,6 +4442,91 @@ export default function MemoryDashboard() {
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Evaluation Insights & Trend Analysis */}
+              {evalInsights && (
+                <div>
+                  <hr style={{ border: '0', borderTop: '1px solid var(--border)', margin: '1.5rem 0 1.25rem 0' }} />
+                  
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '1rem' }}>
+                    <span style={{ fontSize: '1.1rem' }}>💡</span>
+                    <h4 style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--primary)', margin: 0 }}>Evaluation Insights & Trend Analysis</h4>
+                  </div>
+
+                  {evalInsights.status === 'insufficient' ? (
+                    <div style={{ padding: '1rem', textAlign: 'center', fontSize: '0.75rem', opacity: 0.8, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'rgba(0,0,0,0.1)' }}>
+                      ℹ️ Insufficient history: run at least 2 benchmarks to generate insights and trend analysis.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.4rem 0.5rem', borderRadius: 'var(--radius-xs)', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', fontSize: '0.75rem' }}>
+                        <span>
+                          Comparing Latest: <code>{evalInsights.latestTimestamp ? new Date(evalInsights.latestTimestamp).toLocaleTimeString() : 'Unknown'}</code> vs Previous: <code>{evalInsights.previousTimestamp ? new Date(evalInsights.previousTimestamp).toLocaleTimeString() : 'Unknown'}</code>
+                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
+                          <span>Overall Trend:</span>
+                          {evalInsights.status === 'improving' && (
+                            <span style={{ color: 'var(--success)' }}>📈 Improving (Positive trends outweigh regressions)</span>
+                          )}
+                          {evalInsights.status === 'degrading' && (
+                            <span style={{ color: 'var(--error)' }}>📉 Degrading (Regressive trends outweigh improvements)</span>
+                          )}
+                          {evalInsights.status === 'stable' && (
+                            <span style={{ color: 'var(--text)', opacity: 0.8 }}>📊 Stable (No significant overall shifts)</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
+                        <table style={{ width: '100%', fontSize: '0.7rem', textAlign: 'left', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)', opacity: 0.8 }}>
+                              <th style={{ padding: '0.4rem 0.5rem' }}>Metric</th>
+                              <th style={{ padding: '0.4rem 0.5rem' }}>Delta (Abs)</th>
+                              <th style={{ padding: '0.4rem 0.5rem' }}>Trend Direction</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(evalInsights.trends).map(([metric, trend]) => {
+                              let directionText = '— Stable';
+                              let directionColor = 'var(--text)';
+
+                              if (trend.type === 'improving') {
+                                directionText = '▲ Improving';
+                                directionColor = 'var(--success)';
+                              } else if (trend.type === 'degrading') {
+                                directionText = '▼ Degrading';
+                                directionColor = 'var(--error)';
+                              } else if (trend.type === 'notComparable') {
+                                directionText = 'N/A Not Comparable';
+                                directionColor = 'var(--text)';
+                              }
+
+                              const formatDeltaVal = (metricName: string, val: number | undefined) => {
+                                if (val === undefined) return 'N/A';
+                                const sign = val > 0 ? '+' : '';
+                                if (metricName === 'averageLatency') return `${sign}${Math.round(val)} ms`;
+                                if (metricName === 'timeoutCount') return `${sign}${val}`;
+                                return `${sign}${(val * 100).toFixed(0)}%`;
+                              };
+
+                              const deltaDisplay = trend.delta !== undefined ? formatDeltaVal(metric, trend.delta) : 'N/A';
+
+                              return (
+                                <tr key={metric} style={{ borderBottom: '1px solid var(--border)' }}>
+                                  <td style={{ padding: '0.4rem 0.5rem', fontWeight: 600 }}>{metric}</td>
+                                  <td style={{ padding: '0.4rem 0.5rem', color: directionColor }}>{deltaDisplay}</td>
+                                  <td style={{ padding: '0.4rem 0.5rem', color: directionColor, fontWeight: 600 }}>{directionText}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
