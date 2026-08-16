@@ -68,7 +68,7 @@ Grounding & Security Rules:
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(10000), // 10-second timeout
+        signal: (_config?.signal as AbortSignal) || AbortSignal.timeout(10000),
       });
 
       if (!response.ok) {

@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { deriveLifecycleState } from '@/core/types';
 import type { Memory as PackageMemory } from '@/core/types';
 import type { Conversation } from '@/conversation/types';
+import type { EvalScenarioResult, EvalSummary, TuningResult, TuningBenchmarkSummary } from '@/evaluation/types';
 
 interface MemoryMetadata {
   source: string;
@@ -41,79 +42,6 @@ interface ContextResult {
   context: string;
   tokenCount: number;
 }
-
-interface EvalScenarioMetrics {
-  retrievalRecall: number;
-  contextPrecision: number;
-  userIsolation: number;
-  deduplicationRate: number;
-  tokenCompliance: number;
-  relevance?: number;
-  faithfulness?: number;
-  citationCorrectness?: number;
-  contextUtilization?: number;
-}
-
-interface EvalScenarioResult {
-  scenarioId: string;
-  name: string;
-  passed: boolean;
-  metrics: EvalScenarioMetrics;
-  latencyMs: number;
-  failureReason?: string;
-  evaluation?: {
-    relevance: number;
-    faithfulness: number;
-    citationCorrectness: number;
-    contextUtilization: number;
-  };
-  diagnostics?: {
-    retrievedCandidates: { id: string; content: string; similarity: number }[];
-    acceptedSources: { id: string; content: string }[];
-    filteredSources: { id: string; content: string; reason: string }[];
-    finalContextCount: number;
-  };
-}
-
-interface EvalSummary {
-  total: number;
-  passed: number;
-  failed: number;
-  retrievalRecall: number;
-  contextPrecision: number;
-  isolationRate: number;
-  deduplicationRate: number;
-  tokenCompliance: number;
-  relevance?: number;
-  faithfulness?: number;
-  citationCorrectness?: number;
-  contextUtilization?: number;
-  averageLatency: number;
-}
-
-interface TuningConfig {
-  semanticWeight: number;
-  lexicalWeight: number;
-  minSimilarity: number;
-  diversityThreshold: number;
-  maxConversationSnippets: number;
-}
-
-interface TuningResult {
-  config: TuningConfig;
-  passedCount: number;
-  failedCount: number;
-  averageMetrics: EvalScenarioMetrics;
-  overallBenchmarkScore: number;
-}
-
-interface TuningBenchmarkSummary {
-  matrixResults: TuningResult[];
-  bestConfig: TuningConfig;
-  recommendationExplanation: string;
-  realPipelineExecuted: boolean;
-}
-
 interface HealthResponse {
   status: string;
   timestamp: string;
@@ -3506,7 +3434,7 @@ export default function MemoryDashboard() {
                           </div>
                         ) : (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                            {contextResult.items.map((item) => (
+                            {contextResult.items.map((item: any) => (
                               <div key={item.id} style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', fontSize: '0.75rem' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
                                   <span className="badge" style={{ backgroundColor: 'var(--background)', color: 'var(--primary)', fontSize: '0.65rem' }}>
@@ -4016,6 +3944,74 @@ export default function MemoryDashboard() {
                     </div>
                   </div>
 
+                  {/* Pipeline Performance Summary (Session Only) */}
+                  {(() => {
+                    const successCount = evalResults.filter(r => r.passed).length;
+                    const failureCount = evalResults.length - successCount;
+
+                    const totalLatencies: number[] = [];
+                    const retrievalLatencies: number[] = [];
+                    const generationLatencies: number[] = [];
+                    const guardrailLatencies: number[] = [];
+
+                    for (const r of evalResults) {
+                      if (r.latencyMs !== undefined) {
+                        totalLatencies.push(r.latencyMs);
+                      }
+                      const timings = r.diagnostics?.timings;
+                      if (timings) {
+                        const retrievalTime = (timings.prepLatencyMs || 0) + (timings.memoryRetrievalLatencyMs || 0) + (timings.conversationRetrievalLatencyMs || 0);
+                        retrievalLatencies.push(retrievalTime);
+                        
+                        if (timings.generationLatencyMs !== undefined) {
+                          generationLatencies.push(timings.generationLatencyMs);
+                        }
+                        if (timings.guardrailLatencyMs !== undefined) {
+                          guardrailLatencies.push(timings.guardrailLatencyMs);
+                        }
+                      }
+                    }
+
+                    const avg = (arr: number[]) => arr.length > 0 ? `${Math.round(arr.reduce((a, b) => a + b, 0) / arr.length)} ms` : '—';
+                    const p95 = (arr: number[]) => {
+                      if (arr.length === 0) return '—';
+                      const sorted = [...arr].sort((a, b) => a - b);
+                      const idx = Math.ceil(0.95 * sorted.length) - 1;
+                      return `${sorted[Math.max(0, idx)]} ms`;
+                    };
+
+                    return (
+                      <div style={{ marginTop: '0.5rem', marginBottom: '0.5rem', padding: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
+                          <span style={{ fontSize: '1rem' }}>⚡</span>
+                          <strong style={{ fontSize: '0.8rem', color: 'var(--primary)' }}>Evaluation Benchmark Performance Results (Session Only)</strong>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', fontSize: '0.7rem' }}>
+                          <div style={{ padding: '0.4rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                            <span style={{ opacity: 0.6, display: 'block' }}>Total Latency</span>
+                            Avg: <strong>{avg(totalLatencies)}</strong> | p95: <strong>{p95(totalLatencies)}</strong>
+                          </div>
+                          <div style={{ padding: '0.4rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                            <span style={{ opacity: 0.6, display: 'block' }}>Retrieval Latency</span>
+                            Avg: <strong>{avg(retrievalLatencies)}</strong> | p95: <strong>{p95(retrievalLatencies)}</strong>
+                          </div>
+                          <div style={{ padding: '0.4rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                            <span style={{ opacity: 0.6, display: 'block' }}>Generation Latency</span>
+                            Avg: <strong>{avg(generationLatencies)}</strong> | p95: <strong>{p95(generationLatencies)}</strong>
+                          </div>
+                          <div style={{ padding: '0.4rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                            <span style={{ opacity: 0.6, display: 'block' }}>Guardrail Latency</span>
+                            Avg: <strong>{avg(guardrailLatencies)}</strong> | p95: <strong>{p95(guardrailLatencies)}</strong>
+                          </div>
+                          <div style={{ padding: '0.4rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)', gridColumn: 'span 1' }}>
+                            <span style={{ opacity: 0.6, display: 'block' }}>Success / Failure Count</span>
+                            Passed: <strong style={{ color: 'var(--success)' }}>{successCount}</strong> | Failed: <strong style={{ color: 'var(--error)' }}>{failureCount}</strong>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '250px', overflowY: 'auto' }}>
                     {evalResults.map((result) => (
                       <div key={result.scenarioId} style={{ display: 'flex', flexDirection: 'column', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)', fontSize: '0.75rem' }}>
@@ -4034,37 +4030,15 @@ export default function MemoryDashboard() {
                           </span>
                         </div>
 
-                        {expandedScenarioId === result.scenarioId && result.diagnostics && (
-                          <div style={{ padding: '0.5rem 0.6rem', borderTop: '1px solid var(--border)', backgroundColor: 'rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.7rem' }}>
-                            <div>
-                              <strong style={{ opacity: 0.8 }}>Retrieved Candidates ({result.diagnostics.retrievedCandidates.length}):</strong>
-                              <ul style={{ margin: '0.2rem 0 0 1rem', padding: 0, opacity: 0.7, listStyle: 'circle' }}>
-                                {result.diagnostics.retrievedCandidates.map((c, i) => (
-                                  <li key={i} style={{ wordBreak: 'break-all' }}>{c.id}: &ldquo;{c.content}&rdquo; (similarity: {c.similarity.toFixed(2)})</li>
-                                ))}
-                              </ul>
-                            </div>
-                            <div>
-                              <strong style={{ color: 'var(--success)' }}>Accepted Sources ({result.diagnostics.acceptedSources.length}):</strong>
-                              <ul style={{ margin: '0.2rem 0 0 1rem', padding: 0, color: 'var(--success)', listStyle: 'disc' }}>
-                                {result.diagnostics.acceptedSources.map((s, i) => (
-                                  <li key={i} style={{ wordBreak: 'break-all' }}>{s.id}: &ldquo;{s.content}&rdquo;</li>
-                                ))}
-                              </ul>
-                            </div>
-                            {result.diagnostics.filteredSources.length > 0 && (
-                              <div>
-                                <strong style={{ color: 'var(--error)' }}>Filtered / Duplicate Sources ({result.diagnostics.filteredSources.length}):</strong>
-                                <ul style={{ margin: '0.2rem 0 0 1rem', padding: 0, color: 'var(--error)', listStyle: 'square' }}>
-                                  {result.diagnostics.filteredSources.map((f, i) => (
-                                    <li key={i} style={{ wordBreak: 'break-all' }}>{f.id}: &ldquo;{f.content}&rdquo; - <em>{f.reason}</em></li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-                            <div style={{ opacity: 0.8 }}>
-                              <strong>Final Context Source Count:</strong> {result.diagnostics.finalContextCount}
-                            </div>
+                        {expandedScenarioId === result.scenarioId && result.diagnostics?.timings && (
+                          <div style={{ padding: '0.5rem 0.6rem', borderTop: '1px solid var(--border)', backgroundColor: 'rgba(0,0,0,0.15)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.4rem', fontSize: '0.7rem' }}>
+                            <div>Prep Latency: <strong>{result.diagnostics.timings.prepLatencyMs} ms</strong></div>
+                            <div>Memory Retrieval: <strong>{result.diagnostics.timings.memoryRetrievalLatencyMs} ms</strong></div>
+                            <div>Conversation Retrieval: <strong>{result.diagnostics.timings.conversationRetrievalLatencyMs} ms</strong></div>
+                            <div>Assembly Latency: <strong>{result.diagnostics.timings.assemblyLatencyMs} ms</strong></div>
+                            <div>Generation Latency: <strong>{result.diagnostics.timings.generationLatencyMs} ms</strong></div>
+                            <div>Guardrail Latency: <strong>{result.diagnostics.timings.guardrailLatencyMs} ms</strong></div>
+                            <div>Total Latency: <strong>{result.diagnostics.timings.totalLatencyMs} ms</strong></div>
                           </div>
                         )}
                       </div>

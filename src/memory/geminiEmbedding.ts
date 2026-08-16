@@ -11,7 +11,7 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
     this.dimension = Number(process.env.EMBEDDING_DIMENSION || '768');
   }
 
-  async generateEmbedding(text: string): Promise<number[]> {
+  async generateEmbedding(text: string, options?: { signal?: AbortSignal }): Promise<number[]> {
     if (!this.apiKey) {
       throw new Error('GEMINI_API_KEY environment variable is not defined.');
     }
@@ -41,7 +41,7 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(10000), // 10-second timeout
+        signal: options?.signal || AbortSignal.timeout(10000),
       });
 
       if (!response.ok) {

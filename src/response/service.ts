@@ -7,6 +7,7 @@ import { PgMemoryRepository } from '@/memory/repository';
 import { logTelemetry } from '@/core/logger';
 import { ConversationRetriever, ConversationSnippetResult } from '@/conversation/retriever';
 import { RETRIEVAL_SETTINGS } from '@/core/config';
+import { PerformanceTracker } from './tracker';
 
 export interface ContextualResponseResult {
   response: string;
@@ -39,10 +40,15 @@ export interface ContextualResponseResult {
     contextUtilization: number;
   };
   diagnostics?: {
-    retrievedCandidates: { id: string; content: string; similarity: number }[];
-    acceptedSources: { id: string; content: string }[];
-    filteredSources: { id: string; content: string; reason: string }[];
-    finalContextCount: number;
+    timings?: {
+      prepLatencyMs: number;
+      memoryRetrievalLatencyMs: number;
+      conversationRetrievalLatencyMs: number;
+      assemblyLatencyMs: number;
+      generationLatencyMs: number;
+      guardrailLatencyMs: number;
+      totalLatencyMs: number;
+    };
   };
 }
 
@@ -133,68 +139,359 @@ export class ResponseService {
         ? crypto.randomUUID()
         : 'fallback-uuid-' + Date.now();
 
+    const tracker = isEval ? new PerformanceTracker() : undefined;
+    if (tracker) {
+      tracker.start('total');
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let candidates: any[] = [];
     let retrievalLatencyMs = 0;
     let selectedCount = 0;
     let estimatedContextTokens = 0;
 
-    try {
-      // 1. Retrieve candidate memories (double limit for Jaccard/Overlap headroom)
-      const retrievalLimit = limit * 2;
-      const retStart = Date.now();
-      candidates = await this.retriever.retrieve(userId, query, {
-        limit: retrievalLimit,
-        includeHistorical,
-        ...(minSimOverride !== undefined ? { minSimilarity: minSimOverride } : {}),
+    const RETRIEVAL_TIMEOUT = Number(process.env.MEMORY_RETRIEVAL_TIMEOUT) || 8000;
+    const CONVERSATION_TIMEOUT = Number(process.env.CONVERSATION_RETRIEVAL_TIMEOUT) || 5000;
+    const GENERATION_TIMEOUT = Number(process.env.LLM_GENERATION_TIMEOUT) || 15000;
+
+    const withTimeout = async <T>(
+      promiseFactory: (signal: AbortSignal) => Promise<T>,
+      timeoutMs: number,
+      stageName: string
+    ): Promise<T> => {
+      const controller = new AbortController();
+      const signal = controller.signal;
+
+      let timer: NodeJS.Timeout;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new Error(`Timeout: ${stageName} stage exceeded limit of ${timeoutMs}ms`));
+        }, timeoutMs);
       });
-      retrievalLatencyMs = Date.now() - retStart;
 
-      // 2. Ancestor traversal for temporal queries (bounded, cycle-safe, user-isolated)
-      if (includeHistorical && this.repository) {
-        const extraCandidates: typeof candidates = [];
-        const visitedIds = new Set<string>();
+      try {
+        return await Promise.race([
+          promiseFactory(signal),
+          timeoutPromise,
+        ]);
+      } finally {
+        clearTimeout(timer!);
+      }
+    };
 
-        for (const cand of candidates) {
-          let current = cand.memory;
-          let depth = 0;
+    if (!isEval) {
+      // Original production path: NO timings, NO AbortController, NO query timeouts, returning undefined diagnostics
+      try {
+        const retrievalLimit = limit * 2;
+        candidates = await this.retriever.retrieve(userId, query, {
+          limit: retrievalLimit,
+          includeHistorical,
+        });
 
-          while (current.metadata.supersedes && depth < 10) {
-            const parentId = current.metadata.supersedes;
-            if (visitedIds.has(parentId)) {
-              console.warn(`Temporal Traversal: Cycle detected at memory ID ${parentId}`);
-              break;
+        if (includeHistorical && this.repository) {
+          const extraCandidates: typeof candidates = [];
+          const visitedIds = new Set<string>();
+
+          for (const cand of candidates) {
+            let current = cand.memory;
+            let depth = 0;
+
+            while (current.metadata.supersedes && depth < 10) {
+              const parentId = current.metadata.supersedes;
+              if (visitedIds.has(parentId)) {
+                break;
+              }
+              visitedIds.add(parentId);
+
+              const parent = await this.repository.get(parentId);
+              if (!parent) break;
+
+              if (parent.userId !== userId) {
+                break;
+              }
+
+              const inCandidates = candidates.some((c) => c.memory.id === parent.id);
+              const inExtra = extraCandidates.some((c) => c.memory.id === parent.id);
+
+              if (!inCandidates && !inExtra) {
+                extraCandidates.push({
+                  memory: parent,
+                  similarity: 0.0,
+                });
+              }
+
+              current = parent;
+              depth++;
             }
-            visitedIds.add(parentId);
+          }
+          candidates = [...candidates, ...extraCandidates];
+        }
 
-            const parent = await this.repository.get(parentId);
-            if (!parent) break;
+        const assemblyResult = this.assembler.assemble(query, candidates, maxTokens, {
+          includeHistorical,
+          semanticWeight,
+          lexicalWeight,
+          diversityThreshold,
+        });
 
-            // Security guard: verify user isolation on traversed ancestor
-            if (parent.userId !== userId) {
-              console.warn(`Security Warning: Traversal crossed user boundary for ancestor ID ${parentId}`);
-              break;
-            }
+        let finalItems = assemblyResult.items;
+        if (finalItems.length > limit) {
+          finalItems = finalItems.slice(0, limit);
+          const lines = finalItems.map((item) => {
+            const statusTag = item.status === 'superseded' ? 'HISTORICAL' : 'CURRENT';
+            return `[${item.type}] [${statusTag}] ${item.content}`;
+          });
+          assemblyResult.context = lines.join('\n');
+          assemblyResult.tokenCount = Math.ceil(assemblyResult.context.length / 4);
+        }
 
-            // Deduplicate: check if parent is already in candidates or extraCandidates
-            const inCandidates = candidates.some((c) => c.memory.id === parent.id);
-            const inExtra = extraCandidates.some((c) => c.memory.id === parent.id);
+        selectedCount = finalItems.length;
+        estimatedContextTokens = assemblyResult.tokenCount;
 
-            if (!inCandidates && !inExtra) {
-              extraCandidates.push({
-                memory: parent,
-                similarity: 0.0, // Do NOT copy similarity blindly, keep as 0.0
-              });
-            }
-
-            current = parent;
-            depth++;
+        let conversationSnippets: ConversationSnippetResult[] = [];
+        if (this.conversationRetriever) {
+          try {
+            conversationSnippets = await this.conversationRetriever.retrieveSnippets(userId, query, {
+              limitConversations: maxConversationSnippets,
+              maxSnippetsPerConversation: 3,
+              semanticWeight,
+              lexicalWeight,
+            });
+          } catch (snippetErr) {
+            console.error('Failed to retrieve conversation snippets:', snippetErr);
           }
         }
-        candidates = [...candidates, ...extraCandidates];
+
+        let combinedContext = assemblyResult.context;
+        let finalTokenCount = assemblyResult.tokenCount;
+        const finalConversationSnippets: ConversationSnippetResult[] = [];
+
+        if (conversationSnippets.length > 0) {
+          const memoryLines = assemblyResult.context ? assemblyResult.context.split('\n').filter(Boolean) : [];
+          const formattedMemoryLines = memoryLines.map(line => `[MEMORY] ${line}`);
+          const formattedConversationLines: string[] = [];
+
+          let currentTokens = Math.ceil(formattedMemoryLines.join('\n').length / 4);
+
+          for (const s of conversationSnippets) {
+            const snippetText = s.matchedSnippet || s.text;
+            const line = `[PAST CONVERSATION] [Date: ${s.createdAt.toISOString().split('T')[0]}] ${snippetText}`;
+            const snippetTokens = Math.ceil(line.length / 4);
+            
+            if (currentTokens + snippetTokens <= maxTokens || formattedConversationLines.length === 0) {
+              formattedConversationLines.push(line);
+              finalConversationSnippets.push(s);
+              currentTokens += snippetTokens;
+            } else {
+              break;
+            }
+          }
+
+          combinedContext = [...formattedMemoryLines, ...formattedConversationLines].join('\n');
+          finalTokenCount = currentTokens;
+        }
+
+        estimatedContextTokens = finalTokenCount;
+
+        const generatorResult = await this.generator.generateResponse(
+          query,
+          combinedContext
+        );
+
+        const usedMemories = finalItems.map((item) => ({
+          id: item.id,
+          type: item.type,
+          similarity: item.similarity,
+          score: item.score,
+          content: item.content,
+          confidence: item.confidence !== undefined ? item.confidence : 0.9,
+          lifecycleState: item.lifecycleState || 'stable',
+          conversationId: item.conversationId,
+          sourceType: item.sourceType,
+          sourceTimestamp: item.sourceTimestamp,
+        }));
+
+        const usedConversations = finalConversationSnippets.map((s) => ({
+          id: s.conversationId,
+          conversationId: s.conversationId,
+          createdAt: s.createdAt.toISOString(),
+          text: s.matchedSnippet || s.text,
+          matchedSnippet: s.matchedSnippet || s.text,
+          similarity: s.similarity,
+        }));
+
+        if (this.repository) {
+          const now = new Date();
+          const nowStr = now.toISOString();
+
+          for (const item of finalItems) {
+            try {
+              const memory = await this.repository.get(item.id);
+              if (memory && memory.userId === userId) {
+                const metadata = normalizeMetadata(memory.metadata, memory.createdAt);
+                const newAccessCount = (metadata.accessCount ?? 0) + 1;
+                const prevLastAccessedStr = metadata.lastAccessedAt || metadata.timestamp;
+                const prevLastAccessed = new Date(prevLastAccessedStr);
+                const diffSec = Math.max(0, now.getTime() - prevLastAccessed.getTime()) / 1000;
+
+                let newReinforcementCount = metadata.reinforcementCount ?? 0;
+                let newConfidence = metadata.confidence ?? 0.9;
+
+                if (diffSec >= 300) {
+                  newReinforcementCount += 1;
+                  newConfidence = Math.min(1.0, newConfidence + 0.05);
+                }
+
+                await this.repository.update(item.id, {
+                  metadata: {
+                    ...metadata,
+                    accessCount: newAccessCount,
+                    lastAccessedAt: nowStr,
+                    reinforcementCount: newReinforcementCount,
+                    confidence: parseFloat(newConfidence.toFixed(4)),
+                    lifecycleUpdatedAt: nowStr,
+                  },
+                });
+              }
+            } catch (reinforceErr) {
+              console.error(`Reinforcement failed for memory ${item.id}:`, reinforceErr);
+            }
+          }
+        }
+
+        const totalLatencyMs = Date.now() - startTime;
+
+        logTelemetry({
+          correlationId,
+          retrievalLatencyMs: totalLatencyMs,
+          candidateCount: candidates.length,
+          selectedCount,
+          estimatedContextTokens,
+          generationLatencyMs: 0,
+          totalLatencyMs,
+          model: process.env.GENERATION_MODEL || 'gemini-3.5-flash',
+          status: 'success',
+        });
+
+        const validation = this.validateResponseGrounding(
+          query,
+          generatorResult.text,
+          combinedContext,
+          usedMemories,
+          usedConversations
+        );
+
+        return {
+          response: validation.refinedResponse,
+          usedMemories,
+          contextTokenCount: finalTokenCount,
+          usedConversations,
+          governance: assemblyResult.governance,
+        };
+      } catch (error: unknown) {
+        const totalLatencyMs = Date.now() - startTime;
+        logTelemetry({
+          correlationId,
+          retrievalLatencyMs: totalLatencyMs,
+          candidateCount: candidates.length,
+          selectedCount,
+          estimatedContextTokens,
+          totalLatencyMs,
+          model: process.env.GENERATION_MODEL || 'gemini-3.5-flash',
+          status: 'error',
+          errorCategory: error instanceof Error ? error.name : 'UnknownError',
+        });
+        throw error;
+      }
+    }
+
+    try {
+      // 1. Retrieve candidate memories & 2. Ancestor traversal
+      if (tracker) {
+        tracker.start('memoryRetrieval');
+      }
+
+      candidates = await withTimeout(
+        async (signal) => {
+          const retrievalLimit = limit * 2;
+          const retrieved = await this.retriever.retrieve(userId, query, {
+            limit: retrievalLimit,
+            includeHistorical,
+            tracker,
+            signal,
+            queryTimeout: RETRIEVAL_TIMEOUT,
+            ...(minSimOverride !== undefined ? { minSimilarity: minSimOverride } : {}),
+          });
+
+          if (signal.aborted) {
+            throw new Error('Retrieval aborted');
+          }
+
+          let traversed = [...retrieved];
+          // Ancestor traversal for temporal queries (bounded, cycle-safe, user-isolated)
+          if (includeHistorical && this.repository) {
+            const extraCandidates: typeof traversed = [];
+            const visitedIds = new Set<string>();
+
+            for (const cand of retrieved) {
+              if (signal.aborted) {
+                throw new Error('Retrieval aborted');
+              }
+              let current = cand.memory;
+              let depth = 0;
+
+              while (current.metadata.supersedes && depth < 10) {
+                if (signal.aborted) {
+                  throw new Error('Retrieval aborted');
+                }
+                const parentId = current.metadata.supersedes;
+                if (visitedIds.has(parentId)) {
+                  console.warn(`Temporal Traversal: Cycle detected at memory ID ${parentId}`);
+                  break;
+                }
+                visitedIds.add(parentId);
+
+                const parent = await this.repository.get(parentId);
+                if (!parent) break;
+
+                // Security guard: verify user isolation on traversed ancestor
+                if (parent.userId !== userId) {
+                  console.warn(`Security Warning: Traversal crossed user boundary for ancestor ID ${parentId}`);
+                  break;
+                }
+
+                // Deduplicate
+                const inCandidates = retrieved.some((c) => c.memory.id === parent.id);
+                const inExtra = extraCandidates.some((c) => c.memory.id === parent.id);
+
+                if (!inCandidates && !inExtra) {
+                  extraCandidates.push({
+                    memory: parent,
+                    similarity: 0.0,
+                  });
+                }
+
+                current = parent;
+                depth++;
+              }
+            }
+            traversed = [...retrieved, ...extraCandidates];
+          }
+          return traversed;
+        },
+        RETRIEVAL_TIMEOUT,
+        'memoryRetrieval'
+      );
+
+      if (tracker) {
+        tracker.stop('memoryRetrieval');
       }
 
       // 3. Assemble context
+      if (tracker) {
+        tracker.start('assembly');
+      }
       const assemblyResult = this.assembler.assemble(query, candidates, maxTokens, {
         includeHistorical,
         semanticWeight,
@@ -221,15 +518,34 @@ export class ResponseService {
       // Sprint 20 Conversation Snippet Retrieval
       let conversationSnippets: ConversationSnippetResult[] = [];
       if (this.conversationRetriever) {
+        const retriever = this.conversationRetriever;
+        if (tracker) {
+          tracker.start('conversationRetrieval');
+        }
         try {
-          conversationSnippets = await this.conversationRetriever.retrieveSnippets(userId, query, {
-            limitConversations: maxConversationSnippets,
-            maxSnippetsPerConversation: 3,
-            semanticWeight,
-            lexicalWeight,
-          });
+          conversationSnippets = await withTimeout(
+            async (signal) => {
+              return await retriever.retrieveSnippets(userId, query, {
+                limitConversations: maxConversationSnippets,
+                maxSnippetsPerConversation: 3,
+                semanticWeight,
+                lexicalWeight,
+                queryTimeout: CONVERSATION_TIMEOUT,
+                signal,
+              } as any);
+            },
+            CONVERSATION_TIMEOUT,
+            'conversationRetrieval'
+          );
         } catch (snippetErr) {
           console.error('Failed to retrieve conversation snippets:', snippetErr);
+          if (snippetErr instanceof Error && snippetErr.message.includes('Timeout')) {
+            throw snippetErr;
+          }
+        } finally {
+          if (tracker) {
+            tracker.stop('conversationRetrieval');
+          }
         }
       }
 
@@ -265,15 +581,28 @@ export class ResponseService {
       }
 
       estimatedContextTokens = finalTokenCount;
+      if (tracker) {
+        tracker.stop('assembly');
+      }
 
       // 4. Generate grounded response
-      const genStart = Date.now();
-      const generatorResult = await this.generator.generateResponse(
-        query,
-        combinedContext
+      if (tracker) {
+        tracker.start('generation');
+      }
+      const generatorResult = await withTimeout(
+        async (signal) => {
+          return await this.generator.generateResponse(
+            query,
+            combinedContext,
+            { signal }
+          );
+        },
+        GENERATION_TIMEOUT,
+        'generation'
       );
-      const generationLatencyMs = Date.now() - genStart;
-      const totalLatencyMs = Date.now() - startTime;
+      if (tracker) {
+        tracker.stop('generation');
+      }
 
       // 5. Trace memories actually passed into the generator context
       const usedMemories = finalItems.map((item) => ({
@@ -345,19 +674,28 @@ export class ResponseService {
       }
 
       // Log success telemetry
+      const prepLatencyMs = tracker ? (tracker.get('prep') ?? 0) : 0;
+      const memoryRetrievalLatencyMs = tracker ? (tracker.get('memoryRetrieval') ?? 0) : 0;
+      const conversationRetrievalLatencyMs = tracker ? (tracker.get('conversationRetrieval') ?? 0) : 0;
+      retrievalLatencyMs = prepLatencyMs + memoryRetrievalLatencyMs + conversationRetrievalLatencyMs;
+      const totalLatencyMs = Date.now() - startTime;
+
       logTelemetry({
         correlationId,
         retrievalLatencyMs,
         candidateCount: candidates.length,
         selectedCount,
         estimatedContextTokens,
-        generationLatencyMs,
+        generationLatencyMs: tracker ? (tracker.get('generation') ?? 0) : (totalLatencyMs - retrievalLatencyMs),
         totalLatencyMs,
         model: process.env.GENERATION_MODEL || 'gemini-3.5-flash',
         status: 'success',
       });
 
       // --- SPRINT 32: Grounding Validation ---
+      if (tracker) {
+        tracker.start('guardrail');
+      }
       const validation = this.validateResponseGrounding(
         query,
         generatorResult.text,
@@ -365,6 +703,13 @@ export class ResponseService {
         usedMemories,
         usedConversations
       );
+      if (tracker) {
+        tracker.stop('guardrail');
+      }
+
+      if (tracker) {
+        tracker.stop('total');
+      }
 
       let evaluation = undefined;
       if (options?.evaluationRun) {
@@ -407,9 +752,22 @@ export class ResponseService {
         usedConversations,
         governance: assemblyResult.governance,
         evaluation,
-        diagnostics: options?.evaluationRun ? assemblyResult.diagnostics : undefined,
+        diagnostics: options?.evaluationRun ? {
+          timings: tracker ? {
+            prepLatencyMs: tracker.get('prep') ?? 0,
+            memoryRetrievalLatencyMs: tracker.get('memoryRetrieval') ?? 0,
+            conversationRetrievalLatencyMs: tracker.get('conversationRetrieval') ?? 0,
+            assemblyLatencyMs: tracker.get('assembly') ?? 0,
+            generationLatencyMs: tracker.get('generation') ?? 0,
+            guardrailLatencyMs: tracker.get('guardrail') ?? 0,
+            totalLatencyMs: tracker.get('total') ?? 0,
+          } : undefined,
+        } : undefined,
       };
     } catch (error: unknown) {
+      if (tracker) {
+        tracker.stop('total');
+      }
       const totalLatencyMs = Date.now() - startTime;
       // Log error telemetry
       logTelemetry({

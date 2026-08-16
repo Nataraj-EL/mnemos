@@ -39,10 +39,15 @@ export interface EvalScenarioResult {
     contextUtilization: number;
   };
   diagnostics?: {
-    retrievedCandidates: { id: string; content: string; similarity: number }[];
-    acceptedSources: { id: string; content: string }[];
-    filteredSources: { id: string; content: string; reason: string }[];
-    finalContextCount: number;
+    timings?: {
+      prepLatencyMs: number;
+      memoryRetrievalLatencyMs: number;
+      conversationRetrievalLatencyMs: number;
+      assemblyLatencyMs: number;
+      generationLatencyMs: number;
+      guardrailLatencyMs: number;
+      totalLatencyMs: number;
+    };
   };
 }
 

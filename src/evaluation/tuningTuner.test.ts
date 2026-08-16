@@ -236,7 +236,10 @@ describe('Parameter Tuning & Matrix Optimization - Sprint 36', () => {
     expect(querySpy).toHaveBeenCalled();
 
     // Verify insertion queries staged synthetic eval records
-    const insertCalls = querySpy.mock.calls.filter(c => c[0].includes('INSERT INTO memories'));
+    const insertCalls = querySpy.mock.calls.filter(c => {
+      const sql = typeof c[0] === 'string' ? c[0] : (c[0] as any)?.text;
+      return sql?.includes('INSERT INTO memories');
+    });
     expect(insertCalls.length).toBeGreaterThan(0);
     expect(insertCalls[0][1]?.[1]).toBe('eval-user-sprint36-dedicated');
   });
@@ -282,7 +285,10 @@ describe('Parameter Tuning & Matrix Optimization - Sprint 36', () => {
       'real'
     );
 
-    const deleteMemoriesCall = querySpy.mock.calls.find(c => c[0].includes('DELETE FROM memories'));
+    const deleteMemoriesCall = querySpy.mock.calls.find(c => {
+      const sql = typeof c[0] === 'string' ? c[0] : (c[0] as any)?.text;
+      return sql?.includes('DELETE FROM memories');
+    });
     expect(deleteMemoriesCall).toBeDefined();
     // Verify evalRunId parameter is passed to the deletion query
     expect(deleteMemoriesCall?.[1]?.[0]).toMatch(/^run-[a-z0-9]+$/);

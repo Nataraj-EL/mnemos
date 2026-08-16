@@ -2,11 +2,15 @@ import { Memory, MemoryType } from '@/core/types';
 import { EmbeddingProvider } from './embedding';
 import { getDbPool } from '@/db';
 import { RETRIEVAL_SETTINGS } from '@/core/config';
+import { PerformanceTracker } from '@/response/tracker';
 
 export interface RetrievalOptions {
   limit?: number;
   minSimilarity?: number;
   includeHistorical?: boolean;
+  tracker?: PerformanceTracker;
+  signal?: AbortSignal;
+  queryTimeout?: number;
 }
 
 export interface RetrievalResult {
@@ -68,7 +72,21 @@ export class MemoryRetriever {
 
     try {
       // 1. Generate query embedding
-      const queryEmbedding = await this.embeddingProvider.generateEmbedding(query);
+      options?.tracker?.start('prep');
+      let queryEmbedding: number[];
+      try {
+        if (options?.signal) {
+          queryEmbedding = await (this.embeddingProvider as any).generateEmbedding(query, { signal: options.signal });
+        } else {
+          queryEmbedding = await this.embeddingProvider.generateEmbedding(query);
+        }
+      } finally {
+        options?.tracker?.stop('prep');
+      }
+
+      if (options?.signal?.aborted) {
+        throw new Error('Retrieval aborted');
+      }
 
       // 2. Query Neon PostgreSQL database
       const pool = getDbPool();
@@ -93,12 +111,25 @@ export class MemoryRetriever {
         LIMIT $4;
       `;
 
-      const result = await pool.query(sql, [
-        queryEmbeddingStr,
-        userId,
-        minSimilarity,
-        limit,
-      ]);
+      let result;
+      if (options?.queryTimeout !== undefined) {
+        result = await pool.query({
+          text: sql,
+          values: [queryEmbeddingStr, userId, minSimilarity, limit],
+          query_timeout: options.queryTimeout,
+        } as any);
+      } else {
+        result = await pool.query(sql, [
+          queryEmbeddingStr,
+          userId,
+          minSimilarity,
+          limit,
+        ]);
+      }
+
+      if (options?.signal?.aborted) {
+        throw new Error('Retrieval aborted');
+      }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return result.rows.map((row: any) => ({
@@ -106,6 +137,9 @@ export class MemoryRetriever {
         similarity: Number(row.similarity),
       }));
     } catch (embedErr) {
+      if (options?.signal?.aborted || (embedErr instanceof Error && embedErr.message.includes('aborted'))) {
+        throw embedErr;
+      }
       console.warn('Embedding provider failed, falling back to lexical search:', embedErr);
 
       // 3. Fallback: query PostgreSQL lexically
@@ -133,7 +167,20 @@ export class MemoryRetriever {
       `;
 
       const params = [userId, ...words, limit];
-      const result = await pool.query(sql, params);
+      let result;
+      if (options?.queryTimeout !== undefined) {
+        result = await pool.query({
+          text: sql,
+          values: params,
+          query_timeout: options.queryTimeout,
+        } as any);
+      } else {
+        result = await pool.query(sql, params);
+      }
+
+      if (options?.signal?.aborted) {
+        throw new Error('Retrieval aborted');
+      }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return result.rows.map((row: any) => ({

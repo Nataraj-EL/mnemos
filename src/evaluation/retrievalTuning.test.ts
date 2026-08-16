@@ -78,11 +78,11 @@ describe('Retrieval Quality Tuning Suite - Sprint 34', () => {
       minSimilarity: 0.8,
       evaluationRun: true,
     });
-    expect(mockRetriever.retrieve).toHaveBeenLastCalledWith('user-1', 'query', {
+    expect(mockRetriever.retrieve).toHaveBeenLastCalledWith('user-1', 'query', expect.objectContaining({
       limit: 20,
       includeHistorical: false,
       minSimilarity: 0.8,
-    });
+    }));
   });
 
   it('should reject invalid validation overrides on evaluation runs', async () => {
