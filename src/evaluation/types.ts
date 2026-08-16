@@ -315,3 +315,17 @@ export interface AlertCorrelationSummary {
   correlations: AlertCorrelation[];
   timestamp: string;
 }
+
+export interface EvaluationRemediation {
+  alertId: string;
+  priority: 'high' | 'medium' | 'low';
+  action: string;
+  reason: string;
+  evidenceIds: string[];
+  confidence: 'high' | 'medium' | 'low';
+}
+
+export interface EvaluationRemediationSummary {
+  remediations: EvaluationRemediation[];
+  timestamp: string;
+}

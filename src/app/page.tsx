@@ -2059,6 +2059,30 @@ export default function MemoryDashboard() {
   const [alertsHistoryError, setAlertsHistoryError] = useState<string | null>(null);
 
   const [correlationsList, setCorrelationsList] = useState<import('@/evaluation/types').AlertCorrelation[]>([]);
+  const [remediationsList, setRemediationsList] = useState<import('@/evaluation/types').EvaluationRemediation[]>([]);
+
+  const fetchRemediations = async () => {
+    try {
+      const response = await fetch('/api/evaluation/remediation');
+      if (response.ok) {
+        const data = await response.json();
+        setRemediationsList(data.remediations || []);
+      } else {
+        const { EvaluationRemediationManager } = await import('@/evaluation/remediation');
+        const list = await EvaluationRemediationManager.generateRemediations();
+        setRemediationsList(list);
+      }
+    } catch (err) {
+      console.error('Failed to fetch remediations:', err);
+      try {
+        const { EvaluationRemediationManager } = await import('@/evaluation/remediation');
+        const list = await EvaluationRemediationManager.generateRemediations();
+        setRemediationsList(list);
+      } catch (e) {
+        console.error('Local remediations run failed:', e);
+      }
+    }
+  };
 
   const fetchCorrelations = async () => {
     try {
@@ -2080,6 +2104,8 @@ export default function MemoryDashboard() {
       } catch (e) {
         console.error('Local correlations run failed:', e);
       }
+    } finally {
+      await fetchRemediations();
     }
   };
 
@@ -7446,6 +7472,76 @@ export default function MemoryDashboard() {
                   )}
                 </div>
               )}
+            </div>
+
+            {/* Evaluation Remediation Recommendations */}
+            <div className="card" style={{ padding: '1.25rem', marginTop: '1.5rem' }}>
+              <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>📋 Evaluation Remediation Recommendations</h3>
+              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1.25rem', marginTop: '0.5rem' }}>
+                Evidence-backed configuration changes and system tuning suggestions based on active evaluation alert correlations.
+                <span style={{ display: 'block', marginTop: '0.25rem', color: 'var(--primary)', fontWeight: 600 }}>
+                  ⚠️ Developer / Evaluation Only — Advisory Recommendation
+                </span>
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {remediationsList.length === 0 ? (
+                  <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(255,255,255,0.01)', fontSize: '0.70rem', opacity: 0.6, textAlign: 'center' }}>
+                    No active remediation recommendations. System metrics are within bounds.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {remediationsList.map((rem, idx) => {
+                      const isHigh = rem.priority === 'high';
+                      const isMed = rem.priority === 'medium';
+                      const priorityColor = isHigh ? 'var(--error)' : isMed ? '#e67e22' : 'var(--text-muted)';
+                      const priorityBg = isHigh ? 'rgba(179,74,60,0.08)' : isMed ? 'rgba(230,126,34,0.08)' : 'rgba(255,255,255,0.05)';
+
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            padding: '0.6rem 0.8rem',
+                            backgroundColor: priorityBg,
+                            border: `1px solid ${isHigh ? 'rgba(179,74,60,0.15)' : isMed ? 'rgba(230,126,34,0.15)' : 'var(--border)'}`,
+                            borderRadius: 'var(--radius-sm)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.25rem',
+                            fontSize: '0.65rem'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                              <span
+                                style={{
+                                  fontSize: '0.55rem',
+                                  padding: '0.1rem 0.35rem',
+                                  borderRadius: 'var(--radius-xs)',
+                                  backgroundColor: priorityColor,
+                                  color: '#fff',
+                                  fontWeight: 700,
+                                  textTransform: 'uppercase'
+                                }}
+                              >
+                                {rem.priority} Priority
+                              </span>
+                              <span style={{ opacity: 0.5, fontSize: '0.55rem' }}>Confidence: {rem.confidence}</span>
+                            </div>
+                          </div>
+                          <div style={{ fontWeight: 600, opacity: 0.95, fontSize: '0.7rem', marginTop: '0.15rem' }}>{rem.action}</div>
+                          <div style={{ opacity: 0.75, fontSize: '0.65rem' }}>{rem.reason}</div>
+                          {rem.evidenceIds.length > 0 && (
+                            <div style={{ opacity: 0.5, fontSize: '0.55rem', fontFamily: 'monospace', marginTop: '0.15rem' }}>
+                              Evidence reference IDs: {rem.evidenceIds.join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Retrieval Parameter Optimization & Matrix Tuning */}
