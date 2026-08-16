@@ -184,3 +184,9 @@ export interface PromotionHistoryRecord {
   previousConfig: TuningConfig | null;
   newConfig: TuningConfig | null;
 }
+
+export interface ConfigSafetyResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}

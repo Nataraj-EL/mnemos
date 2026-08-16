@@ -1,6 +1,7 @@
 import { TuningConfig } from './types';
-import { EvaluationExperimentRunner } from './experiment';
 import { PromotionHistoryManager } from './promotionHistory';
+
+import { ConfigSafetyGuard } from './configGuard';
 
 export class EvaluationConfigPromotionManager {
   private static currentConfig: TuningConfig | null = null;
@@ -17,7 +18,10 @@ export class EvaluationConfigPromotionManager {
   }
 
   public static promote(config: TuningConfig): void {
-    EvaluationExperimentRunner.validateConfig(config);
+    const check = ConfigSafetyGuard.validate(config);
+    if (!check.valid) {
+      throw new Error(`Invalid configuration: ${check.errors.join(', ')}`);
+    }
 
     const oldConfig = this.currentConfig ? JSON.parse(JSON.stringify(this.currentConfig)) : null;
     const newConfig = JSON.parse(JSON.stringify(config));

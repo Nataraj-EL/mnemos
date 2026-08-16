@@ -1916,6 +1916,53 @@ export default function MemoryDashboard() {
     }
   };
 
+  const [safetyResult, setSafetyResult] = useState<import('@/evaluation/types').ConfigSafetyResult | null>(null);
+  const [safetyLoading, setSafetyLoading] = useState(false);
+  const [safetyError, setSafetyError] = useState<string | null>(null);
+
+  const validateRecommendedConfig = async () => {
+    const config = experimentInsights?.bestConfig;
+    if (!config) {
+      setSafetyResult(null);
+      return;
+    }
+
+    setSafetyLoading(true);
+    setSafetyError(null);
+    try {
+      const response = await fetch('/api/evaluation/config/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setSafetyResult(data);
+      } else {
+        const { ConfigSafetyGuard } = await import('@/evaluation/configGuard');
+        setSafetyResult(ConfigSafetyGuard.validate(config));
+      }
+    } catch (err) {
+      console.error('Failed to validate configuration:', err);
+      try {
+        const { ConfigSafetyGuard } = await import('@/evaluation/configGuard');
+        setSafetyResult(ConfigSafetyGuard.validate(config));
+      } catch (e) {
+        console.error('Local safety validation failed:', e);
+        setSafetyError('Failed to complete safety checks validation.');
+      }
+    } finally {
+      setSafetyLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    setTimeout(() => {
+      validateRecommendedConfig();
+    }, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [experimentInsights?.bestConfig]);
+
   const [baseExpId, setBaseExpId] = useState('');
   const [targetExpId, setTargetExpId] = useState('');
   const [expComparisonResult, setExpComparisonResult] = useState<{ comparison: import('@/evaluation/regression').RegressionSummary } | null>(null);
@@ -5900,14 +5947,42 @@ export default function MemoryDashboard() {
                     </div>
                   </div>
 
+                  {/* Safety Validation Warnings & Errors */}
+                  {safetyLoading && <div style={{ fontSize: '0.65rem', opacity: 0.6 }}>Checking config safety...</div>}
+                  {safetyError && <div style={{ fontSize: '0.65rem', color: 'var(--error)' }}>⚠️ Safety validation error: {safetyError}</div>}
+                  {!safetyLoading && !safetyError && safetyResult && (
+                    <div style={{ fontSize: '0.65rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '0.75rem', backgroundColor: 'rgba(0,0,0,0.1)' }}>
+                      {safetyResult.valid ? (
+                        <div style={{ color: 'var(--success)', fontWeight: 600, marginBottom: safetyResult.warnings.length > 0 ? '0.35rem' : 0 }}>
+                          ✓ Safety validation passed. Ready for promotion.
+                        </div>
+                      ) : (
+                        <div style={{ color: 'var(--error)', fontWeight: 600, marginBottom: '0.35rem' }}>
+                          ❌ Config contains errors. Promotion is disabled:
+                          <ul style={{ margin: '0.2rem 0 0 1rem', padding: 0 }}>
+                            {safetyResult.errors.map((err, i) => <li key={i}>{err}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                      {safetyResult.warnings.length > 0 && (
+                        <div style={{ color: '#e67e22', marginTop: '0.2rem' }}>
+                          ⚠️ Advisory Warnings:
+                          <ul style={{ margin: '0.1rem 0 0 1rem', padding: 0 }}>
+                            {safetyResult.warnings.map((warn, i) => <li key={i}>{warn}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Actions Area */}
                   <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                     {experimentInsights?.bestConfig ? (
                       <button
                         onClick={() => handlePromoteConfig(experimentInsights.bestConfig!)}
-                        disabled={promotedLoading || !experimentInsights.bestConfig}
+                        disabled={promotedLoading || !experimentInsights.bestConfig || (safetyResult !== null && !safetyResult.valid)}
                         className="btn btn-primary"
-                        style={{ fontSize: '0.7rem', padding: '0.4rem 0.8rem' }}
+                        style={{ fontSize: '0.7rem', padding: '0.4rem 0.8rem', opacity: (safetyResult !== null && !safetyResult.valid) ? 0.5 : 1 }}
                       >
                         🚀 Promote Recommended Config
                       </button>
