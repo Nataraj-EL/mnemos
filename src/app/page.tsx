@@ -1447,6 +1447,8 @@ export default function MemoryDashboard() {
       } catch (e) {
         console.error('Local fallback failed:', e);
       }
+    } finally {
+      await fetchQualityGateResult();
     }
   };
 
@@ -1839,6 +1841,7 @@ export default function MemoryDashboard() {
         setPromotedConfigStatus(data);
         await fetchExperimentInsights();
         await fetchPromotionHistory();
+        await fetchQualityGateResult();
       } else {
         const { EvaluationConfigPromotionManager } = await import('@/evaluation/promotion');
         EvaluationConfigPromotionManager.promote(config);
@@ -1849,6 +1852,7 @@ export default function MemoryDashboard() {
         });
         await fetchExperimentInsights();
         await fetchPromotionHistory();
+        await fetchQualityGateResult();
       }
     } catch (err) {
       console.error('Failed to promote configuration:', err);
@@ -1862,6 +1866,7 @@ export default function MemoryDashboard() {
         });
         await fetchExperimentInsights();
         await fetchPromotionHistory();
+        await fetchQualityGateResult();
       } catch (e: unknown) {
         console.error('Local promotion failed:', e);
         setPromotedError(e instanceof Error ? e.message : 'Failed to promote configuration.');
@@ -1884,6 +1889,7 @@ export default function MemoryDashboard() {
         setPromotedConfigStatus(data);
         await fetchExperimentInsights();
         await fetchPromotionHistory();
+        await fetchQualityGateResult();
       } else {
         const { EvaluationConfigPromotionManager } = await import('@/evaluation/promotion');
         EvaluationConfigPromotionManager.rollback();
@@ -1894,6 +1900,7 @@ export default function MemoryDashboard() {
         });
         await fetchExperimentInsights();
         await fetchPromotionHistory();
+        await fetchQualityGateResult();
       }
     } catch (err) {
       console.error('Failed to rollback configuration:', err);
@@ -1907,6 +1914,7 @@ export default function MemoryDashboard() {
         });
         await fetchExperimentInsights();
         await fetchPromotionHistory();
+        await fetchQualityGateResult();
       } catch (e: unknown) {
         console.error('Local rollback failed:', e);
         setPromotedError(e instanceof Error ? e.message : 'Failed to rollback configuration.');
@@ -1962,7 +1970,37 @@ export default function MemoryDashboard() {
     }, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [experimentInsights?.bestConfig]);
+  const [qualityGateResult, setQualityGateResult] = useState<import('@/evaluation/types').QualityGateResult | null>(null);
+  const [qualityGateLoading, setQualityGateLoading] = useState(false);
+  const [qualityGateError, setQualityGateError] = useState<string | null>(null);
 
+  const fetchQualityGateResult = async () => {
+    setQualityGateLoading(true);
+    setQualityGateError(null);
+    try {
+      const response = await fetch('/api/evaluation/quality-gate');
+      if (response.ok) {
+        const data = await response.json();
+        setQualityGateResult(data);
+      } else {
+        const { EvaluationQualityGateManager } = await import('@/evaluation/qualityGate');
+        const localResult = await EvaluationQualityGateManager.evaluateGate();
+        setQualityGateResult(localResult);
+      }
+    } catch (err) {
+      console.error('Failed to fetch quality gate result:', err);
+      try {
+        const { EvaluationQualityGateManager } = await import('@/evaluation/qualityGate');
+        const localResult = await EvaluationQualityGateManager.evaluateGate();
+        setQualityGateResult(localResult);
+      } catch (e) {
+        console.error('Local quality gate calculation failed:', e);
+        setQualityGateError('Failed to fetch quality gate result.');
+      }
+    } finally {
+      setQualityGateLoading(false);
+    }
+  };
   const [baseExpId, setBaseExpId] = useState('');
   const [targetExpId, setTargetExpId] = useState('');
   const [expComparisonResult, setExpComparisonResult] = useState<{ comparison: import('@/evaluation/regression').RegressionSummary } | null>(null);
@@ -2195,9 +2233,11 @@ export default function MemoryDashboard() {
       fetchExperimentInsights();
       fetchPromotedConfigStatus();
       fetchPromotionHistory();
+      fetchQualityGateResult();
     }, 0);
     const healthInterval = setInterval(fetchHealth, 15000);
     return () => clearInterval(healthInterval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -6102,6 +6142,116 @@ export default function MemoryDashboard() {
                     </div>
                   )}
                 </>
+              )}
+            </div>
+
+            {/* Evaluation Release Readiness */}
+            <div className="card" style={{ padding: '1.25rem', marginTop: '1.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>🛡️ Evaluation Release Readiness</h3>
+                <button
+                  onClick={fetchQualityGateResult}
+                  disabled={qualityGateLoading}
+                  className="btn"
+                  style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem', border: '1px solid var(--border)', backgroundColor: 'transparent', cursor: 'pointer' }}
+                >
+                  Refresh Gate
+                </button>
+              </div>
+              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1.25rem' }}>
+                Unified quality gate synthesizing regression thresholds, configuration checks, and pipeline health metrics.
+                <span style={{ display: 'block', marginTop: '0.25rem', color: 'var(--primary)', fontWeight: 600 }}>
+                  ⚠️ Developer / Evaluation Only — Advisory Release Readiness
+                </span>
+              </p>
+
+              {qualityGateLoading && <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Evaluating readiness status...</div>}
+              {qualityGateError && <div style={{ fontSize: '0.75rem', color: 'var(--error)' }}>⚠️ {qualityGateError}</div>}
+
+              {!qualityGateLoading && !qualityGateError && qualityGateResult && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {/* Gate Status Banner */}
+                  <div
+                    style={{
+                      padding: '0.75rem 1rem',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor:
+                        qualityGateResult.status === 'block'
+                          ? 'rgba(179,74,60,0.15)'
+                          : qualityGateResult.status === 'warning'
+                          ? 'rgba(230,126,34,0.15)'
+                          : 'rgba(46,204,113,0.15)',
+                      color:
+                        qualityGateResult.status === 'block'
+                          ? 'var(--error)'
+                          : qualityGateResult.status === 'warning'
+                          ? '#e67e22'
+                          : 'var(--success)',
+                      border: `1px solid ${
+                        qualityGateResult.status === 'block'
+                          ? 'var(--error)'
+                          : qualityGateResult.status === 'warning'
+                          ? '#e67e22'
+                          : 'var(--success)'
+                      }33`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}
+                  >
+                    <span style={{ fontWeight: 700, fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Gate Decision: {qualityGateResult.status}
+                    </span>
+                    <span style={{ fontSize: '0.6rem', opacity: 0.8 }}>
+                      Evaluated: {new Date(qualityGateResult.timestamp).toLocaleTimeString()}
+                    </span>
+                  </div>
+
+                  {/* Reasons Bullet Points */}
+                  <div style={{ fontSize: '0.7rem' }}>
+                    <div style={{ fontWeight: 600, marginBottom: '0.35rem' }}>Gate Audit Details:</div>
+                    <ul style={{ margin: '0 0 0 1rem', padding: 0, display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                      {qualityGateResult.reasons.map((reason, index) => (
+                        <li key={index} style={{ opacity: 0.9 }}>{reason}</li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {/* Checked Metrics Summary */}
+                  {Object.keys(qualityGateResult.checkedMetrics).length > 0 && (
+                    <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+                      <div style={{ fontSize: '0.7rem', fontWeight: 600, marginBottom: '0.5rem' }}>Checked Quality Metrics:</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.5rem' }}>
+                        {Object.entries(qualityGateResult.checkedMetrics).map(([metric, value]) => {
+                          const formattedValue =
+                            typeof value === 'number' && metric !== 'averageLatency' && metric !== 'timeoutCount'
+                              ? `${(value * 100).toFixed(0)}%`
+                              : metric === 'averageLatency'
+                              ? `${Math.round(Number(value))}ms`
+                              : String(value);
+
+                          return (
+                            <div
+                              key={metric}
+                              style={{
+                                padding: '0.35rem 0.5rem',
+                                border: '1px solid var(--border)',
+                                borderRadius: 'var(--radius-xs)',
+                                backgroundColor: 'rgba(255,255,255,0.01)',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                fontSize: '0.6rem'
+                              }}
+                            >
+                              <span style={{ opacity: 0.7 }}>{metric}</span>
+                              <span style={{ fontWeight: 600 }}>{formattedValue}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 

@@ -190,3 +190,12 @@ export interface ConfigSafetyResult {
   errors: string[];
   warnings: string[];
 }
+
+export interface QualityGateResult {
+  status: 'pass' | 'warning' | 'block';
+  reasons: string[];
+  checkedMetrics: Record<string, string | number>;
+  timestamp: string;
+  insufficientHistory?: boolean;
+  baselineAvailable?: boolean;
+}
