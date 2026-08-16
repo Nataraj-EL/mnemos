@@ -122,3 +122,16 @@ export interface EvaluationRunRecord {
   timestamp: string;
   summary: EvalSummary;
 }
+
+export interface EvaluationRecommendation {
+  id: string;
+  metric: string;
+  value: string;
+  severity: 'info' | 'warning' | 'critical';
+  action: string;
+  trend?: string;
+}
+
+export interface EvaluationRecommendationsSummary {
+  recommendations: EvaluationRecommendation[];
+}

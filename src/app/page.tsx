@@ -1385,6 +1385,28 @@ export default function MemoryDashboard() {
   const [selectedTargetRunId, setSelectedTargetRunId] = useState<string>('');
   const [runsComparison, setRunsComparison] = useState<import('@/evaluation/regression').RegressionSummary | null>(null);
   const [evalInsights, setEvalInsights] = useState<import('@/evaluation/insights').EvaluationInsightsSummary | null>(null);
+  const [evalRecommendations, setEvalRecommendations] = useState<import('@/evaluation/types').EvaluationRecommendation[]>([]);
+
+  const fetchRecommendations = async () => {
+    try {
+      const response = await fetch('/api/evaluation/recommendations');
+      if (response.ok) {
+        const data = await response.json();
+        setEvalRecommendations(data.recommendations || []);
+      } else {
+        const { EvaluationRecommendationsManager } = await import('@/evaluation/recommendations');
+        setEvalRecommendations(EvaluationRecommendationsManager.generateRecommendations());
+      }
+    } catch (err) {
+      console.error('Failed to fetch recommendations:', err);
+      try {
+        const { EvaluationRecommendationsManager } = await import('@/evaluation/recommendations');
+        setEvalRecommendations(EvaluationRecommendationsManager.generateRecommendations());
+      } catch (e) {
+        console.error('Local fallback recommendations failed:', e);
+      }
+    }
+  };
 
   const fetchInsights = async () => {
     try {
@@ -1434,11 +1456,13 @@ export default function MemoryDashboard() {
       if (response.ok) {
         await fetchHistory();
         await fetchInsights();
+        await fetchRecommendations();
       } else {
         const { EvaluationHistoryManager } = await import('@/evaluation/history');
         EvaluationHistoryManager.deleteRun(id);
         await fetchHistory();
         await fetchInsights();
+        await fetchRecommendations();
       }
     } catch (err) {
       console.error('Failed to delete history run:', err);
@@ -1447,6 +1471,7 @@ export default function MemoryDashboard() {
         EvaluationHistoryManager.deleteRun(id);
         await fetchHistory();
         await fetchInsights();
+        await fetchRecommendations();
       } catch (e) {
         console.error('Local delete failed:', e);
       }
@@ -1459,12 +1484,14 @@ export default function MemoryDashboard() {
       if (response.ok) {
         await fetchHistory();
         await fetchInsights();
+        await fetchRecommendations();
         setRunsComparison(null);
       } else {
         const { EvaluationHistoryManager } = await import('@/evaluation/history');
         EvaluationHistoryManager.clearHistory();
         await fetchHistory();
         await fetchInsights();
+        await fetchRecommendations();
         setRunsComparison(null);
       }
     } catch (err) {
@@ -1474,6 +1501,7 @@ export default function MemoryDashboard() {
         EvaluationHistoryManager.clearHistory();
         await fetchHistory();
         await fetchInsights();
+        await fetchRecommendations();
         setRunsComparison(null);
       } catch (e) {
         console.error('Local clear failed:', e);
@@ -1546,6 +1574,7 @@ export default function MemoryDashboard() {
         EvaluationHistoryManager.addRun(localResult.summary);
         await fetchHistory();
         await fetchInsights();
+        await fetchRecommendations();
 
         setEvalSummary({
           ...localResult.summary,
@@ -1562,6 +1591,7 @@ export default function MemoryDashboard() {
         }
         await fetchHistory();
         await fetchInsights();
+        await fetchRecommendations();
       }
     } catch (err) {
       console.error('Failed to execute evaluation:', err);
@@ -1684,6 +1714,7 @@ export default function MemoryDashboard() {
       fetchHealth();
       fetchHistory();
       fetchInsights();
+      fetchRecommendations();
     }, 0);
     const healthInterval = setInterval(fetchHealth, 15000);
     return () => clearInterval(healthInterval);
@@ -4527,6 +4558,68 @@ export default function MemoryDashboard() {
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Evaluation Recommendations Panel */}
+              {historyRuns.length >= 2 && evalRecommendations.length > 0 && (
+                <div>
+                  <hr style={{ border: '0', borderTop: '1px solid var(--border)', margin: '1.5rem 0 1.25rem 0' }} />
+                  
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '1rem' }}>
+                    <span style={{ fontSize: '1.1rem' }}>🛠️</span>
+                    <h4 style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--primary)', margin: 0 }}>Adaptive Recommendations (Advisory Only)</h4>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {evalRecommendations.map((rec) => {
+                      let severityBadgeColor = 'var(--text)';
+                      let severityBadgeBg = 'rgba(255, 255, 255, 0.05)';
+                      let severityLabel = 'INFO';
+                      if (rec.severity === 'critical') {
+                        severityBadgeColor = 'var(--error)';
+                        severityBadgeBg = 'rgba(179, 74, 60, 0.15)';
+                        severityLabel = 'CRITICAL';
+                      } else if (rec.severity === 'warning') {
+                        severityBadgeColor = 'orange';
+                        severityBadgeBg = 'rgba(255, 165, 0, 0.1)';
+                        severityLabel = 'WARNING';
+                      }
+
+                      return (
+                        <div key={rec.id} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start', padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)' }}>
+                          <span style={{ 
+                            fontSize: '0.65rem', 
+                            fontWeight: 'bold', 
+                            padding: '0.15rem 0.35rem', 
+                            borderRadius: 'var(--radius-xs)', 
+                            color: severityBadgeColor, 
+                            backgroundColor: severityBadgeBg,
+                            border: `1px solid ${severityBadgeColor}`,
+                            textTransform: 'uppercase',
+                            minWidth: '70px',
+                            textAlign: 'center'
+                          }}>
+                            {severityLabel}
+                          </span>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.7rem' }}>
+                            <div>
+                              Metric: <strong>{rec.metric}</strong> (Value: <code>{rec.value}</code>
+                              {rec.trend && (
+                                <span style={{ marginLeft: '0.5rem', opacity: 0.7 }}>
+                                  Trend: <code>{rec.trend}</code>
+                                </span>
+                              )}
+                              )
+                            </div>
+                            <div style={{ opacity: 0.9 }}>
+                              Action: <strong>{rec.action}</strong>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
