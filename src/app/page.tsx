@@ -2040,6 +2040,146 @@ export default function MemoryDashboard() {
       setReportLoading(false);
     }
   };
+  const [reportHistory, setReportHistory] = useState<import('@/evaluation/types').EvaluationReportRecord[]>([]);
+  const [reportHistoryLoading, setReportHistoryLoading] = useState(false);
+  const [reportHistoryError, setReportHistoryError] = useState<string | null>(null);
+
+  const [compareBaseReportId, setCompareBaseReportId] = useState('');
+  const [compareTargetReportId, setCompareTargetReportId] = useState('');
+  const [reportComparisonResult, setReportComparisonResult] = useState<import('@/evaluation/types').ReportComparisonResult | null>(null);
+  const [reportComparisonLoading, setReportComparisonLoading] = useState(false);
+  const [reportComparisonError, setReportComparisonError] = useState<string | null>(null);
+
+  const fetchReportHistory = async () => {
+    setReportHistoryLoading(true);
+    setReportHistoryError(null);
+    try {
+      const response = await fetch('/api/evaluation/report/history');
+      if (response.ok) {
+        const data = await response.json();
+        setReportHistory(data);
+      } else {
+        const { EvaluationReportHistoryManager } = await import('@/evaluation/reportHistory');
+        setReportHistory(EvaluationReportHistoryManager.listReports());
+      }
+    } catch (err) {
+      console.error('Failed to fetch report history:', err);
+      try {
+        const { EvaluationReportHistoryManager } = await import('@/evaluation/reportHistory');
+        setReportHistory(EvaluationReportHistoryManager.listReports());
+      } catch (e) {
+        console.error('Local history load failed:', e);
+        setReportHistoryError('Failed to fetch report history.');
+      }
+    } finally {
+      setReportHistoryLoading(false);
+    }
+  };
+
+  const handleSaveReport = async (report: import('@/evaluation/types').EvaluationReport) => {
+    try {
+      const response = await fetch('/api/evaluation/report/history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ report }),
+      });
+      if (response.ok) {
+        await fetchReportHistory();
+      } else {
+        const { EvaluationReportHistoryManager } = await import('@/evaluation/reportHistory');
+        EvaluationReportHistoryManager.addReport(report);
+        await fetchReportHistory();
+      }
+    } catch (err) {
+      console.error('Failed to save report:', err);
+      try {
+        const { EvaluationReportHistoryManager } = await import('@/evaluation/reportHistory');
+        EvaluationReportHistoryManager.addReport(report);
+        await fetchReportHistory();
+      } catch (e) {
+        console.error('Local report save failed:', e);
+      }
+    }
+  };
+
+  const handleDeleteReport = async (id: string) => {
+    try {
+      const response = await fetch(`/api/evaluation/report/history?id=${id}`, { method: 'DELETE' });
+      if (response.ok) {
+        await fetchReportHistory();
+      } else {
+        const { EvaluationReportHistoryManager } = await import('@/evaluation/reportHistory');
+        EvaluationReportHistoryManager.deleteReport(id);
+        await fetchReportHistory();
+      }
+    } catch (err) {
+      console.error('Failed to delete report:', err);
+      try {
+        const { EvaluationReportHistoryManager } = await import('@/evaluation/reportHistory');
+        EvaluationReportHistoryManager.deleteReport(id);
+        await fetchReportHistory();
+      } catch (e) {
+        console.error('Local report delete failed:', e);
+      }
+    }
+  };
+
+  const handleClearReportHistory = async () => {
+    const confirmClear = confirm('Are you sure you want to clear the entire report history?');
+    if (!confirmClear) return;
+    try {
+      const response = await fetch('/api/evaluation/report/history', { method: 'DELETE' });
+      if (response.ok) {
+        await fetchReportHistory();
+      } else {
+        const { EvaluationReportHistoryManager } = await import('@/evaluation/reportHistory');
+        EvaluationReportHistoryManager.clearHistory();
+        await fetchReportHistory();
+      }
+    } catch (err) {
+      console.error('Failed to clear report history:', err);
+      try {
+        const { EvaluationReportHistoryManager } = await import('@/evaluation/reportHistory');
+        EvaluationReportHistoryManager.clearHistory();
+        await fetchReportHistory();
+      } catch (e) {
+        console.error('Local history clear failed:', e);
+      }
+    }
+  };
+
+  const handleCompareReports = async () => {
+    if (!compareBaseReportId || !compareTargetReportId) return;
+    setReportComparisonLoading(true);
+    setReportComparisonError(null);
+    try {
+      const response = await fetch('/api/evaluation/report/history/compare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ baseReportId: compareBaseReportId, targetReportId: compareTargetReportId }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setReportComparisonResult(data);
+      } else {
+        const { EvaluationReportHistoryManager } = await import('@/evaluation/reportHistory');
+        const localComparison = EvaluationReportHistoryManager.compareReports(compareBaseReportId, compareTargetReportId);
+        setReportComparisonResult(localComparison);
+      }
+    } catch (err) {
+      console.error('Failed to compare reports:', err);
+      try {
+        const { EvaluationReportHistoryManager } = await import('@/evaluation/reportHistory');
+        const localComparison = EvaluationReportHistoryManager.compareReports(compareBaseReportId, compareTargetReportId);
+        setReportComparisonResult(localComparison);
+      } catch (e) {
+        console.error('Local comparison computation failed:', e);
+        setReportComparisonError('Failed to calculate report comparison.');
+      }
+    } finally {
+      setReportComparisonLoading(false);
+    }
+  };
   const [baseExpId, setBaseExpId] = useState('');
   const [targetExpId, setTargetExpId] = useState('');
   const [expComparisonResult, setExpComparisonResult] = useState<{ comparison: import('@/evaluation/regression').RegressionSummary } | null>(null);
@@ -2274,6 +2414,7 @@ export default function MemoryDashboard() {
       fetchPromotionHistory();
       fetchQualityGateResult();
       fetchReportResult();
+      fetchReportHistory();
     }, 0);
     const healthInterval = setInterval(fetchHealth, 15000);
     return () => clearInterval(healthInterval);
@@ -6430,6 +6571,14 @@ export default function MemoryDashboard() {
                       {/* Export buttons */}
                       <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginTop: '0.5rem' }}>
                         <button
+                          onClick={() => handleSaveReport(reportResult)}
+                          className="btn btn-success"
+                          style={{ fontSize: '0.7rem', padding: '0.4rem 0.8rem', backgroundColor: 'var(--success)', color: '#fff', border: 'none' }}
+                        >
+                          📥 Save to History
+                        </button>
+
+                        <button
                           onClick={() => {
                             try {
                               navigator.clipboard.writeText(JSON.stringify(reportResult, null, 2));
@@ -6465,6 +6614,279 @@ export default function MemoryDashboard() {
                         </button>
 
                         {copyStatus && <span style={{ fontSize: '0.65rem', opacity: 0.8, color: copyStatus.includes('Failed') ? 'var(--error)' : 'var(--success)' }}>{copyStatus}</span>}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Evaluation Report History & Versioning */}
+            <div className="card" style={{ padding: '1.25rem', marginTop: '1.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>📋 Saved Evaluation Reports History</h3>
+                <button
+                  onClick={handleClearReportHistory}
+                  disabled={reportHistory.length === 0}
+                  className="btn"
+                  style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem', border: '1px solid var(--border)', backgroundColor: 'transparent', cursor: 'pointer', color: 'var(--error)' }}
+                >
+                  Clear History
+                </button>
+              </div>
+              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1.25rem' }}>
+                Review, compare, and export previously saved evaluation reports.
+                <span style={{ display: 'block', marginTop: '0.25rem', color: 'var(--primary)', fontWeight: 600 }}>
+                  ⚠️ Developer / Evaluation Only — Saved Reports History
+                </span>
+              </p>
+
+              {reportHistoryLoading && <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Loading saved reports...</div>}
+              {reportHistoryError && <div style={{ fontSize: '0.75rem', color: 'var(--error)' }}>⚠️ {reportHistoryError}</div>}
+
+              {!reportHistoryLoading && !reportHistoryError && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  {reportHistory.length === 0 ? (
+                    <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(255,255,255,0.01)', fontSize: '0.7rem', opacity: 0.5 }}>
+                      No saved evaluation reports in history. Click &quot;Save to History&quot; above to persist a report.
+                    </div>
+                  ) : (
+                    <>
+                      {/* Reports List Table */}
+                      <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.65rem', textAlign: 'left' }}>
+                          <thead>
+                            <tr style={{ backgroundColor: 'rgba(0,0,0,0.15)', borderBottom: '1px solid var(--border)' }}>
+                              <th style={{ padding: '0.4rem' }}>Timestamp</th>
+                              <th style={{ padding: '0.4rem' }}>Report ID</th>
+                              <th style={{ padding: '0.4rem' }}>Gate</th>
+                              <th style={{ padding: '0.4rem' }}>Regression</th>
+                              <th style={{ padding: '0.4rem', textAlign: 'right' }}>Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {reportHistory.map((rec) => {
+                              const dateStr = new Date(rec.timestamp).toLocaleTimeString();
+                              return (
+                                <tr key={rec.id} style={{ borderBottom: '1px solid var(--border)', opacity: 0.9 }}>
+                                  <td style={{ padding: '0.4rem', whiteSpace: 'nowrap' }}>{dateStr}</td>
+                                  <td style={{ padding: '0.4rem', fontFamily: 'monospace', opacity: 0.7 }}>{rec.id}</td>
+                                  <td style={{ padding: '0.4rem' }}>
+                                    <span
+                                      style={{
+                                        fontSize: '0.55rem',
+                                        padding: '0.1rem 0.3rem',
+                                        borderRadius: 'var(--radius-xs)',
+                                        backgroundColor:
+                                          rec.report.qualityGate?.status === 'block'
+                                            ? 'rgba(179,74,60,0.15)'
+                                            : rec.report.qualityGate?.status === 'warning'
+                                            ? 'rgba(230,126,34,0.15)'
+                                            : 'rgba(46,204,113,0.15)',
+                                        color:
+                                          rec.report.qualityGate?.status === 'block'
+                                            ? 'var(--error)'
+                                            : rec.report.qualityGate?.status === 'warning'
+                                            ? '#e67e22'
+                                            : 'var(--success)',
+                                        border: `1px solid ${
+                                          rec.report.qualityGate?.status === 'block'
+                                            ? 'var(--error)'
+                                            : rec.report.qualityGate?.status === 'warning'
+                                            ? '#e67e22'
+                                            : 'var(--success)'
+                                        }33`,
+                                        fontWeight: 600,
+                                        textTransform: 'uppercase'
+                                      }}
+                                    >
+                                      {rec.report.qualityGate?.status || 'PASS'}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '0.4rem' }}>
+                                    <span
+                                      style={{
+                                        fontSize: '0.55rem',
+                                        padding: '0.1rem 0.3rem',
+                                        borderRadius: 'var(--radius-xs)',
+                                        backgroundColor:
+                                          rec.report.regressionStatus === 'fail'
+                                            ? 'rgba(179,74,60,0.15)'
+                                            : rec.report.regressionStatus === 'warning'
+                                            ? 'rgba(230,126,34,0.15)'
+                                            : rec.report.regressionStatus === 'pass'
+                                            ? 'rgba(46,204,113,0.15)'
+                                            : 'rgba(255,255,255,0.05)',
+                                        color:
+                                          rec.report.regressionStatus === 'fail'
+                                            ? 'var(--error)'
+                                            : rec.report.regressionStatus === 'warning'
+                                            ? '#e67e22'
+                                            : rec.report.regressionStatus === 'pass'
+                                            ? 'var(--success)'
+                                            : 'var(--primary)',
+                                        border: `1px solid ${
+                                          rec.report.regressionStatus === 'fail'
+                                            ? 'var(--error)'
+                                            : rec.report.regressionStatus === 'warning'
+                                            ? '#e67e22'
+                                            : rec.report.regressionStatus === 'pass'
+                                            ? 'var(--success)'
+                                            : 'var(--primary)'
+                                        }33`,
+                                        fontWeight: 600,
+                                        textTransform: 'uppercase'
+                                      }}
+                                    >
+                                      {rec.report.regressionStatus}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '0.4rem', textAlign: 'right' }}>
+                                    <button
+                                      onClick={() => setReportResult(rec.report)}
+                                      className="btn"
+                                      style={{ fontSize: '0.55rem', padding: '0.1rem 0.3rem', marginRight: '0.25rem', border: '1px solid var(--border)', backgroundColor: 'transparent' }}
+                                    >
+                                      View
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        try {
+                                          navigator.clipboard.writeText(JSON.stringify(rec.report, null, 2));
+                                          alert('Report copied to clipboard!');
+                                        } catch {
+                                          alert('Failed to copy report.');
+                                        }
+                                      }}
+                                      className="btn"
+                                      style={{ fontSize: '0.55rem', padding: '0.1rem 0.3rem', marginRight: '0.25rem', border: '1px solid var(--border)', backgroundColor: 'transparent' }}
+                                    >
+                                      Copy
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteReport(rec.id)}
+                                      className="btn"
+                                      style={{ fontSize: '0.55rem', padding: '0.1rem 0.3rem', border: '1px solid var(--error)', backgroundColor: 'transparent', color: 'var(--error)' }}
+                                    >
+                                      Delete
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Compare Selector section */}
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.5rem' }}>Compare Report Snapshots:</div>
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+                          <select
+                            value={compareBaseReportId}
+                            onChange={(e) => setCompareBaseReportId(e.target.value)}
+                            style={{ flex: 1, padding: '0.3rem', fontSize: '0.65rem', backgroundColor: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)' }}
+                          >
+                            <option value="">-- Select Base Report --</option>
+                            {reportHistory.map((rec) => (
+                              <option key={rec.id} value={rec.id}>{new Date(rec.timestamp).toLocaleTimeString()} ({rec.id})</option>
+                            ))}
+                          </select>
+
+                          <span style={{ fontSize: '0.65rem' }}>vs</span>
+
+                          <select
+                            value={compareTargetReportId}
+                            onChange={(e) => setCompareTargetReportId(e.target.value)}
+                            style={{ flex: 1, padding: '0.3rem', fontSize: '0.65rem', backgroundColor: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)' }}
+                          >
+                            <option value="">-- Select Target Report --</option>
+                            {reportHistory.map((rec) => (
+                              <option key={rec.id} value={rec.id}>{new Date(rec.timestamp).toLocaleTimeString()} ({rec.id})</option>
+                            ))}
+                          </select>
+
+                          <button
+                            onClick={handleCompareReports}
+                            disabled={!compareBaseReportId || !compareTargetReportId || reportComparisonLoading}
+                            className="btn btn-primary"
+                            style={{ fontSize: '0.65rem', padding: '0.3rem 0.6rem' }}
+                          >
+                            Compare
+                          </button>
+                        </div>
+
+                        {/* Comparison Results */}
+                        {reportComparisonLoading && <div style={{ fontSize: '0.65rem', opacity: 0.8 }}>Computing report version comparison...</div>}
+                        {reportComparisonError && <div style={{ fontSize: '0.65rem', color: 'var(--error)' }}>⚠️ {reportComparisonError}</div>}
+
+                        {!reportComparisonLoading && !reportComparisonError && reportComparisonResult && (
+                          <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'rgba(0,0,0,0.1)' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.5rem', fontSize: '0.65rem' }}>
+                              <div>
+                                <span style={{ opacity: 0.6 }}>Gate Status:</span>{' '}
+                                <strong style={{ textTransform: 'uppercase' }}>{reportComparisonResult.gateStatusChange.base}</strong>{' '}
+                                &rarr;{' '}
+                                <strong style={{ textTransform: 'uppercase' }}>{reportComparisonResult.gateStatusChange.target}</strong>
+                              </div>
+                              <div>
+                                <span style={{ opacity: 0.6 }}>Regression:</span>{' '}
+                                <strong style={{ textTransform: 'uppercase' }}>{reportComparisonResult.statusChange.base}</strong>{' '}
+                                &rarr;{' '}
+                                <strong style={{ textTransform: 'uppercase' }}>{reportComparisonResult.statusChange.target}</strong>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.5rem' }}>
+                              {Object.entries(reportComparisonResult.deltas).map(([metric, delta]) => {
+                                const formatVal = (val: string | number) => {
+                                  if (typeof val === 'number') {
+                                    return metric === 'averageLatency' ? `${Math.round(val)}ms` : `${(val * 100).toFixed(0)}%`;
+                                  }
+                                  return String(val);
+                                };
+
+                                const isLatency = metric === 'averageLatency';
+                                const abs = delta.absolute;
+                                let deltaColor = 'inherit';
+                                let prefix = '';
+
+                                if (typeof abs === 'number') {
+                                  const positiveIsBetter = !isLatency;
+                                  if (abs > 0) {
+                                    deltaColor = positiveIsBetter ? 'var(--success)' : 'var(--error)';
+                                    prefix = '+';
+                                  } else if (abs < 0) {
+                                    deltaColor = positiveIsBetter ? 'var(--error)' : 'var(--success)';
+                                  }
+                                }
+
+                                return (
+                                  <div
+                                    key={metric}
+                                    style={{
+                                      padding: '0.35rem 0.5rem',
+                                      border: '1px solid var(--border)',
+                                      borderRadius: 'var(--radius-xs)',
+                                      backgroundColor: 'rgba(255,255,255,0.01)',
+                                      fontSize: '0.6rem'
+                                    }}
+                                  >
+                                    <div style={{ opacity: 0.7, fontWeight: 600, marginBottom: '0.15rem' }}>{metric}</div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <span style={{ opacity: 0.6 }}>{formatVal(delta.base)} &rarr; {formatVal(delta.target)}</span>
+                                      {typeof abs === 'number' && abs !== 0 && (
+                                        <span style={{ color: deltaColor, fontWeight: 700 }}>
+                                          {prefix}{isLatency ? `${Math.round(abs)}ms` : `${(abs * 100).toFixed(0)}%`}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </>
                   )}

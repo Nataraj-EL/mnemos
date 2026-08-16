@@ -224,3 +224,23 @@ export interface EvaluationReport {
     explanation?: string;
   } | null;
 }
+
+export interface EvaluationReportRecord {
+  id: string;
+  timestamp: string;
+  report: EvaluationReport;
+}
+
+export interface ReportComparisonResult {
+  baseReportId: string;
+  targetReportId: string;
+  statusChange: {
+    base: string;
+    target: string;
+  };
+  gateStatusChange: {
+    base: string;
+    target: string;
+  };
+  deltas: Record<string, { base: number | string; target: number | string; absolute?: number }>;
+}
