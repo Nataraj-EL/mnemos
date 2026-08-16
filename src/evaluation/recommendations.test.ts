@@ -151,7 +151,7 @@ describe('Sprint 44: Adaptive Evaluation Recommendations Tests', () => {
         ...dummySummary,
         faithfulness: undefined, // Missing
         retrievalRecall: 0.70,   // critical recall -> should trigger
-      });
+      } as unknown as EvalSummary);
 
       const recs = EvaluationRecommendationsManager.generateRecommendations();
       expect(recs).toHaveLength(1);

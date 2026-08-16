@@ -1633,6 +1633,76 @@ export default function MemoryDashboard() {
     }
   };
 
+  // A/B Experiment State
+  const [controlSemanticWeight, setControlSemanticWeight] = useState(0.7);
+  const [controlLexicalWeight, setControlLexicalWeight] = useState(0.3);
+  const [controlMinSim, setControlMinSim] = useState(0.5);
+  const [controlMaxConvSnippets, setControlMaxConvSnippets] = useState(10);
+
+  const [candidateSemanticWeight, setCandidateSemanticWeight] = useState(0.5);
+  const [candidateLexicalWeight, setCandidateLexicalWeight] = useState(0.5);
+  const [candidateMinSim, setCandidateMinSim] = useState(0.4);
+  const [candidateMaxConvSnippets, setCandidateMaxConvSnippets] = useState(12);
+
+  const [experimentResult, setExperimentResult] = useState<import('@/evaluation/types').ExperimentResult | null>(null);
+  const [experimentLoading, setExperimentLoading] = useState(false);
+  const [experimentError, setExperimentError] = useState<string | null>(null);
+
+  const handleRunExperiment = async () => {
+    setExperimentLoading(true);
+    setExperimentError(null);
+    setExperimentResult(null);
+
+    const controlConfig = {
+      semanticWeight: controlSemanticWeight,
+      lexicalWeight: controlLexicalWeight,
+      minSimilarity: controlMinSim,
+      diversityThreshold: 0.3,
+      maxConversationSnippets: controlMaxConvSnippets,
+    };
+
+    const candidateConfig = {
+      semanticWeight: candidateSemanticWeight,
+      lexicalWeight: candidateLexicalWeight,
+      minSimilarity: candidateMinSim,
+      diversityThreshold: 0.3,
+      maxConversationSnippets: candidateMaxConvSnippets,
+    };
+
+    try {
+      const response = await fetch('/api/evaluation/experiment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ controlConfig, candidateConfig }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setExperimentResult(data);
+      } else {
+        console.warn('Server experiment endpoint failed. Running locally in browser...', data.error);
+        if (data.error && data.error.includes('already in progress')) {
+          setExperimentError(data.error);
+          return;
+        }
+
+        const { EvaluationExperimentRunner } = await import('@/evaluation/experiment');
+        const localResult = await EvaluationExperimentRunner.runExperiment(controlConfig, candidateConfig);
+        setExperimentResult(localResult);
+      }
+    } catch (err: unknown) {
+      console.error('Failed to run A/B experiment:', err);
+      try {
+        const { EvaluationExperimentRunner } = await import('@/evaluation/experiment');
+        const localResult = await EvaluationExperimentRunner.runExperiment(controlConfig, candidateConfig);
+        setExperimentResult(localResult);
+      } catch (e: unknown) {
+        setExperimentError(e instanceof Error ? e.message : 'An unexpected error occurred during the A/B experiment.');
+      }
+    } finally {
+      setExperimentLoading(false);
+    }
+  };
+
   // Parameter Tuning State
   const [tuningSummary, setTuningSummary] = useState<TuningBenchmarkSummary | null>(null);
   const [tuningLoading, setTuningLoading] = useState(false);
@@ -4848,6 +4918,236 @@ export default function MemoryDashboard() {
                               <td style={{ padding: '0.35rem', color: deltaTypeColor }}>{absoluteText}</td>
                               <td style={{ padding: '0.35rem', color: deltaTypeColor }}>{percentageText}</td>
                               <td style={{ padding: '0.35rem', color: deltaTypeColor, fontWeight: 600 }}>{deltaTypeLabel}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* A/B Evaluation Experimentation */}
+            <div className="card" style={{ padding: '1.25rem', marginTop: '1.5rem' }}>
+              <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>🧪 A/B Evaluation Experimentation</h3>
+              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1.25rem' }}>
+                Compare two retrieval parameter configurations side-by-side under identical evaluation scenarios. 
+                <strong style={{ color: 'var(--primary)', marginLeft: '0.25rem' }}>Developer / Advisory Only</strong>.
+              </p>
+
+              {/* Configurations input side-by-side */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.25rem' }}>
+                {/* Control Parameter Inputs */}
+                <div style={{ padding: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(255,255,255,0.02)' }}>
+                  <h4 style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--primary)', marginBottom: '0.75rem' }}>Control Configuration (A)</h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.7rem' }}>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                      <span>Semantic Weight (0.0 - 1.0):</span>
+                      <input 
+                        type="number" 
+                        step="0.05" 
+                        min="0" 
+                        max="1"
+                        value={controlSemanticWeight} 
+                        onChange={(e) => setControlSemanticWeight(parseFloat(e.target.value) || 0)} 
+                        disabled={experimentLoading}
+                        style={{ padding: '0.25rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                      />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                      <span>Lexical Weight (0.0 - 1.0):</span>
+                      <input 
+                        type="number" 
+                        step="0.05" 
+                        min="0" 
+                        max="1"
+                        value={controlLexicalWeight} 
+                        onChange={(e) => setControlLexicalWeight(parseFloat(e.target.value) || 0)} 
+                        disabled={experimentLoading}
+                        style={{ padding: '0.25rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                      />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                      <span>Min Similarity (0.0 - 1.0):</span>
+                      <input 
+                        type="number" 
+                        step="0.05" 
+                        min="0" 
+                        max="1"
+                        value={controlMinSim} 
+                        onChange={(e) => setControlMinSim(parseFloat(e.target.value) || 0)} 
+                        disabled={experimentLoading}
+                        style={{ padding: '0.25rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                      />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                      <span>Max Conversation Snippets (1 - 100):</span>
+                      <input 
+                        type="number" 
+                        min="1" 
+                        max="100"
+                        value={controlMaxConvSnippets} 
+                        onChange={(e) => setControlMaxConvSnippets(parseInt(e.target.value) || 0)} 
+                        disabled={experimentLoading}
+                        style={{ padding: '0.25rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                {/* Candidate Parameter Inputs */}
+                <div style={{ padding: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(255,255,255,0.02)' }}>
+                  <h4 style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--success)', marginBottom: '0.75rem' }}>Candidate Configuration (B)</h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.7rem' }}>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                      <span>Semantic Weight (0.0 - 1.0):</span>
+                      <input 
+                        type="number" 
+                        step="0.05" 
+                        min="0" 
+                        max="1"
+                        value={candidateSemanticWeight} 
+                        onChange={(e) => setCandidateSemanticWeight(parseFloat(e.target.value) || 0)} 
+                        disabled={experimentLoading}
+                        style={{ padding: '0.25rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                      />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                      <span>Lexical Weight (0.0 - 1.0):</span>
+                      <input 
+                        type="number" 
+                        step="0.05" 
+                        min="0" 
+                        max="1"
+                        value={candidateLexicalWeight} 
+                        onChange={(e) => setCandidateLexicalWeight(parseFloat(e.target.value) || 0)} 
+                        disabled={experimentLoading}
+                        style={{ padding: '0.25rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                      />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                      <span>Min Similarity (0.0 - 1.0):</span>
+                      <input 
+                        type="number" 
+                        step="0.05" 
+                        min="0" 
+                        max="1"
+                        value={candidateMinSim} 
+                        onChange={(e) => setCandidateMinSim(parseFloat(e.target.value) || 0)} 
+                        disabled={experimentLoading}
+                        style={{ padding: '0.25rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                      />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                      <span>Max Conversation Snippets (1 - 100):</span>
+                      <input 
+                        type="number" 
+                        min="1" 
+                        max="100"
+                        value={candidateMaxConvSnippets} 
+                        onChange={(e) => setCandidateMaxConvSnippets(parseInt(e.target.value) || 0)} 
+                        disabled={experimentLoading}
+                        style={{ padding: '0.25rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Button & Error Display */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.25rem' }}>
+                <button
+                  onClick={handleRunExperiment}
+                  disabled={experimentLoading}
+                  className="premium-btn premium-btn-primary"
+                  style={{ width: '100%' }}
+                >
+                  {experimentLoading ? (
+                    <>
+                      {renderSpinner()}
+                      Running Experiment (Evaluating real pipelines)...
+                    </>
+                  ) : (
+                    <>🧪 Run A/B Experiment</>
+                  )}
+                </button>
+
+                {experimentError && (
+                  <div style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--error)', backgroundColor: 'rgba(179, 74, 60, 0.05)', color: 'var(--error)', fontSize: '0.75rem' }}>
+                    ⚠️ {experimentError}
+                  </div>
+                )}
+              </div>
+
+              {/* Comparison Results Card */}
+              {experimentResult && (
+                <div style={{ padding: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
+                    <h4 style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--primary)', margin: 0 }}>A/B Experimentation Report</h4>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                      Winner: 
+                      {experimentResult.recommendation === 'candidate' && (
+                        <span style={{ color: 'var(--success)', marginLeft: '0.3rem' }}>🎉 Candidate (Config B)</span>
+                      )}
+                      {experimentResult.recommendation === 'control' && (
+                        <span style={{ color: 'var(--primary)', marginLeft: '0.3rem' }}>🎉 Control (Config A)</span>
+                      )}
+                      {experimentResult.recommendation === 'draw' && (
+                        <span style={{ color: 'var(--text)', opacity: 0.8, marginLeft: '0.3rem' }}>⚖️ Draw</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: '0.75rem', opacity: 0.9, backgroundColor: 'rgba(255,255,255,0.03)', padding: '0.5rem', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)', marginBottom: '1rem' }}>
+                    ℹ️ <strong>Recommendation:</strong> {experimentResult.recommendationExplanation}
+                  </div>
+
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', fontSize: '0.7rem', textAlign: 'left', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--border)', opacity: 0.6 }}>
+                          <th style={{ padding: '0.35rem' }}>Metric</th>
+                          <th style={{ padding: '0.35rem' }}>Control (Config A)</th>
+                          <th style={{ padding: '0.35rem' }}>Candidate (Config B)</th>
+                          <th style={{ padding: '0.35rem' }}>Delta (Abs)</th>
+                          <th style={{ padding: '0.35rem' }}>Delta (%)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(experimentResult.comparison.deltas).map(([metric, delta]) => {
+                          const valCtrl = (experimentResult.controlSummary as unknown as Record<string, number | undefined>)[metric];
+                          const valCand = (experimentResult.candidateSummary as unknown as Record<string, number | undefined>)[metric];
+
+                          const formatMetricVal = (metricName: string, val: number | undefined) => {
+                            if (val === undefined) return 'N/A';
+                            if (metricName === 'averageLatency') return `${Math.round(val)} ms`;
+                            if (metricName === 'timeoutCount') return `${val}`;
+                            return `${(val * 100).toFixed(0)}%`;
+                          };
+
+                          let deltaColor = 'var(--text)';
+                          if (delta.type === 'improvement') deltaColor = 'var(--success)';
+                          else if (delta.type === 'regression') deltaColor = 'var(--error)';
+
+                          const formatAbsVal = (metricName: string, val: number | undefined) => {
+                            if (val === undefined) return 'N/A';
+                            const sign = val > 0 ? '+' : '';
+                            if (metricName === 'averageLatency') return `${sign}${Math.round(val)} ms`;
+                            if (metricName === 'timeoutCount') return `${sign}${val}`;
+                            return `${sign}${(val * 100).toFixed(0)}%`;
+                          };
+
+                          const absText = delta.absolute !== undefined ? formatAbsVal(metric, delta.absolute) : 'N/A';
+                          const pctText = delta.percentage !== undefined ? `${delta.percentage > 0 ? '+' : ''}${delta.percentage.toFixed(0)}%` : 'N/A';
+
+                          return (
+                            <tr key={metric} style={{ borderBottom: '1px solid var(--border)', opacity: 0.9 }}>
+                              <td style={{ padding: '0.35rem', fontWeight: 600 }}>{metric}</td>
+                              <td style={{ padding: '0.35rem' }}>{formatMetricVal(metric, valCtrl)}</td>
+                              <td style={{ padding: '0.35rem' }}>{formatMetricVal(metric, valCand)}</td>
+                              <td style={{ padding: '0.35rem', color: deltaColor }}>{absText}</td>
+                              <td style={{ padding: '0.35rem', color: deltaColor }}>{pctText}</td>
                             </tr>
                           );
                         })}

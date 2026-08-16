@@ -135,3 +135,13 @@ export interface EvaluationRecommendation {
 export interface EvaluationRecommendationsSummary {
   recommendations: EvaluationRecommendation[];
 }
+
+export interface ExperimentResult {
+  controlConfig: TuningConfig;
+  candidateConfig: TuningConfig;
+  controlSummary: EvalSummary;
+  candidateSummary: EvalSummary;
+  comparison: import('./regression').RegressionSummary;
+  recommendation: 'control' | 'candidate' | 'draw';
+  recommendationExplanation: string;
+}
