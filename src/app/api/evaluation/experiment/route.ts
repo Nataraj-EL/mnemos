@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { EvaluationExperimentRunner } from '@/evaluation/experiment';
+import { ExperimentHistoryManager } from '@/evaluation/experimentHistory';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,6 +27,7 @@ export async function POST(request: Request) {
     EvaluationExperimentRunner.validateConfig(candidateConfig);
 
     const result = await EvaluationExperimentRunner.runExperiment(controlConfig, candidateConfig);
+    ExperimentHistoryManager.addRecord(result);
     return NextResponse.json(result);
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred during the A/B experiment.';

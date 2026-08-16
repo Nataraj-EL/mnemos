@@ -1678,6 +1678,7 @@ export default function MemoryDashboard() {
       const data = await response.json();
       if (response.ok) {
         setExperimentResult(data);
+        await fetchExperimentHistory();
       } else {
         console.warn('Server experiment endpoint failed. Running locally in browser...', data.error);
         if (data.error && data.error.includes('already in progress')) {
@@ -1687,19 +1688,144 @@ export default function MemoryDashboard() {
 
         const { EvaluationExperimentRunner } = await import('@/evaluation/experiment');
         const localResult = await EvaluationExperimentRunner.runExperiment(controlConfig, candidateConfig);
+        const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
+        ExperimentHistoryManager.addRecord(localResult);
         setExperimentResult(localResult);
+        await fetchExperimentHistory();
       }
     } catch (err: unknown) {
       console.error('Failed to run A/B experiment:', err);
       try {
         const { EvaluationExperimentRunner } = await import('@/evaluation/experiment');
         const localResult = await EvaluationExperimentRunner.runExperiment(controlConfig, candidateConfig);
+        const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
+        ExperimentHistoryManager.addRecord(localResult);
         setExperimentResult(localResult);
+        await fetchExperimentHistory();
       } catch (e: unknown) {
         setExperimentError(e instanceof Error ? e.message : 'An unexpected error occurred during the A/B experiment.');
       }
     } finally {
       setExperimentLoading(false);
+    }
+  };
+
+  // A/B Experiment History State
+  const [experimentHistory, setExperimentHistory] = useState<import('@/evaluation/types').ExperimentRunRecord[]>([]);
+  const [expHistoryLoading, setExpHistoryLoading] = useState(false);
+  const [expHistoryError, setExpHistoryError] = useState<string | null>(null);
+
+  const [baseExpId, setBaseExpId] = useState('');
+  const [targetExpId, setTargetExpId] = useState('');
+  const [expComparisonResult, setExpComparisonResult] = useState<{ comparison: import('@/evaluation/regression').RegressionSummary } | null>(null);
+  const [expComparisonLoading, setExpComparisonLoading] = useState(false);
+  const [expComparisonError, setExpComparisonError] = useState<string | null>(null);
+
+  const fetchExperimentHistory = async () => {
+    setExpHistoryLoading(true);
+    setExpHistoryError(null);
+    try {
+      const response = await fetch('/api/evaluation/experiments/history');
+      if (response.ok) {
+        const data = await response.json();
+        setExperimentHistory(data);
+      } else {
+        const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
+        setExperimentHistory(ExperimentHistoryManager.listRecords());
+      }
+    } catch (err) {
+      console.error('Failed to fetch experiment history:', err);
+      try {
+        const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
+        setExperimentHistory(ExperimentHistoryManager.listRecords());
+      } catch (e) {
+        console.error('Local fallback failed:', e);
+        setExpHistoryError('Failed to load experiment history.');
+      }
+    } finally {
+      setExpHistoryLoading(false);
+    }
+  };
+
+  const handleDeleteExperiment = async (id: string) => {
+    try {
+      const response = await fetch(`/api/evaluation/experiments/history?id=${id}`, { method: 'DELETE' });
+      if (response.ok) {
+        await fetchExperimentHistory();
+      } else {
+        const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
+        ExperimentHistoryManager.deleteRecord(id);
+        await fetchExperimentHistory();
+      }
+    } catch (err) {
+      console.error('Failed to delete experiment:', err);
+      try {
+        const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
+        ExperimentHistoryManager.deleteRecord(id);
+        await fetchExperimentHistory();
+      } catch (e) {
+        console.error('Local delete failed:', e);
+      }
+    }
+  };
+
+  const handleClearExperimentHistory = async () => {
+    try {
+      const response = await fetch('/api/evaluation/experiments/history', { method: 'DELETE' });
+      if (response.ok) {
+        await fetchExperimentHistory();
+      } else {
+        const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
+        ExperimentHistoryManager.clearHistory();
+        await fetchExperimentHistory();
+      }
+    } catch (err) {
+      console.error('Failed to clear experiment history:', err);
+      try {
+        const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
+        ExperimentHistoryManager.clearHistory();
+        await fetchExperimentHistory();
+      } catch (e) {
+        console.error('Local clear failed:', e);
+      }
+    }
+  };
+
+  const handleCompareExperiments = async () => {
+    if (!baseExpId || !targetExpId) return;
+    setExpComparisonLoading(true);
+    setExpComparisonError(null);
+    setExpComparisonResult(null);
+    try {
+      const response = await fetch('/api/evaluation/experiments/history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ baseExperimentId: baseExpId, targetExperimentId: targetExpId }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setExpComparisonResult(data);
+      } else {
+        setExpComparisonError(data.error || 'Failed to compare experiments.');
+      }
+    } catch (err: unknown) {
+      console.error('Failed to compare experiments:', err);
+      try {
+        const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
+        const { compareSummaries } = await import('@/evaluation/regression');
+        const base = ExperimentHistoryManager.getRecord(baseExpId);
+        const target = ExperimentHistoryManager.getRecord(targetExpId);
+        if (!base || !target) {
+          setExpComparisonError('Selected experiments not found in history.');
+        } else {
+          const comp = compareSummaries(target.candidateSummary, base.candidateSummary);
+          setExpComparisonResult({ comparison: comp });
+        }
+      } catch (e: unknown) {
+        setExpComparisonError(e instanceof Error ? e.message : 'An unexpected error occurred.');
+      }
+    } finally {
+      setExpComparisonLoading(false);
     }
   };
 
@@ -1785,6 +1911,7 @@ export default function MemoryDashboard() {
       fetchHistory();
       fetchInsights();
       fetchRecommendations();
+      fetchExperimentHistory();
     }, 0);
     const healthInterval = setInterval(fetchHealth, 15000);
     return () => clearInterval(healthInterval);
@@ -5155,6 +5282,219 @@ export default function MemoryDashboard() {
                     </table>
                   </div>
                 </div>
+              )}
+            </div>
+
+            {/* A/B Experiment History & Longitudinal Analysis */}
+            <div className="card" style={{ padding: '1.25rem', marginTop: '1.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>📜 A/B Experiment History</h3>
+                {experimentHistory.length > 0 && (
+                  <button
+                    onClick={handleClearExperimentHistory}
+                    className="premium-btn"
+                    style={{ fontSize: '0.65rem', padding: '0.25rem 0.5rem', backgroundColor: 'rgba(179, 74, 60, 0.1)', border: '1px solid var(--error)', color: 'var(--error)' }}
+                  >
+                    🗑️ Clear History
+                  </button>
+                )}
+              </div>
+              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
+                Auditing session-scoped A/B evaluation records. Compare candidates longitudinally to monitor retrieval improvements.
+              </p>
+
+              {expHistoryLoading && <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Loading history...</div>}
+              {expHistoryError && <div style={{ fontSize: '0.75rem', color: 'var(--error)' }}>⚠️ {expHistoryError}</div>}
+
+              {!expHistoryLoading && !expHistoryError && experimentHistory.length === 0 && (
+                <div style={{ fontSize: '0.75rem', opacity: 0.5, textAlign: 'center', padding: '1.5rem', border: '1px dashed var(--border)', borderRadius: 'var(--radius-md)' }}>
+                  No historical experiments logged in this session. Run an A/B experiment above to record metrics.
+                </div>
+              )}
+
+              {experimentHistory.length > 0 && (
+                <>
+                  {/* Historical Runs List */}
+                  <div style={{ overflowX: 'auto', maxHeight: '250px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', marginBottom: '1.25rem' }}>
+                    <table style={{ width: '100%', fontSize: '0.7rem', textAlign: 'left', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'rgba(255,255,255,0.02)', position: 'sticky', top: 0, zIndex: 1 }}>
+                          <th style={{ padding: '0.4rem' }}>Timestamp</th>
+                          <th style={{ padding: '0.4rem' }}>Control Config</th>
+                          <th style={{ padding: '0.4rem' }}>Candidate Config</th>
+                          <th style={{ padding: '0.4rem' }}>Winner</th>
+                          <th style={{ padding: '0.4rem', textAlign: 'right' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {experimentHistory.map((run) => {
+                          const timeStr = new Date(run.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                          return (
+                            <tr key={run.id} style={{ borderBottom: '1px solid var(--border)', opacity: 0.9 }}>
+                              <td style={{ padding: '0.4rem', fontWeight: 600 }}>{timeStr}</td>
+                              <td style={{ padding: '0.4rem' }}>
+                                sem:{run.controlConfig.semanticWeight} / lex:{run.controlConfig.lexicalWeight} / sim:{run.controlConfig.minSimilarity}
+                              </td>
+                              <td style={{ padding: '0.4rem' }}>
+                                sem:{run.candidateConfig.semanticWeight} / lex:{run.candidateConfig.lexicalWeight} / sim:{run.candidateConfig.minSimilarity}
+                              </td>
+                              <td style={{ padding: '0.4rem' }}>
+                                {run.recommendation === 'candidate' && (
+                                  <span style={{ color: 'var(--success)', fontWeight: 600 }}>Candidate</span>
+                                )}
+                                {run.recommendation === 'control' && (
+                                  <span style={{ color: 'var(--primary)', fontWeight: 600 }}>Control</span>
+                                )}
+                                {run.recommendation === 'draw' && (
+                                  <span style={{ color: 'var(--text)', opacity: 0.7 }}>Draw</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '0.4rem', textAlign: 'right' }}>
+                                <button
+                                  onClick={() => handleDeleteExperiment(run.id)}
+                                  style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', fontSize: '0.75rem', opacity: 0.8 }}
+                                  title="Delete Record"
+                                >
+                                  ❌
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Longitudinal Comparison Selector */}
+                  <div style={{ padding: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(255,255,255,0.01)' }}>
+                    <h4 style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--primary)', marginBottom: '0.75rem' }}>📈 Longitudinal Candidate Comparison</h4>
+                    <p style={{ fontSize: '0.65rem', opacity: 0.7, marginBottom: '0.75rem' }}>
+                      Analyze candidate performance changes between two historical configurations. Reuses standard evaluation regression tolerance thresholds.
+                    </p>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.7rem' }}>
+                        <span>Base Experiment (Older):</span>
+                        <select
+                          value={baseExpId}
+                          onChange={(e) => setBaseExpId(e.target.value)}
+                          style={{ padding: '0.3rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                        >
+                          <option value="">-- Select base run --</option>
+                          {experimentHistory.map((run) => (
+                            <option key={run.id} value={run.id}>
+                              {new Date(run.timestamp).toLocaleTimeString()} (Winner: {run.recommendation})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.7rem' }}>
+                        <span>Target Experiment (Newer):</span>
+                        <select
+                          value={targetExpId}
+                          onChange={(e) => setTargetExpId(e.target.value)}
+                          style={{ padding: '0.3rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                        >
+                          <option value="">-- Select target run --</option>
+                          {experimentHistory.map((run) => (
+                            <option key={run.id} value={run.id}>
+                              {new Date(run.timestamp).toLocaleTimeString()} (Winner: {run.recommendation})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    <button
+                      onClick={handleCompareExperiments}
+                      disabled={!baseExpId || !targetExpId || baseExpId === targetExpId || expComparisonLoading}
+                      className="premium-btn premium-btn-primary"
+                      style={{ width: '100%', padding: '0.4rem', fontSize: '0.7rem' }}
+                    >
+                      {expComparisonLoading ? 'Comparing candidate metrics...' : 'Compare Candidate Runs'}
+                    </button>
+
+                    {expComparisonError && (
+                      <div style={{ marginTop: '0.5rem', padding: '0.4rem 0.6rem', border: '1px solid var(--error)', borderRadius: 'var(--radius-sm)', backgroundColor: 'rgba(179,74,60,0.05)', color: 'var(--error)', fontSize: '0.7rem' }}>
+                        ⚠️ {expComparisonError}
+                      </div>
+                    )}
+
+                    {/* Comparison Delta View */}
+                    {expComparisonResult && (
+                      <div style={{ marginTop: '1rem', padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'rgba(0,0,0,0.15)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.35rem' }}>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>Longitudinal Report</span>
+                          <span style={{
+                            fontSize: '0.65rem',
+                            fontWeight: 700,
+                            padding: '0.15rem 0.4rem',
+                            borderRadius: 'var(--radius-xs)',
+                            backgroundColor: expComparisonResult.comparison.status === 'fail' ? 'rgba(179,74,60,0.2)' : expComparisonResult.comparison.status === 'warning' ? 'rgba(230,126,34,0.2)' : 'rgba(46,204,113,0.2)',
+                            color: expComparisonResult.comparison.status === 'fail' ? 'var(--error)' : expComparisonResult.comparison.status === 'warning' ? '#e67e22' : 'var(--success)'
+                          }}>
+                            STATUS: {expComparisonResult.comparison.status.toUpperCase()}
+                          </span>
+                        </div>
+
+                        <div style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', fontSize: '0.65rem', textAlign: 'left', borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr style={{ borderBottom: '1px solid var(--border)', opacity: 0.5 }}>
+                                <th style={{ padding: '0.3rem' }}>Metric</th>
+                                <th style={{ padding: '0.3rem' }}>Base Candidate</th>
+                                <th style={{ padding: '0.3rem' }}>Target Candidate</th>
+                                <th style={{ padding: '0.3rem' }}>Delta (Abs)</th>
+                                <th style={{ padding: '0.3rem' }}>Delta (%)</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {Object.entries(expComparisonResult.comparison.deltas).map(([metric, delta]) => {
+                                const baseRecord = experimentHistory.find((r) => r.id === baseExpId);
+                                const targetRecord = experimentHistory.find((r) => r.id === targetExpId);
+                                const valBase = baseRecord ? (baseRecord.candidateSummary as unknown as Record<string, number | undefined>)[metric] : undefined;
+                                const valTarget = targetRecord ? (targetRecord.candidateSummary as unknown as Record<string, number | undefined>)[metric] : undefined;
+
+                                const formatMetricVal = (metricName: string, val: number | undefined) => {
+                                  if (val === undefined) return 'N/A';
+                                  if (metricName === 'averageLatency') return `${Math.round(val)} ms`;
+                                  if (metricName === 'timeoutCount') return `${val}`;
+                                  return `${(val * 100).toFixed(0)}%`;
+                                };
+
+                                let deltaColor = 'var(--text)';
+                                if (delta.type === 'improvement') deltaColor = 'var(--success)';
+                                else if (delta.type === 'regression') deltaColor = 'var(--error)';
+
+                                const formatAbsVal = (metricName: string, val: number | undefined) => {
+                                  if (val === undefined) return 'N/A';
+                                  const sign = val > 0 ? '+' : '';
+                                  if (metricName === 'averageLatency') return `${sign}${Math.round(val)} ms`;
+                                  if (metricName === 'timeoutCount') return `${sign}${val}`;
+                                  return `${sign}${(val * 100).toFixed(0)}%`;
+                                };
+
+                                const absText = delta.absolute !== undefined ? formatAbsVal(metric, delta.absolute) : 'N/A';
+                                const pctText = delta.percentage !== undefined ? `${delta.percentage > 0 ? '+' : ''}${delta.percentage.toFixed(0)}%` : 'N/A';
+
+                                return (
+                                  <tr key={metric} style={{ borderBottom: '1px solid var(--border)', opacity: 0.9 }}>
+                                    <td style={{ padding: '0.3rem', fontWeight: 600 }}>{metric}</td>
+                                    <td style={{ padding: '0.3rem' }}>{formatMetricVal(metric, valBase)}</td>
+                                    <td style={{ padding: '0.3rem' }}>{formatMetricVal(metric, valTarget)}</td>
+                                    <td style={{ padding: '0.3rem', color: deltaColor }}>{absText}</td>
+                                    <td style={{ padding: '0.3rem', color: deltaColor }}>{pctText}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
             </div>
 

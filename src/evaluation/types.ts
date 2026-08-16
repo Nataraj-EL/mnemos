@@ -145,3 +145,15 @@ export interface ExperimentResult {
   recommendation: 'control' | 'candidate' | 'draw';
   recommendationExplanation: string;
 }
+
+export interface ExperimentRunRecord {
+  id: string;
+  timestamp: string;
+  controlConfig: TuningConfig;
+  candidateConfig: TuningConfig;
+  controlSummary: EvalSummary;
+  candidateSummary: EvalSummary;
+  comparison: import('./regression').RegressionSummary;
+  recommendation: 'control' | 'candidate' | 'draw';
+  recommendationExplanation: string;
+}
