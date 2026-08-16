@@ -17,6 +17,7 @@ export interface RetrievalOptions {
   bypassCache?: boolean;
   cacheHitTracker?: { hit: boolean };
   resilienceTracker?: ResilienceTracker;
+  fallbackTracker?: { used: boolean };
 }
 
 export interface RetrievalResult {
@@ -82,6 +83,9 @@ export class MemoryRetriever {
         options.cacheHitTracker.hit = false;
       }
       const execution = await this.executeRetrieval(userId, query, limit, minSimilarity, includeHistorical, options);
+      if (options?.fallbackTracker) {
+        options.fallbackTracker.used = execution.isFallback;
+      }
       return execution.results;
     }
 
@@ -92,6 +96,9 @@ export class MemoryRetriever {
     if (cached !== null && cached.length > 0) {
       if (options?.cacheHitTracker) {
         options.cacheHitTracker.hit = true;
+      }
+      if (options?.fallbackTracker) {
+        options.fallbackTracker.used = false;
       }
       return cached;
     }
@@ -109,6 +116,10 @@ export class MemoryRetriever {
       }
       return this.executeRetrieval(userId, query, limit, minSimilarity, includeHistorical, options);
     });
+
+    if (options?.fallbackTracker) {
+      options.fallbackTracker.used = execution.isFallback;
+    }
 
     // Cache successful, non-empty, non-fallback retrieval results
     if (execution.results && execution.results.length > 0 && !execution.isFallback) {

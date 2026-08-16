@@ -57,6 +57,17 @@ export interface EvalScenarioResult {
       finalOutcome: 'success' | 'failure';
       failureCategory?: string;
     };
+    health?: {
+      memoryRetrievalSuccess?: boolean;
+      conversationRetrievalSuccess?: boolean;
+      memoryCacheHit?: boolean;
+      conversationCacheHit?: boolean;
+      memoryFallbackUsed?: boolean;
+      conversationFallbackUsed?: boolean;
+      retryOccurred: boolean;
+      timeoutOccurred: boolean;
+      latencyAvailable: boolean;
+    };
   };
 }
 

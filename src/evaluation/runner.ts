@@ -302,6 +302,7 @@ export class EvaluationRunner {
         },
         latencyMs: Date.now() - startTime,
         failureReason: error instanceof Error ? error.message : 'Unknown execution error',
+        diagnostics: error instanceof Error ? (error as unknown as { diagnostics?: import('./types').EvalScenarioResult['diagnostics'] }).diagnostics : undefined,
       };
     }
   }

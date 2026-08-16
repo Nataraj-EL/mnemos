@@ -59,6 +59,7 @@ export class ConversationRetriever {
       queryTimeout?: number;
       signal?: AbortSignal;
       resilienceTracker?: ResilienceTracker;
+      fallbackTracker?: { used: boolean };
     }
   ): Promise<ConversationSnippetResult[]> {
     if (!userId || !userId.trim()) {
@@ -80,6 +81,9 @@ export class ConversationRetriever {
         options.cacheHitTracker.hit = false;
       }
       const execution = await this.executeRetrieveSnippets(userId, query, options);
+      if (options?.fallbackTracker) {
+        options.fallbackTracker.used = execution.isFallback;
+      }
       return execution.snippets;
     }
 
@@ -97,6 +101,9 @@ export class ConversationRetriever {
       if (options?.cacheHitTracker) {
         options.cacheHitTracker.hit = true;
       }
+      if (options?.fallbackTracker) {
+        options.fallbackTracker.used = false;
+      }
       return cached;
     }
 
@@ -113,6 +120,10 @@ export class ConversationRetriever {
       }
       return this.executeRetrieveSnippets(userId, query, options);
     });
+
+    if (options?.fallbackTracker) {
+      options.fallbackTracker.used = execution.isFallback;
+    }
 
     // Cache successful, non-empty, non-fallback results
     if (execution.snippets && execution.snippets.length > 0 && !execution.isFallback) {

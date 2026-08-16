@@ -3954,6 +3954,13 @@ export default function MemoryDashboard() {
                     const generationLatencies: number[] = [];
                     const guardrailLatencies: number[] = [];
 
+                    let cacheHits = 0;
+                    let cacheSamples = 0;
+                    let fallbackHits = 0;
+                    let fallbackSamples = 0;
+                    let retryCount = 0;
+                    let timeoutCount = 0;
+
                     for (const r of evalResults) {
                       if (r.latencyMs !== undefined) {
                         totalLatencies.push(r.latencyMs);
@@ -3970,7 +3977,38 @@ export default function MemoryDashboard() {
                           guardrailLatencies.push(timings.guardrailLatencyMs);
                         }
                       }
+                      // Health Diagnostics
+                      const health = r.diagnostics?.health;
+                      if (health) {
+                        if (health.memoryCacheHit !== undefined) {
+                          cacheSamples++;
+                          if (health.memoryCacheHit) cacheHits++;
+                        }
+                        if (health.conversationCacheHit !== undefined) {
+                          cacheSamples++;
+                          if (health.conversationCacheHit) cacheHits++;
+                        }
+                        if (health.memoryFallbackUsed !== undefined) {
+                          fallbackSamples++;
+                          if (health.memoryFallbackUsed) fallbackHits++;
+                        }
+                        if (health.conversationFallbackUsed !== undefined) {
+                          fallbackSamples++;
+                          if (health.conversationFallbackUsed) fallbackHits++;
+                        }
+                        if (health.retryOccurred) {
+                          retryCount++;
+                        }
+                        if (health.timeoutOccurred) {
+                          timeoutCount++;
+                        }
+                      }
                     }
+
+                    const cacheHitRate = cacheSamples > 0 ? (cacheHits / cacheSamples) : 0;
+                    const fallbackRate = fallbackSamples > 0 ? (fallbackHits / fallbackSamples) : 0;
+                    const retryRate = evalResults.length > 0 ? (retryCount / evalResults.length) : 0;
+                    const successRate = evalResults.length > 0 ? (successCount / evalResults.length) : 0;
 
                     const avg = (arr: number[]) => arr.length > 0 ? `${Math.round(arr.reduce((a, b) => a + b, 0) / arr.length)} ms` : '—';
                     const p95 = (arr: number[]) => {
@@ -3981,31 +4019,64 @@ export default function MemoryDashboard() {
                     };
 
                     return (
-                      <div style={{ marginTop: '0.5rem', marginBottom: '0.5rem', padding: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(0,0,0,0.2)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
-                          <span style={{ fontSize: '1rem' }}>⚡</span>
-                          <strong style={{ fontSize: '0.8rem', color: 'var(--primary)' }}>Evaluation Benchmark Performance Results (Session Only)</strong>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem', marginBottom: '0.5rem' }}>
+                        {/* Timings Performance */}
+                        <div style={{ padding: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
+                            <span style={{ fontSize: '1rem' }}>⚡</span>
+                            <strong style={{ fontSize: '0.8rem', color: 'var(--primary)' }}>Evaluation Benchmark Performance Results (Session Only)</strong>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', fontSize: '0.7rem' }}>
+                            <div style={{ padding: '0.4rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                              <span style={{ opacity: 0.6, display: 'block' }}>Total Latency</span>
+                              Avg: <strong>{avg(totalLatencies)}</strong> | p95: <strong>{p95(totalLatencies)}</strong>
+                            </div>
+                            <div style={{ padding: '0.4rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                              <span style={{ opacity: 0.6, display: 'block' }}>Retrieval Latency</span>
+                              Avg: <strong>{avg(retrievalLatencies)}</strong> | p95: <strong>{p95(retrievalLatencies)}</strong>
+                            </div>
+                            <div style={{ padding: '0.4rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                              <span style={{ opacity: 0.6, display: 'block' }}>Generation Latency</span>
+                              Avg: <strong>{avg(generationLatencies)}</strong> | p95: <strong>{p95(generationLatencies)}</strong>
+                            </div>
+                            <div style={{ padding: '0.4rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                              <span style={{ opacity: 0.6, display: 'block' }}>Guardrail Latency</span>
+                              Avg: <strong>{avg(guardrailLatencies)}</strong> | p95: <strong>{p95(guardrailLatencies)}</strong>
+                            </div>
+                            <div style={{ padding: '0.4rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)', gridColumn: 'span 1' }}>
+                              <span style={{ opacity: 0.6, display: 'block' }}>Success / Failure Count</span>
+                              Passed: <strong style={{ color: 'var(--success)' }}>{successCount}</strong> | Failed: <strong style={{ color: 'var(--error)' }}>{failureCount}</strong>
+                            </div>
+                          </div>
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', fontSize: '0.7rem' }}>
-                          <div style={{ padding: '0.4rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
-                            <span style={{ opacity: 0.6, display: 'block' }}>Total Latency</span>
-                            Avg: <strong>{avg(totalLatencies)}</strong> | p95: <strong>{p95(totalLatencies)}</strong>
+
+                        {/* Pipeline Health */}
+                        <div style={{ padding: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
+                            <span style={{ fontSize: '1rem' }}>🏥</span>
+                            <strong style={{ fontSize: '0.8rem', color: 'var(--primary)' }}>Pipeline Health Dashboard (Session Only)</strong>
                           </div>
-                          <div style={{ padding: '0.4rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
-                            <span style={{ opacity: 0.6, display: 'block' }}>Retrieval Latency</span>
-                            Avg: <strong>{avg(retrievalLatencies)}</strong> | p95: <strong>{p95(retrievalLatencies)}</strong>
-                          </div>
-                          <div style={{ padding: '0.4rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
-                            <span style={{ opacity: 0.6, display: 'block' }}>Generation Latency</span>
-                            Avg: <strong>{avg(generationLatencies)}</strong> | p95: <strong>{p95(generationLatencies)}</strong>
-                          </div>
-                          <div style={{ padding: '0.4rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
-                            <span style={{ opacity: 0.6, display: 'block' }}>Guardrail Latency</span>
-                            Avg: <strong>{avg(guardrailLatencies)}</strong> | p95: <strong>{p95(guardrailLatencies)}</strong>
-                          </div>
-                          <div style={{ padding: '0.4rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)', gridColumn: 'span 1' }}>
-                            <span style={{ opacity: 0.6, display: 'block' }}>Success / Failure Count</span>
-                            Passed: <strong style={{ color: 'var(--success)' }}>{successCount}</strong> | Failed: <strong style={{ color: 'var(--error)' }}>{failureCount}</strong>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', fontSize: '0.7rem' }}>
+                            <div style={{ padding: '0.4rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                              <span style={{ opacity: 0.6, display: 'block' }}>Success Rate</span>
+                              <strong>{(successRate * 100).toFixed(0)}%</strong>
+                            </div>
+                            <div style={{ padding: '0.4rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                              <span style={{ opacity: 0.6, display: 'block' }}>Cache Hit Rate</span>
+                              <strong>{cacheSamples > 0 ? `${(cacheHitRate * 100).toFixed(0)}%` : '—'}</strong>
+                            </div>
+                            <div style={{ padding: '0.4rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                              <span style={{ opacity: 0.6, display: 'block' }}>Fallback Rate</span>
+                              <strong>{fallbackSamples > 0 ? `${(fallbackRate * 100).toFixed(0)}%` : '—'}</strong>
+                            </div>
+                            <div style={{ padding: '0.4rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                              <span style={{ opacity: 0.6, display: 'block' }}>Retry Rate</span>
+                              <strong>{(retryRate * 100).toFixed(0)}%</strong>
+                            </div>
+                            <div style={{ padding: '0.4rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                              <span style={{ opacity: 0.6, display: 'block' }}>Timeout Count</span>
+                              <strong>{timeoutCount}</strong>
+                            </div>
                           </div>
                         </div>
                       </div>

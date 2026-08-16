@@ -9,6 +9,7 @@ import { ConversationRetriever, ConversationSnippetResult } from '@/conversation
 import { RETRIEVAL_SETTINGS } from '@/core/config';
 import { PerformanceTracker } from './tracker';
 import { ResilienceTracker } from './resilience';
+import { HealthTracker } from './healthTracker';
 
 export interface ContextualResponseResult {
   response: string;
@@ -58,6 +59,17 @@ export interface ContextualResponseResult {
       retryCount: number;
       finalOutcome: 'success' | 'failure';
       failureCategory?: string;
+    };
+    health?: {
+      memoryRetrievalSuccess?: boolean;
+      conversationRetrievalSuccess?: boolean;
+      memoryCacheHit?: boolean;
+      conversationCacheHit?: boolean;
+      memoryFallbackUsed?: boolean;
+      conversationFallbackUsed?: boolean;
+      retryOccurred: boolean;
+      timeoutOccurred: boolean;
+      latencyAvailable: boolean;
     };
   };
 }
@@ -418,12 +430,19 @@ export class ResponseService {
 
     const memoryHitTracker = { hit: false };
     const conversationHitTracker = { hit: false };
+    const memoryFallbackTracker = { used: false };
+    const conversationFallbackTracker = { used: false };
     const resilienceTracker = isEval ? new ResilienceTracker() : undefined;
+    const healthTracker = isEval ? new HealthTracker() : undefined;
 
     try {
       // 1. Retrieve candidate memories & 2. Ancestor traversal
       if (tracker) {
         tracker.start('memoryRetrieval');
+      }
+
+      if (healthTracker) {
+        healthTracker.setMemoryRetrievalSuccess(false); // Assume failure until it succeeds
       }
 
       candidates = await withTimeout(
@@ -437,6 +456,7 @@ export class ResponseService {
             queryTimeout: RETRIEVAL_TIMEOUT,
             evaluationRun: true,
             cacheHitTracker: memoryHitTracker,
+            fallbackTracker: memoryFallbackTracker,
             resilienceTracker,
             ...(minSimOverride !== undefined ? { minSimilarity: minSimOverride } : {}),
           });
@@ -501,6 +521,12 @@ export class ResponseService {
         'memoryRetrieval'
       );
 
+      if (healthTracker) {
+        healthTracker.setMemoryRetrievalSuccess(true);
+        healthTracker.setMemoryCacheHit(memoryHitTracker.hit);
+        healthTracker.setMemoryFallbackUsed(memoryFallbackTracker.used);
+      }
+
       if (tracker) {
         tracker.stop('memoryRetrieval');
       }
@@ -539,6 +565,9 @@ export class ResponseService {
         if (tracker) {
           tracker.start('conversationRetrieval');
         }
+        if (healthTracker) {
+          healthTracker.setConversationRetrievalSuccess(false); // Assume failure until it succeeds
+        }
         try {
           conversationSnippets = await withTimeout(
             async (signal) => {
@@ -551,12 +580,18 @@ export class ResponseService {
                 signal,
                 evaluationRun: true,
                 cacheHitTracker: conversationHitTracker,
+                fallbackTracker: conversationFallbackTracker,
                 resilienceTracker,
               });
             },
             CONVERSATION_TIMEOUT,
             'conversationRetrieval'
           );
+          if (healthTracker) {
+            healthTracker.setConversationRetrievalSuccess(true);
+            healthTracker.setConversationCacheHit(conversationHitTracker.hit);
+            healthTracker.setConversationFallbackUsed(conversationFallbackTracker.used);
+          }
         } catch (snippetErr) {
           console.error('Failed to retrieve conversation snippets:', snippetErr);
           if (snippetErr instanceof Error && snippetErr.message.includes('Timeout')) {
@@ -765,6 +800,13 @@ export class ResponseService {
         };
       }
 
+      if (healthTracker) {
+        healthTracker.setLatencyAvailable(true);
+        if (resilienceTracker && resilienceTracker.getRetryCount() > 0) {
+          healthTracker.setRetryOccurred(true);
+        }
+      }
+
       return {
         response: validation.refinedResponse,
         usedMemories,
@@ -791,12 +833,23 @@ export class ResponseService {
             finalOutcome: resilienceTracker.getOutcome(),
             failureCategory: resilienceTracker.getFailureCategory(),
           } : undefined,
+          health: healthTracker ? healthTracker.getSummary() : undefined,
         } : undefined,
       };
     } catch (error: unknown) {
       if (resilienceTracker) {
         resilienceTracker.setOutcome('failure');
         resilienceTracker.setFailureCategory(error instanceof Error ? error.name : 'UnknownError');
+      }
+      if (healthTracker) {
+        healthTracker.setLatencyAvailable(false);
+        const isTimeout = error instanceof Error && error.message.includes('Timeout');
+        if (isTimeout) {
+          healthTracker.setTimeoutOccurred(true);
+        }
+        if (resilienceTracker && resilienceTracker.getRetryCount() > 0) {
+          healthTracker.setRetryOccurred(true);
+        }
       }
       if (tracker) {
         tracker.stop('total');
@@ -814,6 +867,29 @@ export class ResponseService {
         status: 'error',
         errorCategory: error instanceof Error ? error.name : 'UnknownError',
       });
+      if (error instanceof Error && options?.evaluationRun) {
+        (error as unknown as { diagnostics?: unknown }).diagnostics = {
+          timings: tracker ? {
+            prepLatencyMs: tracker.get('prep') ?? 0,
+            memoryRetrievalLatencyMs: tracker.get('memoryRetrieval') ?? 0,
+            conversationRetrievalLatencyMs: tracker.get('conversationRetrieval') ?? 0,
+            assemblyLatencyMs: tracker.get('assembly') ?? 0,
+            generationLatencyMs: tracker.get('generation') ?? 0,
+            guardrailLatencyMs: tracker.get('guardrail') ?? 0,
+            totalLatencyMs: tracker.get('total') ?? 0,
+          } : undefined,
+          cache: {
+            memoryRetrievalHit: memoryHitTracker.hit,
+            conversationRetrievalHit: conversationHitTracker.hit,
+          },
+          resilience: resilienceTracker ? {
+            retryCount: resilienceTracker.getRetryCount(),
+            finalOutcome: resilienceTracker.getOutcome(),
+            failureCategory: resilienceTracker.getFailureCategory(),
+          } : undefined,
+          health: healthTracker ? healthTracker.getSummary() : undefined,
+        };
+      }
       throw error;
     }
   }
