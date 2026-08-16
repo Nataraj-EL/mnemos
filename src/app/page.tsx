@@ -1378,6 +1378,7 @@ export default function MemoryDashboard() {
   const [expandedScenarioId, setExpandedScenarioId] = useState<string | null>(null);
   const [evalLoading, setEvalLoading] = useState(false);
   const [evalError, setEvalError] = useState<string | null>(null);
+  const [baselineLabel, setBaselineLabel] = useState<string | null>(null);
 
   const handleRunEvaluation = async () => {
     setEvalLoading(true);
@@ -1393,17 +1394,65 @@ export default function MemoryDashboard() {
         const { EvaluationRunner } = await import('@/evaluation/runner');
         const runner = new EvaluationRunner();
         const localResult = await runner.runAll();
-        setEvalSummary(localResult.summary);
+        
+        const { compareSummaries, BaselineManager } = await import('@/evaluation/regression');
+        const baseline = BaselineManager.getBaseline();
+        const regression = compareSummaries(localResult.summary, baseline);
+        if (!baseline) {
+          BaselineManager.setBaseline(localResult.summary);
+        }
+        setBaselineLabel(BaselineManager.getLabel());
+        setEvalSummary({
+          ...localResult.summary,
+          regression,
+        });
         setEvalResults(localResult.results);
       } else {
         setEvalSummary(data.summary);
         setEvalResults(data.results);
+        if (data.summary?.regression?.baselineLabel) {
+          setBaselineLabel(data.summary.regression.baselineLabel);
+        } else {
+          setBaselineLabel(new Date().toISOString());
+        }
       }
     } catch (err) {
       console.error('Failed to execute evaluation:', err);
       setEvalError('An unexpected error occurred during evaluation.');
     } finally {
       setEvalLoading(false);
+    }
+  };
+
+  const handleSetBaseline = async () => {
+    if (!evalSummary) return;
+    try {
+      const response = await fetch('/api/evaluation/baseline', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(evalSummary),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setBaselineLabel(data.label);
+        const { compareSummaries } = await import('@/evaluation/regression');
+        const regression = compareSummaries(evalSummary, evalSummary);
+        setEvalSummary({
+          ...evalSummary,
+          regression,
+        });
+      } else {
+        const { BaselineManager, compareSummaries } = await import('@/evaluation/regression');
+        BaselineManager.setBaseline(evalSummary);
+        setBaselineLabel(BaselineManager.getLabel());
+        const regression = compareSummaries(evalSummary, evalSummary);
+        setEvalSummary({
+          ...evalSummary,
+          regression,
+        });
+      }
+    } catch (err) {
+      console.error('Failed to set baseline:', err);
     }
   };
 
@@ -4079,6 +4128,135 @@ export default function MemoryDashboard() {
                             </div>
                           </div>
                         </div>
+
+                        {/* Regression Audit Check */}
+                        {evalSummary?.regression && (
+                          <div style={{ padding: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <span style={{ fontSize: '1rem' }}>📈</span>
+                                <strong style={{ fontSize: '0.8rem', color: 'var(--primary)' }}>Regression Audit Check Summary</strong>
+                              </div>
+                              <button
+                                onClick={handleSetBaseline}
+                                style={{
+                                  padding: '0.2rem 0.5rem',
+                                  fontSize: '0.65rem',
+                                  backgroundColor: 'var(--surface)',
+                                  color: 'var(--text)',
+                                  border: '1px solid var(--border)',
+                                  borderRadius: 'var(--radius-xs)',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                🎯 Set Current Run as Baseline
+                              </button>
+                            </div>
+
+                            {!evalSummary.regression.baselineAvailable ? (
+                              <div style={{ padding: '0.5rem', fontSize: '0.75rem', opacity: 0.8, backgroundColor: 'rgba(0,0,0,0.15)', borderRadius: 'var(--radius-xs)', border: '1px dashed var(--border)' }}>
+                                ℹ️ No baseline available yet. This run has been configured as the session baseline. Later runs will compare against it.
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.4rem 0.5rem', borderRadius: 'var(--radius-xs)', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', fontSize: '0.75rem' }}>
+                                  <span>
+                                    Baseline Timestamp/Label: <code>{baselineLabel || evalSummary.regression.baselineLabel || 'Unknown Baseline'}</code>
+                                  </span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
+                                    <span>Overall Status:</span>
+                                    {evalSummary.regression.status === 'pass' && (
+                                      <span style={{ color: 'var(--success)' }}>✓ PASS (No regressions detected)</span>
+                                    )}
+                                    {evalSummary.regression.status === 'warning' && (
+                                      <span style={{ color: 'orange' }}>⚠ WARNING (Tolerable regressions detected)</span>
+                                    )}
+                                    {evalSummary.regression.status === 'fail' && (
+                                      <span style={{ color: 'var(--error)' }}>✗ FAIL (Critical quality regressions detected)</span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {evalSummary.regression.failedThresholds && evalSummary.regression.failedThresholds.length > 0 && (
+                                  <div style={{ fontSize: '0.7rem', color: 'var(--error)', padding: '0.25rem 0.5rem', backgroundColor: 'rgba(179, 74, 60, 0.05)', borderRadius: 'var(--radius-xs)', border: '1px solid rgba(179, 74, 60, 0.15)' }}>
+                                    ⚠️ Regressions exceeding tolerances: <strong>{evalSummary.regression.failedThresholds.join(', ')}</strong>
+                                  </div>
+                                )}
+
+                                <div style={{ overflowX: 'auto' }}>
+                                  <table style={{ width: '100%', fontSize: '0.7rem', textAlign: 'left', borderCollapse: 'collapse', marginTop: '0.25rem' }}>
+                                    <thead>
+                                      <tr style={{ borderBottom: '1px solid var(--border)', opacity: 0.6 }}>
+                                        <th style={{ padding: '0.35rem' }}>Metric</th>
+                                        <th style={{ padding: '0.35rem' }}>Current</th>
+                                        <th style={{ padding: '0.35rem' }}>Baseline</th>
+                                        <th style={{ padding: '0.35rem' }}>Delta (Abs)</th>
+                                        <th style={{ padding: '0.35rem' }}>Delta (%)</th>
+                                        <th style={{ padding: '0.35rem' }}>Regression Status</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {Object.entries(evalSummary.regression.deltas).map(([metric, delta]) => {
+                                        const valCurrent = (evalSummary as unknown as Record<string, number | undefined>)[metric];
+                                        
+                                        const formatMetric = (metricName: string, val: number) => {
+                                          if (metricName === 'averageLatency') return `${Math.round(val)} ms`;
+                                          if (metricName === 'timeoutCount') return `${val}`;
+                                          return `${(val * 100).toFixed(0)}%`;
+                                        };
+
+                                        const displayCurrent = valCurrent !== undefined ? formatMetric(metric, valCurrent) : 'N/A';
+                                        let displayBaseline = 'N/A';
+                                        
+                                        if (delta.type !== 'notComparable' && delta.absolute !== undefined && valCurrent !== undefined) {
+                                          const valBaseline = valCurrent - delta.absolute;
+                                          displayBaseline = formatMetric(metric, valBaseline);
+                                        }
+
+                                        let deltaTypeLabel = '—';
+                                        let deltaTypeColor = 'var(--text)';
+                                        if (delta.type === 'improvement') {
+                                          deltaTypeLabel = '▲ Improvement';
+                                          deltaTypeColor = 'var(--success)';
+                                        } else if (delta.type === 'regression') {
+                                          deltaTypeLabel = '▼ Regression';
+                                          deltaTypeColor = 'var(--error)';
+                                        } else if (delta.type === 'unchanged') {
+                                          deltaTypeLabel = '— Unchanged';
+                                          deltaTypeColor = 'var(--text)';
+                                        } else if (delta.type === 'notComparable') {
+                                          deltaTypeLabel = 'N/A Not Comparable';
+                                          deltaTypeColor = 'var(--text)';
+                                        }
+
+                                        const formatDeltaAbsolute = (metricName: string, val: number) => {
+                                          const sign = val > 0 ? '+' : '';
+                                          if (metricName === 'averageLatency') return `${sign}${Math.round(val)} ms`;
+                                          if (metricName === 'timeoutCount') return `${sign}${val}`;
+                                          return `${sign}${(val * 100).toFixed(0)}%`;
+                                        };
+
+                                        const absoluteText = delta.absolute !== undefined ? formatDeltaAbsolute(metric, delta.absolute) : 'N/A';
+                                        const percentageText = delta.percentage !== undefined ? `${delta.percentage > 0 ? '+' : ''}${delta.percentage.toFixed(0)}%` : 'N/A';
+
+                                        return (
+                                          <tr key={metric} style={{ borderBottom: '1px solid var(--border)', opacity: 0.9 }}>
+                                            <td style={{ padding: '0.35rem', fontWeight: 600 }}>{metric}</td>
+                                            <td style={{ padding: '0.35rem' }}>{displayCurrent}</td>
+                                            <td style={{ padding: '0.35rem' }}>{displayBaseline}</td>
+                                            <td style={{ padding: '0.35rem', color: deltaTypeColor }}>{absoluteText}</td>
+                                            <td style={{ padding: '0.35rem', color: deltaTypeColor }}>{percentageText}</td>
+                                            <td style={{ padding: '0.35rem', color: deltaTypeColor, fontWeight: 600 }}>{deltaTypeLabel}</td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })()}

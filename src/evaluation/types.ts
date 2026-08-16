@@ -85,6 +85,13 @@ export interface EvalSummary {
   citationCorrectness: number;
   contextUtilization: number;
   averageLatency: number;
+  // health rates
+  successRate?: number;
+  cacheHitRate?: number;
+  fallbackRate?: number;
+  retryRate?: number;
+  timeoutCount?: number;
+  regression?: import('./regression').RegressionSummary;
 }
 
 export interface TuningConfig {

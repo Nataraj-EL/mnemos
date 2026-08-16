@@ -335,6 +335,46 @@ export class EvaluationRunner {
     const sumCitation = results.reduce((acc, r) => acc + r.metrics.citationCorrectness, 0);
     const sumUtil = results.reduce((acc, r) => acc + r.metrics.contextUtilization, 0);
 
+    let cacheHits = 0;
+    let cacheSamples = 0;
+    let fallbackHits = 0;
+    let fallbackSamples = 0;
+    let retryCount = 0;
+    let timeoutCount = 0;
+
+    for (const r of results) {
+      const health = r.diagnostics?.health;
+      if (health) {
+        if (health.memoryCacheHit !== undefined) {
+          cacheSamples++;
+          if (health.memoryCacheHit) cacheHits++;
+        }
+        if (health.conversationCacheHit !== undefined) {
+          cacheSamples++;
+          if (health.conversationCacheHit) cacheHits++;
+        }
+        if (health.memoryFallbackUsed !== undefined) {
+          fallbackSamples++;
+          if (health.memoryFallbackUsed) fallbackHits++;
+        }
+        if (health.conversationFallbackUsed !== undefined) {
+          fallbackSamples++;
+          if (health.conversationFallbackUsed) fallbackHits++;
+        }
+        if (health.retryOccurred) {
+          retryCount++;
+        }
+        if (health.timeoutOccurred) {
+          timeoutCount++;
+        }
+      }
+    }
+
+    const successRate = total > 0 ? passed / total : 0;
+    const cacheHitRate = cacheSamples > 0 ? cacheHits / cacheSamples : 0;
+    const fallbackRate = fallbackSamples > 0 ? fallbackHits / fallbackSamples : 0;
+    const retryRate = total > 0 ? retryCount / total : 0;
+
     return {
       results,
       summary: {
@@ -351,6 +391,11 @@ export class EvaluationRunner {
         citationCorrectness: sumCitation / total,
         contextUtilization: sumUtil / total,
         averageLatency: totalLatency / total,
+        successRate,
+        cacheHitRate,
+        fallbackRate,
+        retryRate,
+        timeoutCount,
       },
     };
   }
