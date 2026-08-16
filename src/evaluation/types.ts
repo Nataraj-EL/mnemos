@@ -48,6 +48,10 @@ export interface EvalScenarioResult {
       guardrailLatencyMs: number;
       totalLatencyMs: number;
     };
+    cache?: {
+      memoryRetrievalHit: boolean;
+      conversationRetrievalHit: boolean;
+    };
   };
 }
 

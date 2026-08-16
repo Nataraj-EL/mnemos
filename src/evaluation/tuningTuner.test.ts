@@ -237,7 +237,7 @@ describe('Parameter Tuning & Matrix Optimization - Sprint 36', () => {
 
     // Verify insertion queries staged synthetic eval records
     const insertCalls = querySpy.mock.calls.filter(c => {
-      const sql = typeof c[0] === 'string' ? c[0] : (c[0] as any)?.text;
+      const sql = typeof c[0] === 'string' ? c[0] : (c[0] as unknown as { text?: string })?.text;
       return sql?.includes('INSERT INTO memories');
     });
     expect(insertCalls.length).toBeGreaterThan(0);
@@ -286,7 +286,7 @@ describe('Parameter Tuning & Matrix Optimization - Sprint 36', () => {
     );
 
     const deleteMemoriesCall = querySpy.mock.calls.find(c => {
-      const sql = typeof c[0] === 'string' ? c[0] : (c[0] as any)?.text;
+      const sql = typeof c[0] === 'string' ? c[0] : (c[0] as unknown as { text?: string })?.text;
       return sql?.includes('DELETE FROM memories');
     });
     expect(deleteMemoriesCall).toBeDefined();

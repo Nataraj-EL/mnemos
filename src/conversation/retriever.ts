@@ -2,6 +2,7 @@ import { getDbPool } from '@/db';
 import { PgConversationRepository } from './repository';
 import { GeminiEmbeddingProvider } from '@/memory/geminiEmbedding';
 import { RETRIEVAL_SETTINGS } from '@/core/config';
+import { RetrievalCache } from '@/response/cache';
 
 export interface ConversationSnippetResult {
   conversationId: string;
@@ -51,6 +52,11 @@ export class ConversationRetriever {
       minSimilarity?: number;
       semanticWeight?: number;
       lexicalWeight?: number;
+      evaluationRun?: boolean;
+      bypassCache?: boolean;
+      cacheHitTracker?: { hit: boolean };
+      queryTimeout?: number;
+      signal?: AbortSignal;
     }
   ): Promise<ConversationSnippetResult[]> {
     if (!userId || !userId.trim()) {
@@ -60,6 +66,73 @@ export class ConversationRetriever {
       throw new Error('Query is required.');
     }
 
+    const limitConversations = options?.limitConversations ?? 3;
+    const maxSnippetsPerConversation = options?.maxSnippetsPerConversation ?? 3;
+    const minSimilarity = options?.minSimilarity ?? 0.3;
+    const rawSem = options?.semanticWeight ?? RETRIEVAL_SETTINGS.semanticWeight;
+    const rawLex = options?.lexicalWeight ?? RETRIEVAL_SETTINGS.lexicalWeight;
+
+    const bypass = options?.evaluationRun === true || options?.bypassCache === true;
+    if (bypass) {
+      if (options?.cacheHitTracker) {
+        options.cacheHitTracker.hit = false;
+      }
+      const execution = await this.executeRetrieveSnippets(userId, query, options);
+      return execution.snippets;
+    }
+
+    const cache = RetrievalCache.getInstance();
+    const config = {
+      limitConversations,
+      maxSnippetsPerConversation,
+      minSimilarity,
+      semanticWeight: rawSem,
+      lexicalWeight: rawLex
+    };
+    const cached = cache.getRetrieval<ConversationSnippetResult>(userId, query, config);
+
+    if (cached !== null && cached.length > 0) {
+      if (options?.cacheHitTracker) {
+        options.cacheHitTracker.hit = true;
+      }
+      return cached;
+    }
+
+    if (options?.cacheHitTracker) {
+      options.cacheHitTracker.hit = false;
+    }
+
+    // Coalesce the retrieval execution promise
+    const key = `conv:${userId}:${cache.normalizeQuery(query)}:${cache.hashConfig(config)}`;
+    const execution = await cache.getOrCreateSingleFlight(key, async () => {
+      const doubleCheck = cache.getRetrieval<ConversationSnippetResult>(userId, query, config);
+      if (doubleCheck !== null && doubleCheck.length > 0) {
+        return { snippets: doubleCheck, isFallback: false };
+      }
+      return this.executeRetrieveSnippets(userId, query, options);
+    });
+
+    // Cache successful, non-empty, non-fallback results
+    if (execution.snippets && execution.snippets.length > 0 && !execution.isFallback) {
+      cache.setRetrieval(userId, query, execution.snippets, config);
+    }
+
+    return execution.snippets;
+  }
+
+  private async executeRetrieveSnippets(
+    userId: string,
+    query: string,
+    options?: {
+      limitConversations?: number;
+      maxSnippetsPerConversation?: number;
+      minSimilarity?: number;
+      semanticWeight?: number;
+      lexicalWeight?: number;
+      evaluationRun?: boolean;
+      bypassCache?: boolean;
+    }
+  ): Promise<{ snippets: ConversationSnippetResult[]; isFallback: boolean }> {
     const limitConversations = options?.limitConversations ?? 3;
     const maxSnippetsPerConversation = options?.maxSnippetsPerConversation ?? 3;
     const minSimilarity = options?.minSimilarity ?? 0.3;
@@ -83,11 +156,13 @@ export class ConversationRetriever {
 
     // 1. Attempt semantic retrieval
     let queryEmbedding: number[] | null = null;
+    let isFallback = false;
     try {
       const embeddingProvider = new GeminiEmbeddingProvider();
       queryEmbedding = await embeddingProvider.generateEmbedding(query);
     } catch (err) {
       console.warn('Embedding generation failed in ConversationRetriever, falling back to keyword search:', err);
+      isFallback = true;
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -108,6 +183,7 @@ export class ConversationRetriever {
 
     // 2. Fallback to keyword retrieval if no semantic results found
     if (resultsToProcess.length === 0) {
+      isFallback = true;
       const pool = getDbPool();
       const conditions = keywords.map((_, index) => `transcript ILIKE $${index + 2}`);
       const sql = `
@@ -223,6 +299,6 @@ export class ConversationRetriever {
     // Sort all snippets by combined score
     snippets.sort((a: ConversationSnippetResult, b: ConversationSnippetResult) => (b.score ?? 0) - (a.score ?? 0));
 
-    return snippets;
+    return { snippets, isFallback };
   }
 }

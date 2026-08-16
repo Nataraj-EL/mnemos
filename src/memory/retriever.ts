@@ -3,6 +3,7 @@ import { EmbeddingProvider } from './embedding';
 import { getDbPool } from '@/db';
 import { RETRIEVAL_SETTINGS } from '@/core/config';
 import { PerformanceTracker } from '@/response/tracker';
+import { RetrievalCache } from '@/response/cache';
 
 export interface RetrievalOptions {
   limit?: number;
@@ -11,6 +12,9 @@ export interface RetrievalOptions {
   tracker?: PerformanceTracker;
   signal?: AbortSignal;
   queryTimeout?: number;
+  evaluationRun?: boolean;
+  bypassCache?: boolean;
+  cacheHitTracker?: { hit: boolean };
 }
 
 export interface RetrievalResult {
@@ -70,18 +74,99 @@ export class MemoryRetriever {
     const minSimilarity = options?.minSimilarity ?? RETRIEVAL_SETTINGS.minSimilarity;
     const includeHistorical = options?.includeHistorical ?? false;
 
+    const bypass = options?.evaluationRun === true || options?.bypassCache === true;
+    if (bypass) {
+      if (options?.cacheHitTracker) {
+        options.cacheHitTracker.hit = false;
+      }
+      const execution = await this.executeRetrieval(userId, query, limit, minSimilarity, includeHistorical, options);
+      return execution.results;
+    }
+
+    const cache = RetrievalCache.getInstance();
+    const config = { limit, minSimilarity, includeHistorical };
+    const cached = cache.getRetrieval<RetrievalResult>(userId, query, config);
+
+    if (cached !== null && cached.length > 0) {
+      if (options?.cacheHitTracker) {
+        options.cacheHitTracker.hit = true;
+      }
+      return cached;
+    }
+
+    if (options?.cacheHitTracker) {
+      options.cacheHitTracker.hit = false;
+    }
+
+    // Coalesce the retrieval execution promise
+    const key = `${userId}:${cache.normalizeQuery(query)}:${cache.hashConfig(config)}`;
+    const execution = await cache.getOrCreateSingleFlight(key, async () => {
+      const doubleCheck = cache.getRetrieval<RetrievalResult>(userId, query, config);
+      if (doubleCheck !== null && doubleCheck.length > 0) {
+        return { results: doubleCheck, isFallback: false };
+      }
+      return this.executeRetrieval(userId, query, limit, minSimilarity, includeHistorical, options);
+    });
+
+    // Cache successful, non-empty, non-fallback retrieval results
+    if (execution.results && execution.results.length > 0 && !execution.isFallback) {
+      cache.setRetrieval(userId, query, execution.results, config);
+    }
+
+    return execution.results;
+  }
+
+  private async executeRetrieval(
+    userId: string,
+    query: string,
+    limit: number,
+    minSimilarity: number,
+    includeHistorical: boolean,
+    options?: RetrievalOptions
+  ): Promise<{ results: RetrievalResult[]; isFallback: boolean }> {
+    const bypass = options?.evaluationRun === true || options?.bypassCache === true;
+    const cache = RetrievalCache.getInstance();
+
     try {
       // 1. Generate query embedding
-      options?.tracker?.start('prep');
-      let queryEmbedding: number[];
-      try {
-        if (options?.signal) {
-          queryEmbedding = await (this.embeddingProvider as any).generateEmbedding(query, { signal: options.signal });
+      let queryEmbedding: number[] | null = null;
+      if (!bypass) {
+        queryEmbedding = cache.getEmbedding(userId, query);
+      }
+
+      if (!queryEmbedding) {
+        const embedFactory = async () => {
+          if (!bypass) {
+            const innerCheck = cache.getEmbedding(userId, query);
+            if (innerCheck) return innerCheck;
+          }
+
+          options?.tracker?.start('prep');
+          try {
+            let vector: number[];
+            if (options?.signal) {
+              const provider = this.embeddingProvider as unknown as {
+                generateEmbedding(text: string, opts?: { signal?: AbortSignal }): Promise<number[]>;
+              };
+              vector = await provider.generateEmbedding(query, { signal: options.signal });
+            } else {
+              vector = await this.embeddingProvider.generateEmbedding(query);
+            }
+            if (!bypass && vector && vector.length > 0) {
+              cache.setEmbedding(userId, query, vector);
+            }
+            return vector;
+          } finally {
+            options?.tracker?.stop('prep');
+          }
+        };
+
+        if (bypass) {
+          queryEmbedding = await embedFactory();
         } else {
-          queryEmbedding = await this.embeddingProvider.generateEmbedding(query);
+          const embedKey = `embed:${userId}:${cache.normalizeQuery(query)}`;
+          queryEmbedding = await cache.getOrCreateSingleFlight(embedKey, embedFactory);
         }
-      } finally {
-        options?.tracker?.stop('prep');
       }
 
       if (options?.signal?.aborted) {
@@ -117,7 +202,7 @@ export class MemoryRetriever {
           text: sql,
           values: [queryEmbeddingStr, userId, minSimilarity, limit],
           query_timeout: options.queryTimeout,
-        } as any);
+        } as unknown as Parameters<typeof pool.query>[0]);
       } else {
         result = await pool.query(sql, [
           queryEmbeddingStr,
@@ -132,10 +217,12 @@ export class MemoryRetriever {
       }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return result.rows.map((row: any) => ({
+      const rows = result.rows.map((row: any) => ({
         memory: mapRowToMemory(row),
         similarity: Number(row.similarity),
       }));
+
+      return { results: rows, isFallback: false };
     } catch (embedErr) {
       if (options?.signal?.aborted || (embedErr instanceof Error && embedErr.message.includes('aborted'))) {
         throw embedErr;
@@ -173,7 +260,7 @@ export class MemoryRetriever {
           text: sql,
           values: params,
           query_timeout: options.queryTimeout,
-        } as any);
+        } as unknown as Parameters<typeof pool.query>[0]);
       } else {
         result = await pool.query(sql, params);
       }
@@ -183,10 +270,12 @@ export class MemoryRetriever {
       }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return result.rows.map((row: any) => ({
+      const rows = result.rows.map((row: any) => ({
         memory: mapRowToMemory(row),
         similarity: 0.5,
       }));
+
+      return { results: rows, isFallback: true };
     }
   }
 }

@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ConversationRetriever } from '@/conversation/retriever';
 import { ResponseService } from './service';
 import { getDbPool } from '@/db';
+import { RetrievalCache } from '@/response/cache';
 
 // Mock the db module
 vi.mock('@/db', () => {
@@ -35,6 +36,7 @@ describe('ConversationRetriever and ResponseService Semantic Integration', () =>
     mockQuery.mockResolvedValue({ rows: [] });
     mockGenerateEmbedding.mockReset();
     mockGenerateEmbedding.mockResolvedValue([0.1, 0.2, 0.3]);
+    RetrievalCache.getInstance().clear();
   });
 
   describe('ConversationRetriever Semantic Tests', () => {

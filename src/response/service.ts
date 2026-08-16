@@ -49,6 +49,10 @@ export interface ContextualResponseResult {
       guardrailLatencyMs: number;
       totalLatencyMs: number;
     };
+    cache?: {
+      memoryRetrievalHit: boolean;
+      conversationRetrievalHit: boolean;
+    };
   };
 }
 
@@ -406,6 +410,9 @@ export class ResponseService {
       }
     }
 
+    const memoryHitTracker = { hit: false };
+    const conversationHitTracker = { hit: false };
+
     try {
       // 1. Retrieve candidate memories & 2. Ancestor traversal
       if (tracker) {
@@ -421,6 +428,8 @@ export class ResponseService {
             tracker,
             signal,
             queryTimeout: RETRIEVAL_TIMEOUT,
+            evaluationRun: true,
+            cacheHitTracker: memoryHitTracker,
             ...(minSimOverride !== undefined ? { minSimilarity: minSimOverride } : {}),
           });
 
@@ -532,7 +541,9 @@ export class ResponseService {
                 lexicalWeight,
                 queryTimeout: CONVERSATION_TIMEOUT,
                 signal,
-              } as any);
+                evaluationRun: true,
+                cacheHitTracker: conversationHitTracker,
+              });
             },
             CONVERSATION_TIMEOUT,
             'conversationRetrieval'
@@ -762,6 +773,10 @@ export class ResponseService {
             guardrailLatencyMs: tracker.get('guardrail') ?? 0,
             totalLatencyMs: tracker.get('total') ?? 0,
           } : undefined,
+          cache: {
+            memoryRetrievalHit: memoryHitTracker.hit,
+            conversationRetrievalHit: conversationHitTracker.hit,
+          },
         } : undefined,
       };
     } catch (error: unknown) {
