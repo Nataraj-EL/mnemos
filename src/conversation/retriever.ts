@@ -1,6 +1,7 @@
 import { getDbPool } from '@/db';
 import { PgConversationRepository } from './repository';
 import { GeminiEmbeddingProvider } from '@/memory/geminiEmbedding';
+import { RETRIEVAL_SETTINGS } from '@/core/config';
 
 export interface ConversationSnippetResult {
   conversationId: string;
@@ -44,7 +45,13 @@ export class ConversationRetriever {
   async retrieveSnippets(
     userId: string,
     query: string,
-    options?: { limitConversations?: number; maxSnippetsPerConversation?: number; minSimilarity?: number }
+    options?: {
+      limitConversations?: number;
+      maxSnippetsPerConversation?: number;
+      minSimilarity?: number;
+      semanticWeight?: number;
+      lexicalWeight?: number;
+    }
   ): Promise<ConversationSnippetResult[]> {
     if (!userId || !userId.trim()) {
       throw new Error('User ID is required.');
@@ -56,6 +63,12 @@ export class ConversationRetriever {
     const limitConversations = options?.limitConversations ?? 3;
     const maxSnippetsPerConversation = options?.maxSnippetsPerConversation ?? 3;
     const minSimilarity = options?.minSimilarity ?? 0.3;
+
+    const rawSem = options?.semanticWeight ?? RETRIEVAL_SETTINGS.semanticWeight;
+    const rawLex = options?.lexicalWeight ?? RETRIEVAL_SETTINGS.lexicalWeight;
+    const totalWeight = rawSem + rawLex;
+    const semanticWeight = totalWeight > 0 ? rawSem / totalWeight : 1.0;
+    const lexicalWeight = totalWeight > 0 ? rawLex / totalWeight : 0.0;
 
     // Split query into keywords for sentence-level ranking and lexical relevance
     const keywords = query
@@ -190,9 +203,9 @@ export class ConversationRetriever {
       const matchCount = keywords.filter((k) => transcript.toLowerCase().includes(k)).length;
       const lexicalRelevance = matchCount / keywords.length;
 
-      // Combine semantic similarity with lexical relevance
+      // Combine semantic similarity with lexical relevance using normalized weights
       const combinedScore = (item.similarity !== undefined && item.similarity !== null)
-        ? (item.similarity * 0.7 + lexicalRelevance * 0.3)
+        ? (item.similarity * semanticWeight + lexicalRelevance * lexicalWeight)
         : lexicalRelevance;
 
       for (const snippetText of selected) {

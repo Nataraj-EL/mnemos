@@ -6,6 +6,7 @@ import { ResponseGenerator } from './generator';
 import { PgMemoryRepository } from '@/memory/repository';
 import { logTelemetry } from '@/core/logger';
 import { ConversationRetriever, ConversationSnippetResult } from '@/conversation/retriever';
+import { RETRIEVAL_SETTINGS } from '@/core/config';
 
 export interface ContextualResponseResult {
   response: string;
@@ -36,6 +37,12 @@ export interface ContextualResponseResult {
     faithfulness: number;
     citationCorrectness: number;
     contextUtilization: number;
+  };
+  diagnostics?: {
+    retrievedCandidates: { id: string; content: string; similarity: number }[];
+    acceptedSources: { id: string; content: string }[];
+    filteredSources: { id: string; content: string; reason: string }[];
+    finalContextCount: number;
   };
 }
 
@@ -70,7 +77,17 @@ export class ResponseService {
   async respond(
     userId: string,
     query: string,
-    options?: { limit?: number; maxTokens?: number; includeHistorical?: boolean; evaluationRun?: boolean }
+    options?: {
+      limit?: number;
+      maxTokens?: number;
+      includeHistorical?: boolean;
+      evaluationRun?: boolean;
+      semanticWeight?: number;
+      lexicalWeight?: number;
+      minSimilarity?: number;
+      diversityThreshold?: number;
+      maxConversationSnippets?: number;
+    }
   ): Promise<ContextualResponseResult> {
     if (!userId || !userId.trim()) {
       throw new Error('User ID is required.');
@@ -85,6 +102,30 @@ export class ResponseService {
       options?.includeHistorical !== undefined
         ? options.includeHistorical
         : this.isTemporalQuery(query);
+    const isEval = options?.evaluationRun === true;
+
+    const minSimOverride = isEval ? (options?.minSimilarity ?? RETRIEVAL_SETTINGS.minSimilarity) : undefined;
+    const semanticWeight = (isEval && options?.semanticWeight !== undefined) ? options.semanticWeight : RETRIEVAL_SETTINGS.semanticWeight;
+    const lexicalWeight = (isEval && options?.lexicalWeight !== undefined) ? options.lexicalWeight : RETRIEVAL_SETTINGS.lexicalWeight;
+    const diversityThreshold = (isEval && options?.diversityThreshold !== undefined) ? options.diversityThreshold : RETRIEVAL_SETTINGS.diversityThreshold;
+    const maxConversationSnippets = (isEval && options?.maxConversationSnippets !== undefined) ? options.maxConversationSnippets : RETRIEVAL_SETTINGS.maxConversationSnippets;
+
+    // Overrides validations
+    if (minSimOverride !== undefined && (minSimOverride < 0 || minSimOverride > 1 || isNaN(minSimOverride))) {
+      throw new Error('Invalid minSimilarity threshold. Must be between 0 and 1.');
+    }
+    if (diversityThreshold < 0 || diversityThreshold > 1 || isNaN(diversityThreshold)) {
+      throw new Error('Invalid diversityThreshold. Must be between 0 and 1.');
+    }
+    if (maxConversationSnippets < 0 || !Number.isInteger(maxConversationSnippets)) {
+      throw new Error('Invalid maxConversationSnippets limit. Must be a non-negative integer.');
+    }
+    if (semanticWeight < 0 || lexicalWeight < 0 || isNaN(semanticWeight) || isNaN(lexicalWeight)) {
+      throw new Error('Weights must be non-negative.');
+    }
+    if (semanticWeight + lexicalWeight <= 0) {
+      throw new Error('Combined weight total must be positive.');
+    }
 
     const startTime = Date.now();
     const correlationId =
@@ -105,6 +146,7 @@ export class ResponseService {
       candidates = await this.retriever.retrieve(userId, query, {
         limit: retrievalLimit,
         includeHistorical,
+        ...(minSimOverride !== undefined ? { minSimilarity: minSimOverride } : {}),
       });
       retrievalLatencyMs = Date.now() - retStart;
 
@@ -153,7 +195,12 @@ export class ResponseService {
       }
 
       // 3. Assemble context
-      const assemblyResult = this.assembler.assemble(query, candidates, maxTokens, includeHistorical);
+      const assemblyResult = this.assembler.assemble(query, candidates, maxTokens, {
+        includeHistorical,
+        semanticWeight,
+        lexicalWeight,
+        diversityThreshold,
+      });
 
       // Enforce limit slicing on context items
       let finalItems = assemblyResult.items;
@@ -175,7 +222,12 @@ export class ResponseService {
       let conversationSnippets: ConversationSnippetResult[] = [];
       if (this.conversationRetriever) {
         try {
-          conversationSnippets = await this.conversationRetriever.retrieveSnippets(userId, query);
+          conversationSnippets = await this.conversationRetriever.retrieveSnippets(userId, query, {
+            limitConversations: maxConversationSnippets,
+            maxSnippetsPerConversation: 3,
+            semanticWeight,
+            lexicalWeight,
+          });
         } catch (snippetErr) {
           console.error('Failed to retrieve conversation snippets:', snippetErr);
         }
@@ -355,6 +407,7 @@ export class ResponseService {
         usedConversations,
         governance: assemblyResult.governance,
         evaluation,
+        diagnostics: options?.evaluationRun ? assemblyResult.diagnostics : undefined,
       };
     } catch (error: unknown) {
       const totalLatencyMs = Date.now() - startTime;

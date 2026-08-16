@@ -1,6 +1,7 @@
 import { Memory, MemoryType } from '@/core/types';
 import { EmbeddingProvider } from './embedding';
 import { getDbPool } from '@/db';
+import { RETRIEVAL_SETTINGS } from '@/core/config';
 
 export interface RetrievalOptions {
   limit?: number;
@@ -47,6 +48,7 @@ export class MemoryRetriever {
   /**
    * Performs semantic search using pgvector on the Neon database.
    * Matches memories for a specific user, that are active, have vectors, and cross the similarity threshold.
+   * Falls back to lexical word match if the embedding provider fails.
    */
   async retrieve(
     userId: string,
@@ -61,46 +63,83 @@ export class MemoryRetriever {
     }
 
     const limit = options?.limit ?? 5;
-    const minSimilarity = options?.minSimilarity ?? 0.0;
+    const minSimilarity = options?.minSimilarity ?? RETRIEVAL_SETTINGS.minSimilarity;
     const includeHistorical = options?.includeHistorical ?? false;
 
-    // 1. Generate query embedding
-    const queryEmbedding = await this.embeddingProvider.generateEmbedding(query);
+    try {
+      // 1. Generate query embedding
+      const queryEmbedding = await this.embeddingProvider.generateEmbedding(query);
 
-    // 2. Query Neon PostgreSQL database
-    const pool = getDbPool();
-    const queryEmbeddingStr = `[${queryEmbedding.join(',')}]`;
+      // 2. Query Neon PostgreSQL database
+      const pool = getDbPool();
+      const queryEmbeddingStr = `[${queryEmbedding.join(',')}]`;
 
-    let sql = `
-      SELECT id, user_id as "userId", type, content, metadata, embedding, created_at as "createdAt", updated_at as "updatedAt",
-             (1 - (embedding <=> $1::vector)) as similarity
-      FROM memories
-      WHERE user_id = $2
-    `;
+      let sql = `
+        SELECT id, user_id as "userId", type, content, metadata, embedding, created_at as "createdAt", updated_at as "updatedAt",
+               (1 - (embedding <=> $1::vector)) as similarity
+        FROM memories
+        WHERE user_id = $2
+      `;
 
-    // Exclude superseded unless includeHistorical is explicitly set
-    if (!includeHistorical) {
-      sql += ` AND (metadata->>'status' IS NULL OR metadata->>'status' != 'superseded')`;
+      // Exclude superseded unless includeHistorical is explicitly set
+      if (!includeHistorical) {
+        sql += ` AND (metadata->>'status' IS NULL OR metadata->>'status' != 'superseded')`;
+      }
+
+      sql += `
+          AND embedding IS NOT NULL
+          AND (1 - (embedding <=> $1::vector)) >= $3
+        ORDER BY embedding <=> $1::vector ASC
+        LIMIT $4;
+      `;
+
+      const result = await pool.query(sql, [
+        queryEmbeddingStr,
+        userId,
+        minSimilarity,
+        limit,
+      ]);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return result.rows.map((row: any) => ({
+        memory: mapRowToMemory(row),
+        similarity: Number(row.similarity),
+      }));
+    } catch (embedErr) {
+      console.warn('Embedding provider failed, falling back to lexical search:', embedErr);
+
+      // 3. Fallback: query PostgreSQL lexically
+      const pool = getDbPool();
+      const words = query.split(/\s+/).filter(w => w.length > 2).map(w => `%${w}%`);
+
+      let sql = `
+        SELECT id, user_id as "userId", type, content, metadata, embedding, created_at as "createdAt", updated_at as "updatedAt",
+               0.5 as similarity
+        FROM memories
+        WHERE user_id = $1
+      `;
+
+      if (!includeHistorical) {
+        sql += ` AND (metadata->>'status' IS NULL OR metadata->>'status' != 'superseded')`;
+      }
+
+      if (words.length > 0) {
+        sql += ` AND (${words.map((_, idx) => `content ILIKE $${idx + 2}`).join(' OR ')})`;
+      }
+
+      sql += `
+        ORDER BY created_at DESC
+        LIMIT $${words.length + 2};
+      `;
+
+      const params = [userId, ...words, limit];
+      const result = await pool.query(sql, params);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return result.rows.map((row: any) => ({
+        memory: mapRowToMemory(row),
+        similarity: 0.5,
+      }));
     }
-
-    sql += `
-        AND embedding IS NOT NULL
-        AND (1 - (embedding <=> $1::vector)) >= $3
-      ORDER BY embedding <=> $1::vector ASC
-      LIMIT $4;
-    `;
-
-    const result = await pool.query(sql, [
-      queryEmbeddingStr,
-      userId,
-      minSimilarity,
-      limit,
-    ]);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return result.rows.map((row: any) => ({
-      memory: mapRowToMemory(row),
-      similarity: Number(row.similarity),
-    }));
   }
 }

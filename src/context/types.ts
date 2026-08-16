@@ -16,6 +16,7 @@ export interface ContextItem {
   conversationId?: string;
   sourceType?: string;
   sourceTimestamp?: string;
+  createdAt?: Date;
 }
 
 export interface ContextRequest {
@@ -41,5 +42,11 @@ export interface ContextResult {
       decision: 'ALLOW' | 'DOWNRANK' | 'EXCLUDE';
       reasons: string[];
     }>;
+  };
+  diagnostics?: {
+    retrievedCandidates: { id: string; content: string; similarity: number }[];
+    acceptedSources: { id: string; content: string }[];
+    filteredSources: { id: string; content: string; reason: string }[];
+    finalContextCount: number;
   };
 }

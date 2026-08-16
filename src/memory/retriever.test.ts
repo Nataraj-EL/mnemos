@@ -79,11 +79,13 @@ describe('MemoryRetriever', () => {
     await expect(retriever.retrieve('user-1', '')).rejects.toThrow('Query text is required.');
   });
 
-  it('should propagate embedding provider errors', async () => {
+  it('should fallback to lexical query on embedding provider error', async () => {
     mockEmbeddingProvider.generateEmbedding.mockRejectedValueOnce(new Error('Embedding API failed'));
+    mockQuery.mockResolvedValueOnce({ rows: [] });
 
-    await expect(retriever.retrieve('user-1', 'query')).rejects.toThrow('Embedding API failed');
-    expect(mockQuery).not.toHaveBeenCalled();
+    const results = await retriever.retrieve('user-1', 'query');
+    expect(results).toEqual([]);
+    expect(mockQuery).toHaveBeenCalled();
   });
 
   it('should return empty array if database returns no rows', async () => {

@@ -1,6 +1,7 @@
 import { Memory, MemoryType, normalizeMetadata, deriveLifecycleState } from '@/core/types';
 import { ContextItem, ContextResult } from './types';
 import { MemoryGovernance } from '@/memory/governance';
+import { RETRIEVAL_SETTINGS } from '@/core/config';
 
 export const HALF_LIFE_DAYS = 30;
 export const DEDUPLICATION_THRESHOLD = 0.70;
@@ -20,6 +21,21 @@ export const TYPE_WEIGHTS: Record<MemoryType, number> = {
   EVENT: 0.6,
   RELATIONSHIP: 0.6,
 };
+
+export interface AssembleOptions {
+  includeHistorical?: boolean;
+  semanticWeight?: number;
+  lexicalWeight?: number;
+  diversityThreshold?: number;
+}
+
+function redactUUID(id: string): string {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (uuidRegex.test(id)) {
+    return `uuid-${id.substring(0, 8)}...`;
+  }
+  return id;
+}
 
 /**
  * Calculates Jaccard similarity between two strings based on normalized word overlap.
@@ -57,8 +73,14 @@ export class ContextAssembler {
     query: string,
     retrieved: { memory: Memory; similarity: number }[],
     maxTokens: number = 1500,
-    includeHistorical: boolean = false
+    options?: AssembleOptions | boolean
   ): ContextResult {
+    const includeHistorical = typeof options === 'boolean' ? options : (options?.includeHistorical ?? false);
+    const semanticWeight = (options && typeof options === 'object' && options.semanticWeight !== undefined) ? options.semanticWeight : SCORING_WEIGHTS.similarity;
+    const diversityThreshold = (options && typeof options === 'object' && options.diversityThreshold !== undefined) ? options.diversityThreshold : RETRIEVAL_SETTINGS.diversityThreshold;
+
+    const filteredSources: { id: string; content: string; reason: string }[] = [];
+
     // 1. Run conflict detection on the candidate memories to find losing conflict IDs
     const rawMemories = retrieved.map((r) => r.memory);
     const conflicts = MemoryGovernance.detectConflicts(rawMemories);
@@ -83,6 +105,7 @@ export class ContextAssembler {
 
     // 2. Score candidates using normalized weighted formulas + governance decisions
     const scoredItems: ContextItem[] = [];
+    const now = new Date();
 
     for (const item of retrieved) {
       const { memory, similarity } = item;
@@ -128,6 +151,7 @@ export class ContextAssembler {
 
       // If EXCLUDE, discard from context
       if (gov.decision === 'EXCLUDE') {
+        filteredSources.push({ id: memory.id, content: memory.content, reason: `Governance exclude: ${gov.reasons.join(', ')}` });
         continue;
       }
 
@@ -138,7 +162,6 @@ export class ContextAssembler {
       // Recency decay calculation
       const timestampStr = metadata.timestamp;
       const memoryDate = new Date(timestampStr);
-      const now = new Date();
       const elapsedMs = Math.max(0, now.getTime() - memoryDate.getTime());
       const elapsedDays = elapsedMs / (1000 * 60 * 60 * 24);
       const recencyScore = 1 / (1 + elapsedDays / HALF_LIFE_DAYS);
@@ -156,9 +179,9 @@ export class ContextAssembler {
       const effectiveImportance = normalizedImportance * confidence;
       const effectiveRecency = recencyScore * decayFactor;
 
-      // Final score formula
+      // Final score formula using standard selector weights or configurable semanticWeight
       let score =
-        similarity * SCORING_WEIGHTS.similarity +
+        similarity * semanticWeight +
         effectiveImportance * SCORING_WEIGHTS.importance +
         effectiveRecency * SCORING_WEIGHTS.recency +
         typeWeight * SCORING_WEIGHTS.type;
@@ -187,13 +210,21 @@ export class ContextAssembler {
         conversationId: metadata.conversationId,
         sourceType: metadata.sourceType,
         sourceTimestamp: metadata.sourceTimestamp,
+        createdAt: memory.createdAt,
       });
     }
 
-    // 3. Sort by selection score descending
-    scoredItems.sort((a, b) => b.score - a.score);
+    // 3. Sort by: hybridScore DESC -> similarity DESC -> createdAt DESC -> stable ID ASC
+    scoredItems.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.similarity !== a.similarity) return b.similarity - a.similarity;
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      if (bTime !== aTime) return bTime - aTime;
+      return a.id.localeCompare(b.id);
+    });
 
-    // 4. Deduplicate using text Jaccard similarity (Threshold = 0.70)
+    // 4. Deduplicate using text Jaccard similarity and configurable diversityThreshold
     const deduplicatedItems: ContextItem[] = [];
     for (const candidate of scoredItems) {
       let isDuplicate = false;
@@ -210,8 +241,9 @@ export class ContextAssembler {
           : 0;
 
         const similarityScore = Math.max(jaccard, overlap);
-        if (similarityScore > DEDUPLICATION_THRESHOLD) {
+        if (similarityScore > diversityThreshold) {
           isDuplicate = true;
+          filteredSources.push({ id: candidate.id, content: candidate.content, reason: `Deduplication overlap: ${(similarityScore * 100).toFixed(0)}% > ${(diversityThreshold * 100).toFixed(0)}%` });
           break;
         }
       }
@@ -232,7 +264,8 @@ export class ContextAssembler {
 
       // Defensively stop adding if it exceeds budget
       if (candidateTokens > maxTokens) {
-        break;
+        filteredSources.push({ id: item.id, content: item.content, reason: `Token budget limit: context tokens would exceed ${maxTokens}` });
+        continue;
       }
 
       compiledContext = candidateContext;
@@ -252,6 +285,12 @@ export class ContextAssembler {
         lowConfidenceCount,
         injectionBlockedCount,
         details: governanceDetails,
+      },
+      diagnostics: {
+        retrievedCandidates: retrieved.map((r) => ({ id: redactUUID(r.memory.id), content: r.memory.content, similarity: r.similarity })),
+        acceptedSources: selectedItems.map((item) => ({ id: redactUUID(item.id), content: item.content })),
+        filteredSources: filteredSources.map((f) => ({ id: redactUUID(f.id), content: f.content, reason: f.reason })),
+        finalContextCount: selectedItems.length,
       },
     };
   }
