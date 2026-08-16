@@ -1,4 +1,4 @@
-import { EvalScenario, EvalScenarioResult, EvalSummary } from './types';
+import { EvalScenario, EvalScenarioResult, EvalSummary, TuningConfig } from './types';
 import { EVAL_DATASET } from './dataset';
 import { ContextAssembler } from '@/context/assembler';
 import { ResponseGenerator } from '@/response/generator';
@@ -54,10 +54,12 @@ export class EvaluationRunner {
       };
   }
 
-  async runScenario(scenario: EvalScenario): Promise<EvalScenarioResult> {
+  async runScenario(scenario: EvalScenario, config?: Partial<TuningConfig>): Promise<EvalScenarioResult> {
     const startTime = Date.now();
 
     try {
+      const minSim = config?.minSimilarity !== undefined ? config.minSimilarity : 0.7;
+
       // 1. Simulate database retrieval: filter by userId and active status
       const candidates = scenario.inputMemories
         .filter((m) => m.userId === scenario.userId && m.metadata.status !== 'superseded')
@@ -66,20 +68,22 @@ export class EvaluationRunner {
           const similarity = isExpected ? 0.9 : 0.2;
           return { memory: m, similarity };
         })
-        .filter((c) => c.similarity >= 0.7);
+        .filter((c) => c.similarity >= minSim);
 
       // Setup ConversationRetriever mock
       const mockConvRetriever = {
-        retrieveSnippets: async (_uid: string, q: string) => {
+        retrieveSnippets: async (_uid: string, q: string, opts?: Record<string, unknown>) => {
           const lq = q.toLowerCase();
           if (lq.includes('yesterday') || lq.includes('combined')) {
+            const sem = (opts?.semanticWeight as number) ?? 1.0;
             return [
               {
                 conversationId: 'conv-999',
                 createdAt: new Date(),
                 text: 'We talked about PostgreSQL database setups.',
                 matchedSnippet: 'We talked about PostgreSQL database setups.',
-                similarity: 0.95
+                similarity: 0.95,
+                score: 0.95 * sem
               }
             ];
           }
@@ -90,7 +94,10 @@ export class EvaluationRunner {
 
       // Instantiate ResponseService
       const mockRetriever = {
-        retrieve: async () => candidates
+        retrieve: async (_uid: string, _q: string, opts?: Record<string, unknown>) => {
+          const actualMinSim = opts?.minSimilarity !== undefined ? (opts.minSimilarity as number) : minSim;
+          return candidates.filter((c) => c.similarity >= actualMinSim);
+        }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any;
 
@@ -105,7 +112,12 @@ export class EvaluationRunner {
       // Execute response generation
       const serviceResult = await responseService.respond(scenario.userId, scenario.query, {
         maxTokens: scenario.maxTokens,
-        evaluationRun: true
+        evaluationRun: true,
+        semanticWeight: config?.semanticWeight,
+        lexicalWeight: config?.lexicalWeight,
+        minSimilarity: config?.minSimilarity,
+        diversityThreshold: config?.diversityThreshold,
+        maxConversationSnippets: config?.maxConversationSnippets,
       });
 
       const latencyMs = Date.now() - startTime;
@@ -212,6 +224,7 @@ export class EvaluationRunner {
         },
         latencyMs,
         evaluation,
+        diagnostics: serviceResult.diagnostics,
         ...(failureReason ? { failureReason } : {}),
       };
     } catch (error: unknown) {
@@ -237,13 +250,14 @@ export class EvaluationRunner {
   }
 
   async runAll(
-    scenarios: EvalScenario[] = EVAL_DATASET
+    scenarios: EvalScenario[] = EVAL_DATASET,
+    config?: Partial<TuningConfig>
   ): Promise<{ results: EvalScenarioResult[]; summary: EvalSummary }> {
     const results: EvalScenarioResult[] = [];
     let totalLatency = 0;
 
     for (const scenario of scenarios) {
-      const res = await this.runScenario(scenario);
+      const res = await this.runScenario(scenario, config);
       results.push(res);
       totalLatency += res.latencyMs;
     }

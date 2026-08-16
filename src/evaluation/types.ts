@@ -38,6 +38,12 @@ export interface EvalScenarioResult {
     citationCorrectness: number;
     contextUtilization: number;
   };
+  diagnostics?: {
+    retrievedCandidates: { id: string; content: string; similarity: number }[];
+    acceptedSources: { id: string; content: string }[];
+    filteredSources: { id: string; content: string; reason: string }[];
+    finalContextCount: number;
+  };
 }
 
 export interface EvalSummary {
@@ -55,3 +61,26 @@ export interface EvalSummary {
   contextUtilization: number;
   averageLatency: number;
 }
+
+export interface TuningConfig {
+  semanticWeight: number;
+  lexicalWeight: number;
+  minSimilarity: number;
+  diversityThreshold: number;
+  maxConversationSnippets: number;
+}
+
+export interface TuningResult {
+  config: TuningConfig;
+  passedCount: number;
+  failedCount: number;
+  averageMetrics: EvalScenarioMetrics;
+  overallBenchmarkScore: number;
+}
+
+export interface TuningBenchmarkSummary {
+  matrixResults: TuningResult[];
+  bestConfig: TuningConfig;
+  recommendationExplanation: string;
+}
+

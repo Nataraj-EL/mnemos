@@ -1,0 +1,249 @@
+import { EvalScenario, EvalScenarioResult, TuningConfig, TuningResult, TuningBenchmarkSummary, EvalScenarioMetrics } from './types';
+import { EVAL_DATASET } from './dataset';
+import { EvaluationRunner } from './runner';
+
+export interface ScoringWeights {
+  relevance: number;
+  faithfulness: number;
+  citationCorrectness: number;
+  contextUtilization: number;
+  retrievalRecall: number;
+}
+
+export const DEFAULT_SCORING_WEIGHTS: ScoringWeights = {
+  relevance: 0.25,
+  faithfulness: 0.25,
+  citationCorrectness: 0.25,
+  contextUtilization: 0.15,
+  retrievalRecall: 0.10
+};
+
+// Global lock to prevent concurrent tuning executions
+let isTuningActive = false;
+
+/**
+ * Returns whether a tuning benchmark run is currently in progress.
+ */
+export function getIsTuningActive(): boolean {
+  return isTuningActive;
+}
+
+/**
+ * Reset lock (primarily for test cleanup)
+ */
+export function resetTuningActiveLock(): void {
+  isTuningActive = false;
+}
+
+/**
+ * Cartesian matrix configurations generator.
+ * Produces bounded combinations under a safety size threshold limit.
+ */
+export function generateTuningMatrix(): TuningConfig[] {
+  // Define explicit configurations to avoid cartesian explosions
+  const weights = [
+    { semanticWeight: 0.8, lexicalWeight: 0.2 },
+    { semanticWeight: 0.5, lexicalWeight: 0.5 }
+  ];
+  const minSimilarities = [0.0, 0.2];
+  const diversityThresholds = [0.6, 0.8];
+  const maxConversationSnippets = [2, 4];
+
+  const matrix: TuningConfig[] = [];
+  for (const w of weights) {
+    for (const minSim of minSimilarities) {
+      for (const div of diversityThresholds) {
+        for (const maxSnip of maxConversationSnippets) {
+          // Normalize weights so they sum to 1.0 safely
+          const sum = w.semanticWeight + w.lexicalWeight;
+          const semanticWeight = sum > 0 ? w.semanticWeight / sum : 1.0;
+          const lexicalWeight = sum > 0 ? w.lexicalWeight / sum : 0.0;
+
+          matrix.push({
+            semanticWeight,
+            lexicalWeight,
+            minSimilarity: minSim,
+            diversityThreshold: div,
+            maxConversationSnippets: maxSnip
+          });
+        }
+      }
+    }
+  }
+
+  // Validate matrix limit
+  if (matrix.length > 30) {
+    throw new Error(`Matrix size limit exceeded: generated ${matrix.length} combinations, maximum is 30.`);
+  }
+
+  return matrix;
+}
+
+/**
+ * Calculates a configurable, weighted benchmark score for a configuration's metrics.
+ */
+export function calculateBenchmarkScore(
+  metrics: EvalScenarioMetrics,
+  weights: ScoringWeights = DEFAULT_SCORING_WEIGHTS
+): number {
+  return (
+    metrics.relevance * weights.relevance +
+    metrics.faithfulness * weights.faithfulness +
+    metrics.citationCorrectness * weights.citationCorrectness +
+    metrics.contextUtilization * weights.contextUtilization +
+    metrics.retrievalRecall * weights.retrievalRecall
+  );
+}
+
+export class TuningRunner {
+  private runner: EvaluationRunner;
+  private scoringWeights: ScoringWeights;
+  private timeoutMs: number;
+
+  constructor(
+    runner?: EvaluationRunner,
+    scoringWeights?: ScoringWeights,
+    timeoutMs: number = 15000 // 15 seconds execution timeout limit
+  ) {
+    this.runner = runner || new EvaluationRunner();
+    this.scoringWeights = scoringWeights || DEFAULT_SCORING_WEIGHTS;
+    this.timeoutMs = timeoutMs;
+  }
+
+  /**
+   * Runs grounding evaluation benchmark dataset across the parameter tuning matrix configurations.
+   */
+  async runTuning(
+    scenarios: EvalScenario[] = EVAL_DATASET,
+    matrix: TuningConfig[] = generateTuningMatrix()
+  ): Promise<TuningBenchmarkSummary> {
+    if (isTuningActive) {
+      throw new Error('Concurrent tuning execution blocked. A tuning run is already in progress.');
+    }
+    isTuningActive = true;
+
+    try {
+      if (matrix.length > 30) {
+        throw new Error(`Execution blocked: configuration matrix size is ${matrix.length}, which exceeds the max limit of 30.`);
+      }
+
+      // Wrap matrix execution in a timeout boundary
+      const executionPromise = this.executeTuningMatrix(scenarios, matrix);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Tuning execution timeout exceeded.')), this.timeoutMs)
+      );
+
+      return await Promise.race([executionPromise, timeoutPromise]);
+    } finally {
+      isTuningActive = false;
+    }
+  }
+
+  private async executeTuningMatrix(
+    scenarios: EvalScenario[],
+    matrix: TuningConfig[]
+  ): Promise<TuningBenchmarkSummary> {
+    const matrixResults: TuningResult[] = [];
+    const totalScenarios = scenarios.length;
+
+    for (const config of matrix) {
+      let passedCount = 0;
+      let failedCount = 0;
+
+      // Accumulator metric variables
+      let recallSum = 0;
+      let precisionSum = 0;
+      let isolationSum = 0;
+      let deduplicationSum = 0;
+      let tokenSum = 0;
+      let relevanceSum = 0;
+      let faithfulnessSum = 0;
+      let citationSum = 0;
+      let utilizationSum = 0;
+
+      for (const scenario of scenarios) {
+        try {
+          const result: EvalScenarioResult = await this.runner.runScenario(scenario, config);
+          if (result.passed) {
+            passedCount++;
+          } else {
+            failedCount++;
+          }
+
+          recallSum += result.metrics.retrievalRecall;
+          precisionSum += result.metrics.contextPrecision;
+          isolationSum += result.metrics.userIsolation;
+          deduplicationSum += result.metrics.deduplicationRate;
+          tokenSum += result.metrics.tokenCompliance;
+          relevanceSum += result.metrics.relevance;
+          faithfulnessSum += result.metrics.faithfulness;
+          citationSum += result.metrics.citationCorrectness;
+          utilizationSum += result.metrics.contextUtilization;
+        } catch (error) {
+          // Scenario failures must not crash the entire benchmark run. Count as failed and proceed.
+          failedCount++;
+          console.error(`Tuning scenario ${scenario.scenarioId} execution failure:`, error);
+        }
+      }
+
+      const divisor = totalScenarios > 0 ? totalScenarios : 1;
+      const averageMetrics: EvalScenarioMetrics = {
+        retrievalRecall: recallSum / divisor,
+        contextPrecision: precisionSum / divisor,
+        userIsolation: isolationSum / divisor,
+        deduplicationRate: deduplicationSum / divisor,
+        tokenCompliance: tokenSum / divisor,
+        relevance: relevanceSum / divisor,
+        faithfulness: faithfulnessSum / divisor,
+        citationCorrectness: citationSum / divisor,
+        contextUtilization: utilizationSum / divisor
+      };
+
+      const overallBenchmarkScore = calculateBenchmarkScore(averageMetrics, this.scoringWeights);
+
+      matrixResults.push({
+        config,
+        passedCount,
+        failedCount,
+        averageMetrics,
+        overallBenchmarkScore
+      });
+    }
+
+    // Deterministic ranking tie-breakers
+    matrixResults.sort((a, b) => {
+      // 1. Overall benchmark score DESC
+      if (Math.abs(b.overallBenchmarkScore - a.overallBenchmarkScore) > 1e-9) {
+        return b.overallBenchmarkScore - a.overallBenchmarkScore;
+      }
+      // 2. Passed scenario count DESC
+      if (b.passedCount !== a.passedCount) {
+        return b.passedCount - a.passedCount;
+      }
+      // 3. Semantic Weight DESC
+      if (Math.abs(b.config.semanticWeight - a.config.semanticWeight) > 1e-9) {
+        return b.config.semanticWeight - a.config.semanticWeight;
+      }
+      // 4. Min Similarity DESC
+      if (Math.abs(b.config.minSimilarity - a.config.minSimilarity) > 1e-9) {
+        return b.config.minSimilarity - a.config.minSimilarity;
+      }
+      // 5. Diversity Threshold DESC
+      if (Math.abs(b.config.diversityThreshold - a.config.diversityThreshold) > 1e-9) {
+        return b.config.diversityThreshold - a.config.diversityThreshold;
+      }
+      // 6. Max Snippets DESC
+      return b.config.maxConversationSnippets - a.config.maxConversationSnippets;
+    });
+
+    const bestResult = matrixResults[0];
+    const bestConfig = bestResult.config;
+    const recommendationExplanation = `Config recommendation derived from deterministic benchmark matrix run. Best configuration achieved an overall benchmark score of ${(bestResult.overallBenchmarkScore * 100).toFixed(1)}% by passing ${bestResult.passedCount} out of ${totalScenarios} test scenarios.`;
+
+    return {
+      matrixResults,
+      bestConfig,
+      recommendationExplanation
+    };
+  }
+}

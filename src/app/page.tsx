@@ -67,6 +67,12 @@ interface EvalScenarioResult {
     citationCorrectness: number;
     contextUtilization: number;
   };
+  diagnostics?: {
+    retrievedCandidates: { id: string; content: string; similarity: number }[];
+    acceptedSources: { id: string; content: string }[];
+    filteredSources: { id: string; content: string; reason: string }[];
+    finalContextCount: number;
+  };
 }
 
 interface EvalSummary {
@@ -83,6 +89,28 @@ interface EvalSummary {
   citationCorrectness?: number;
   contextUtilization?: number;
   averageLatency: number;
+}
+
+interface TuningConfig {
+  semanticWeight: number;
+  lexicalWeight: number;
+  minSimilarity: number;
+  diversityThreshold: number;
+  maxConversationSnippets: number;
+}
+
+interface TuningResult {
+  config: TuningConfig;
+  passedCount: number;
+  failedCount: number;
+  averageMetrics: EvalScenarioMetrics;
+  overallBenchmarkScore: number;
+}
+
+interface TuningBenchmarkSummary {
+  matrixResults: TuningResult[];
+  bestConfig: TuningConfig;
+  recommendationExplanation: string;
 }
 
 interface HealthResponse {
@@ -1418,6 +1446,7 @@ export default function MemoryDashboard() {
   // Evaluation State
   const [evalSummary, setEvalSummary] = useState<EvalSummary | null>(null);
   const [evalResults, setEvalResults] = useState<EvalScenarioResult[]>([]);
+  const [expandedScenarioId, setExpandedScenarioId] = useState<string | null>(null);
   const [evalLoading, setEvalLoading] = useState(false);
   const [evalError, setEvalError] = useState<string | null>(null);
 
@@ -1446,6 +1475,32 @@ export default function MemoryDashboard() {
       setEvalError('An unexpected error occurred during evaluation.');
     } finally {
       setEvalLoading(false);
+    }
+  };
+
+  // Parameter Tuning State
+  const [tuningSummary, setTuningSummary] = useState<TuningBenchmarkSummary | null>(null);
+  const [tuningLoading, setTuningLoading] = useState(false);
+  const [tuningError, setTuningError] = useState<string | null>(null);
+
+  const handleRunTuning = async () => {
+    setTuningLoading(true);
+    setTuningError(null);
+    setTuningSummary(null);
+
+    try {
+      const response = await fetch('/api/evaluation/tune', { method: 'POST' });
+      const data = await response.json();
+      if (!response.ok) {
+        setTuningError(data.error || 'Failed to execute parameter optimization.');
+      } else {
+        setTuningSummary(data);
+      }
+    } catch (err) {
+      console.error('Failed to execute parameter tuning:', err);
+      setTuningError('An unexpected error occurred during tuning.');
+    } finally {
+      setTuningLoading(false);
     }
   };
 
@@ -3957,19 +4012,170 @@ export default function MemoryDashboard() {
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '250px', overflowY: 'auto' }}>
                     {evalResults.map((result) => (
-                      <div key={result.scenarioId} style={{ padding: '0.4rem 0.6rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)', fontSize: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <strong>{result.name}</strong>
-                          <div style={{ opacity: 0.6, fontSize: '0.65rem', marginTop: '0.1rem' }}>
-                            Recall: {(result.metrics.retrievalRecall * 100).toFixed(0)}% | Grounding: {((result.metrics.faithfulness ?? 1) * 100).toFixed(0)}% | Citation: {((result.metrics.citationCorrectness ?? 1) * 100).toFixed(0)}% | Latency: {result.latencyMs} ms
+                      <div key={result.scenarioId} style={{ display: 'flex', flexDirection: 'column', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--surface)', fontSize: '0.75rem' }}>
+                        <div
+                          style={{ padding: '0.4rem 0.6rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+                          onClick={() => setExpandedScenarioId(expandedScenarioId === result.scenarioId ? null : result.scenarioId)}
+                        >
+                          <div>
+                            <strong>{result.name}</strong>
+                            <div style={{ opacity: 0.6, fontSize: '0.65rem', marginTop: '0.1rem' }}>
+                              Recall: {(result.metrics.retrievalRecall * 100).toFixed(0)}% | Grounding: {((result.metrics.faithfulness ?? 1) * 100).toFixed(0)}% | Citation: {((result.metrics.citationCorrectness ?? 1) * 100).toFixed(0)}% | Latency: {result.latencyMs} ms
+                            </div>
                           </div>
+                          <span style={{ color: result.passed ? 'var(--success)' : 'var(--error)', fontWeight: 600 }}>
+                            {result.passed ? 'PASSED' : 'FAILED'}
+                          </span>
                         </div>
-                        <span style={{ color: result.passed ? 'var(--success)' : 'var(--error)', fontWeight: 600 }}>
-                          {result.passed ? 'PASSED' : 'FAILED'}
-                        </span>
+
+                        {expandedScenarioId === result.scenarioId && result.diagnostics && (
+                          <div style={{ padding: '0.5rem 0.6rem', borderTop: '1px solid var(--border)', backgroundColor: 'rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.7rem' }}>
+                            <div>
+                              <strong style={{ opacity: 0.8 }}>Retrieved Candidates ({result.diagnostics.retrievedCandidates.length}):</strong>
+                              <ul style={{ margin: '0.2rem 0 0 1rem', padding: 0, opacity: 0.7, listStyle: 'circle' }}>
+                                {result.diagnostics.retrievedCandidates.map((c, i) => (
+                                  <li key={i} style={{ wordBreak: 'break-all' }}>{c.id}: &ldquo;{c.content}&rdquo; (similarity: {c.similarity.toFixed(2)})</li>
+                                ))}
+                              </ul>
+                            </div>
+                            <div>
+                              <strong style={{ color: 'var(--success)' }}>Accepted Sources ({result.diagnostics.acceptedSources.length}):</strong>
+                              <ul style={{ margin: '0.2rem 0 0 1rem', padding: 0, color: 'var(--success)', listStyle: 'disc' }}>
+                                {result.diagnostics.acceptedSources.map((s, i) => (
+                                  <li key={i} style={{ wordBreak: 'break-all' }}>{s.id}: &ldquo;{s.content}&rdquo;</li>
+                                ))}
+                              </ul>
+                            </div>
+                            {result.diagnostics.filteredSources.length > 0 && (
+                              <div>
+                                <strong style={{ color: 'var(--error)' }}>Filtered / Duplicate Sources ({result.diagnostics.filteredSources.length}):</strong>
+                                <ul style={{ margin: '0.2rem 0 0 1rem', padding: 0, color: 'var(--error)', listStyle: 'square' }}>
+                                  {result.diagnostics.filteredSources.map((f, i) => (
+                                    <li key={i} style={{ wordBreak: 'break-all' }}>{f.id}: &ldquo;{f.content}&rdquo; - <em>{f.reason}</em></li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            <div style={{ opacity: 0.8 }}>
+                              <strong>Final Context Source Count:</strong> {result.diagnostics.finalContextCount}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+            </div>
+
+            {/* Retrieval Parameter Optimization & Matrix Tuning */}
+            <div className="card" style={{ padding: '1.25rem', marginTop: '1.5rem' }}>
+              <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600 }}>Retrieval Parameter Optimization</h3>
+              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1rem' }}>
+                Run systematic matrix simulations to optimize semantic/lexical weights, thresholds, and snippet lengths.
+              </p>
+
+              <button
+                onClick={handleRunTuning}
+                className="premium-btn premium-btn-primary"
+                disabled={tuningLoading}
+                style={{ marginBottom: '1rem' }}
+              >
+                {tuningLoading ? (
+                  <>
+                    {renderSpinner()}
+                    Tuning Matrix...
+                  </>
+                ) : (
+                  <>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '0.25rem' }}>
+                      <circle cx="12" cy="12" r="3"/><path d="M3 20h18L12 4z"/>
+                    </svg>
+                    Optimize Parameters & Benchmark
+                  </>
+                )}
+              </button>
+
+              {tuningError && (
+                <div style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--error)', backgroundColor: 'rgba(179, 74, 60, 0.05)', color: 'var(--error)', fontSize: '0.75rem', marginBottom: '1rem' }}>
+                  {tuningError}
+                </div>
+              )}
+
+              {tuningSummary && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  
+                  {/* Recommendation Banner */}
+                  <div style={{ padding: '1rem', border: '1px solid var(--success)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(91, 138, 82, 0.05)', fontSize: '0.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                      <span style={{ fontSize: '1.1rem' }}>💡</span>
+                      <strong style={{ color: 'var(--success)', fontSize: '0.8rem' }}>Recommended Retrieval Configuration</strong>
+                    </div>
+                    <p style={{ margin: '0 0 0.5rem 0', opacity: 0.8 }}>
+                      {tuningSummary.recommendationExplanation}
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem', backgroundColor: 'rgba(0,0,0,0.2)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                      <div>Semantic Weight: <strong>{tuningSummary.bestConfig.semanticWeight.toFixed(2)}</strong></div>
+                      <div>Lexical Weight: <strong>{tuningSummary.bestConfig.lexicalWeight.toFixed(2)}</strong></div>
+                      <div>minSimilarity: <strong>{tuningSummary.bestConfig.minSimilarity.toFixed(2)}</strong></div>
+                      <div>diversityThreshold: <strong>{tuningSummary.bestConfig.diversityThreshold.toFixed(2)}</strong></div>
+                      <div>maxSnippets: <strong>{tuningSummary.bestConfig.maxConversationSnippets}</strong></div>
+                    </div>
+                    <p style={{ margin: '0.5rem 0 0 0', opacity: 0.6, fontSize: '0.65rem', fontStyle: 'italic' }}>
+                      Note: This recommendation is for developer review only and has not modified your active production defaults.
+                    </p>
+                  </div>
+
+                  {/* Matrix Results Table */}
+                  <div>
+                    <h4 style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.5rem', opacity: 0.8 }}>Matrix Tuning Configurations Run</h4>
+                    <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.7rem', textAlign: 'left' }}>
+                        <thead>
+                          <tr style={{ backgroundColor: 'var(--background)', borderBottom: '1px solid var(--border)' }}>
+                            <th style={{ padding: '0.5rem' }}>Weights (Sem/Lex)</th>
+                            <th style={{ padding: '0.5rem' }}>minSim</th>
+                            <th style={{ padding: '0.5rem' }}>diversity</th>
+                            <th style={{ padding: '0.5rem' }}>maxSnips</th>
+                            <th style={{ padding: '0.5rem', textAlign: 'center' }}>Pass/Fail</th>
+                            <th style={{ padding: '0.5rem', textAlign: 'center' }}>Recall</th>
+                            <th style={{ padding: '0.5rem', textAlign: 'center' }}>Faith</th>
+                            <th style={{ padding: '0.5rem', textAlign: 'center' }}>Score</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tuningSummary.matrixResults.map((res: TuningResult, idx: number) => {
+                            const isBest = idx === 0;
+                            return (
+                              <tr 
+                                key={idx} 
+                                style={{ 
+                                  borderBottom: '1px solid var(--border)', 
+                                  backgroundColor: isBest ? 'rgba(212, 175, 55, 0.05)' : 'transparent',
+                                  fontWeight: isBest ? 'bold' : 'normal'
+                                }}
+                              >
+                                <td style={{ padding: '0.5rem' }}>
+                                  {res.config.semanticWeight.toFixed(1)} / {res.config.lexicalWeight.toFixed(1)}
+                                  {isBest && <span style={{ color: '#d4af37', marginLeft: '0.25rem' }}>★ Best</span>}
+                                </td>
+                                <td style={{ padding: '0.5rem' }}>{res.config.minSimilarity.toFixed(1)}</td>
+                                <td style={{ padding: '0.5rem' }}>{res.config.diversityThreshold.toFixed(1)}</td>
+                                <td style={{ padding: '0.5rem' }}>{res.config.maxConversationSnippets}</td>
+                                <td style={{ padding: '0.5rem', textAlign: 'center', color: res.failedCount > 0 ? 'var(--error)' : 'var(--success)' }}>
+                                  {res.passedCount} / {res.passedCount + res.failedCount}
+                                </td>
+                                <td style={{ padding: '0.5rem', textAlign: 'center' }}>{(res.averageMetrics.retrievalRecall * 100).toFixed(0)}%</td>
+                                <td style={{ padding: '0.5rem', textAlign: 'center' }}>{((res.averageMetrics.faithfulness ?? 1.0) * 100).toFixed(0)}%</td>
+                                <td style={{ padding: '0.5rem', textAlign: 'center', fontWeight: 'bold' }}>{(res.overallBenchmarkScore * 100).toFixed(1)}%</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
                 </div>
               )}
             </div>
