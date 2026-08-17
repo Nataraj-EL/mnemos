@@ -16,6 +16,25 @@ interface MemoryMetadata {
   [key: string]: unknown;
 }
 
+interface VoiceHealthInfo {
+  provider: 'cloud' | 'local';
+  localWhisperAvailable: boolean;
+  daemonState: 'ready' | 'loading' | 'error' | 'none' | 'forbidden';
+  supportedMimeTypes: string[];
+  lastFailureCategory: string | null;
+  latestRequest: {
+    requestId: string;
+    provider: 'cloud' | 'local';
+    mimeBaseType: string;
+    audioSize: number;
+    duration?: number;
+    latencyMs: number;
+    status: 'success' | 'error';
+    errorCategory?: string;
+    timestamp: string;
+  } | null;
+}
+
 interface Memory {
   id: string;
   userId: string;
@@ -181,6 +200,8 @@ export default function MemoryDashboard() {
   // Voice Grounded Query States
   const [voiceMode, setVoiceMode] = useState<'transcribe' | 'ask'>('transcribe');
   const [voiceResponseText, setVoiceResponseText] = useState<string | null>(null);
+  const [voiceHealth, setVoiceHealth] = useState<VoiceHealthInfo | null>(null);
+  const [voiceHealthLoading, setVoiceHealthLoading] = useState(false);
   const [voiceUsedMemories, setVoiceUsedMemories] = useState<{ id: string; type: string; similarity: number; score: number; content?: string; confidence?: number; lifecycleState?: string; conversationId?: string; sourceType?: string; sourceTimestamp?: string }[]>([]);
   const [voiceUsedConversations, setVoiceUsedConversations] = useState<{ id: string; conversationId?: string; createdAt: string; text: string; matchedSnippet?: string; similarity?: number }[]>([]);
   const [voiceContextTokenCount, setVoiceContextTokenCount] = useState<number>(0);
@@ -635,6 +656,23 @@ export default function MemoryDashboard() {
     }
   };
 
+  const fetchVoiceHealth = async () => {
+    setVoiceHealthLoading(true);
+    try {
+      const response = await fetch('/api/v1/voice/health');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.status === 'success') {
+          setVoiceHealth(data.data);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch voice health:', e);
+    } finally {
+      setVoiceHealthLoading(false);
+    }
+  };
+
   // Timer effect for voice recording
   useEffect(() => {
     if (!isRecording) return;
@@ -1045,14 +1083,29 @@ export default function MemoryDashboard() {
         let msg = 'Failed to process voice action.';
         if (data.error) {
           const errLower = data.error.toLowerCase();
-          if (errLower.includes('api_key') || errLower.includes('api key') || errLower.includes('provider') || errLower.includes('unavailable')) {
-            msg = 'Voice service is temporarily unavailable.';
-          } else if (errLower.includes('transcribe') || errLower.includes('transcription') || errLower.includes('audio') || errLower.includes('speech') || errLower.includes('format')) {
-            msg = 'Transcription failed. Please check your microphone and try again.';
-          } else if (errLower.includes('database') || errLower.includes('sql') || errLower.includes('persistence')) {
-            msg = 'Database connection issue. Unable to process request.';
+          if (data.errorCategory) {
+            const categoryMap: Record<string, string> = {
+              TIMEOUT: 'Request timed out. Please try again.',
+              MISSING_API_KEY: 'Transcription service configuration error (missing API key).',
+              LOCAL_SERVICE_UNAVAILABLE: 'Local Whisper transcription service is temporarily offline.',
+              PORT_CONFLICT: 'Transcription service port conflict. Please check server settings.',
+              INVALID_FORMAT: 'Unsupported audio format or corrupted stream captured.',
+              DURATION_LIMIT_EXCEEDED: 'Voice recording duration exceeded the 60-second limit.',
+              ENGINE_BUSY: 'Transcription engine is currently busy. Please try again.',
+              EMPTY_TRANSCRIPTION: 'No speech was detected. Please check your microphone and try again.',
+              PAYLOAD_TOO_LARGE: 'Recorded audio size exceeds the 10 MB limit.',
+            };
+            msg = categoryMap[data.errorCategory] || data.error;
           } else {
-            msg = 'Unable to process voice request. Please try again.';
+            if (errLower.includes('api_key') || errLower.includes('api key') || errLower.includes('provider') || errLower.includes('unavailable')) {
+              msg = 'Voice service is temporarily unavailable.';
+            } else if (errLower.includes('transcribe') || errLower.includes('transcription') || errLower.includes('audio') || errLower.includes('speech') || errLower.includes('format')) {
+              msg = 'Transcription failed. Please check your microphone and try again.';
+            } else if (errLower.includes('database') || errLower.includes('sql') || errLower.includes('persistence')) {
+              msg = 'Database connection issue. Unable to process request.';
+            } else {
+              msg = 'Unable to process voice request. Please try again.';
+            }
           }
         }
         setTranscribeError(msg);
@@ -1100,6 +1153,7 @@ export default function MemoryDashboard() {
     } finally {
       clearTimeout(transcribingTimeout);
       setTranscribeLoading(false);
+      fetchVoiceHealth();
     }
   };
 
@@ -2846,6 +2900,7 @@ export default function MemoryDashboard() {
       fetchQualityGateResult();
       fetchReportResult();
       fetchReportHistory();
+      fetchVoiceHealth();
     }, 0);
     const healthInterval = setInterval(fetchHealth, 15000);
     return () => clearInterval(healthInterval);
@@ -3273,6 +3328,96 @@ export default function MemoryDashboard() {
                     >
                       💬 Ask by Voice
                     </button>
+                  </div>
+
+                  {/* Voice Transcription Health panel */}
+                  <div style={{
+                    padding: '0.75rem',
+                    backgroundColor: 'var(--surface)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '0.75rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.5rem'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}>⚙️ Voice Health Status</span>
+                      <button
+                        onClick={fetchVoiceHealth}
+                        disabled={voiceHealthLoading}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--primary)',
+                          cursor: 'pointer',
+                          fontSize: '0.7rem',
+                          fontWeight: 500,
+                          padding: 0,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.25rem'
+                        }}
+                        type="button"
+                      >
+                        {voiceHealthLoading ? '🔄 Refreshing...' : '🔄 Refresh'}
+                      </button>
+                    </div>
+
+                    {voiceHealth ? (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                        <div>
+                          <span style={{ opacity: 0.6 }}>Provider:</span>{' '}
+                          <span style={{ fontWeight: 600, color: 'var(--text)' }}>
+                            {voiceHealth.provider === 'cloud' ? '☁️ Cloud' : '💻 Local'}
+                          </span>
+                        </div>
+                        <div>
+                          <span style={{ opacity: 0.6 }}>Local Daemon:</span>{' '}
+                          <span style={{
+                            fontWeight: 600,
+                            color: voiceHealth.daemonState === 'ready' ? 'var(--success)' : 'var(--error)'
+                          }}>
+                            {voiceHealth.daemonState === 'ready' ? 'Ready' : voiceHealth.daemonState === 'none' ? 'None' : 'Error'}
+                          </span>
+                        </div>
+                        <div style={{ gridColumn: 'span 2', display: 'flex', flexWrap: 'wrap', gap: '0.25rem', alignItems: 'center' }}>
+                          <span style={{ opacity: 0.6 }}>Formats:</span>{' '}
+                          <span style={{ fontWeight: 500, color: 'var(--text-muted)', fontSize: '0.65rem' }}>
+                            {voiceHealth.supportedMimeTypes.map(m => m.replace('audio/', '')).join(', ')}
+                          </span>
+                        </div>
+                        {voiceHealth.latestRequest && (
+                          <div style={{
+                            gridColumn: 'span 2',
+                            marginTop: '0.25rem',
+                            paddingTop: '0.5rem',
+                            borderTop: '1px solid var(--border)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.25rem'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ opacity: 0.6 }}>Latest Request:</span>
+                              <span style={{
+                                fontWeight: 600,
+                                color: voiceHealth.latestRequest.status === 'success' ? 'var(--success)' : 'var(--error)'
+                              }}>
+                                {voiceHealth.latestRequest.status === 'success' ? 'Success' : `Failed (${voiceHealth.latestRequest.errorCategory})`}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                              <span>Size: {Math.round(voiceHealth.latestRequest.audioSize / 1024)} KB</span>
+                              <span>Latency: {voiceHealth.latestRequest.latencyMs}ms</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ opacity: 0.6, fontSize: '0.7rem', textAlign: 'center' }}>
+                        No status details loaded. Click refresh to query.
+                      </div>
+                    )}
                   </div>
 
                   {/* Pulsing microphone recording indicator */}

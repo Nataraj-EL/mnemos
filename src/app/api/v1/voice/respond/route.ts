@@ -8,6 +8,7 @@ import { GeminiResponseGenerator } from '@/response/geminiGenerator';
 import { ResponseService } from '@/response/service';
 import { PgMemoryRepository } from '@/memory/repository';
 import { logTelemetry } from '@/core/logger';
+import { voiceDiagnostics } from '@/voice/voiceDiagnostics';
 import { ConversationRetriever } from '@/conversation/retriever';
 import {
   authenticate,
@@ -38,6 +39,8 @@ export async function POST(request: Request) {
       ? crypto.randomUUID()
       : 'req-' + Date.now();
   const startTime = Date.now();
+  let audioBuffer: Buffer | null = null;
+  let baseMime = 'unknown';
 
   try {
     // 1. Defend request size limits
@@ -126,7 +129,7 @@ export async function POST(request: Request) {
 
     const mimeType = file.type || 'audio/wav';
     const normalizedMime = mimeType.toLowerCase();
-    const baseMime = normalizedMime.split(';')[0].trim();
+    baseMime = normalizedMime.split(';')[0].trim();
 
     if (!SUPPORTED_MIME_TYPES.includes(baseMime)) {
       return NextResponse.json(
@@ -147,7 +150,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const audioBuffer = Buffer.from(arrayBuffer);
+    audioBuffer = Buffer.from(arrayBuffer);
     if (audioBuffer.length === 0) {
       return NextResponse.json(
         { status: 'error', error: 'Missing or empty parameter: audio payload cannot be empty.', requestId },
@@ -181,6 +184,17 @@ export async function POST(request: Request) {
     const groundedResult = await responseService.respond(userId, transcript);
 
     const latency = Date.now() - startTime;
+
+    voiceDiagnostics.record({
+      requestId,
+      provider: process.env.WHISPER_PROVIDER === 'cloud' ? 'cloud' : 'local',
+      mimeBaseType: baseMime,
+      audioSize: audioBuffer ? audioBuffer.length : 0,
+      duration: transcriptionResult.metadata?.duration as number | undefined,
+      latencyMs: latency,
+      status: 'success',
+    });
+
     logTelemetry({
       correlationId: requestId,
       totalLatencyMs: latency,
@@ -206,11 +220,45 @@ export async function POST(request: Request) {
 
     console.error('Error during voice response processing:', error);
 
+    let errorCategory = 'UNKNOWN_FAILURE';
+    if (isTimeout) {
+      errorCategory = 'TIMEOUT';
+    } else {
+      const isPayloadLarge = errorMsg.includes('Payload Too Large') || errorMsg.includes('size limit');
+      if (isPayloadLarge) {
+        errorCategory = 'PAYLOAD_TOO_LARGE';
+      } else if (errorMsg.includes('GEMINI_API_KEY') || errorMsg.includes('WHISPER_API_KEY') || errorMsg.includes('Whisper API key')) {
+        errorCategory = 'MISSING_API_KEY';
+      } else if (errorMsg.includes('Local Whisper transcription service') || errorMsg.includes('Local Whisper daemon failed to load')) {
+        errorCategory = 'LOCAL_SERVICE_UNAVAILABLE';
+      } else if (errorMsg.includes('Local Whisper port conflict')) {
+        errorCategory = 'PORT_CONFLICT';
+      } else if (errorMsg.includes('Invalid audio format') || errorMsg.includes('corrupted payload')) {
+        errorCategory = 'INVALID_FORMAT';
+      } else if (errorMsg.includes('exceeds the maximum limit')) {
+        errorCategory = 'DURATION_LIMIT_EXCEEDED';
+      } else if (errorMsg.includes('busy')) {
+        errorCategory = 'ENGINE_BUSY';
+      } else if (errorMsg.includes('Empty transcription')) {
+        errorCategory = 'EMPTY_TRANSCRIPTION';
+      }
+    }
+
+    voiceDiagnostics.record({
+      requestId,
+      provider: process.env.WHISPER_PROVIDER === 'cloud' ? 'cloud' : 'local',
+      mimeBaseType: baseMime || 'unknown',
+      audioSize: audioBuffer ? audioBuffer.length : 0,
+      latencyMs: latency,
+      status: 'error',
+      errorCategory,
+    });
+
     logTelemetry({
       correlationId: requestId,
       totalLatencyMs: latency,
       status: 'error',
-      errorCategory: isTimeout ? 'TIMEOUT' : 'PROVIDER_FAILURE',
+      errorCategory,
     });
 
     if (errorMsg.includes('GEMINI_API_KEY') || errorMsg.includes('WHISPER_API_KEY') || errorMsg.includes('Whisper API key')) {
@@ -218,6 +266,7 @@ export async function POST(request: Request) {
         {
           status: 'error',
           error: 'Grounded voice response service is temporarily unavailable due to missing API keys.',
+          errorCategory,
           requestId,
         },
         { status: 503 }
@@ -230,6 +279,7 @@ export async function POST(request: Request) {
         {
           status: 'error',
           error: 'Payload Too Large: Audio size limit of 10 MB exceeded.',
+          errorCategory,
           requestId,
         },
         { status: 413 }
@@ -266,6 +316,7 @@ export async function POST(request: Request) {
       {
         status: 'error',
         error: displayError,
+        errorCategory,
         requestId,
       },
       { status }

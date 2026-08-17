@@ -303,6 +303,18 @@ export class LocalWhisperTranscriptionProvider implements TranscriptionProvider 
     }
   }
 
+  async getStatus(): Promise<{ healthy: boolean; status: string; port: number; model: string; device: string }> {
+    const secret = readSavedSecret();
+    const health = await checkDaemonHealth(this.port, secret);
+    return {
+      healthy: health.healthy,
+      status: health.status,
+      port: this.port,
+      model: this.modelName,
+      device: this.device,
+    };
+  }
+
   static resetDaemonState(): void {
     spawnPromise = null;
     daemonProcess = null;

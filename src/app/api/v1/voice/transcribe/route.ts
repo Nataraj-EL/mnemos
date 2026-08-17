@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { WhisperTranscriptionProvider } from '@/voice/whisperTranscription';
 import { LocalWhisperTranscriptionProvider } from '@/voice/localWhisperTranscription';
 import { logTelemetry } from '@/core/logger';
+import { voiceDiagnostics } from '@/voice/voiceDiagnostics';
 import {
   authenticate,
   checkRateLimit,
@@ -31,6 +32,8 @@ export async function POST(request: Request) {
       ? crypto.randomUUID()
       : 'req-' + Date.now();
   const startTime = Date.now();
+  let audioBuffer: Buffer | null = null;
+  let baseMime = 'unknown';
 
   try {
     // 1. Defend request size limits
@@ -76,7 +79,6 @@ export async function POST(request: Request) {
 
     // 4. Parse request content-type and extract audio buffer
     const contentType = request.headers.get('content-type') || '';
-    let audioBuffer: Buffer | null = null;
     let mimeType: string | undefined = undefined;
 
     if (contentType.includes('multipart/form-data')) {
@@ -109,6 +111,7 @@ export async function POST(request: Request) {
     } else {
       // Direct raw binary upload
       mimeType = contentType.split(';')[0].trim();
+      baseMime = mimeType.toLowerCase();
       const arrayBuffer = await request.arrayBuffer().catch(() => null);
       if (!arrayBuffer) {
         return NextResponse.json(
@@ -136,7 +139,7 @@ export async function POST(request: Request) {
 
     // supported MIME type check
     const normalizedMime = mimeType ? mimeType.toLowerCase() : '';
-    const baseMime = normalizedMime.split(';')[0].trim();
+    baseMime = normalizedMime.split(';')[0].trim();
     if (!SUPPORTED_MIME_TYPES.includes(baseMime)) {
       return NextResponse.json(
         { status: 'error', error: `Unsupported MIME type: "${mimeType}". Only audio formats (WAV, MP3, WebM, etc.) are supported.`, requestId },
@@ -160,6 +163,16 @@ export async function POST(request: Request) {
 
     const latency = Date.now() - startTime;
 
+    voiceDiagnostics.record({
+      requestId,
+      provider: process.env.WHISPER_PROVIDER === 'cloud' ? 'cloud' : 'local',
+      mimeBaseType: baseMime,
+      audioSize: audioBuffer ? audioBuffer.length : 0,
+      duration: result.metadata?.duration as number | undefined,
+      latencyMs: latency,
+      status: 'success',
+    });
+
     logTelemetry({
       correlationId: requestId,
       totalLatencyMs: latency,
@@ -182,11 +195,45 @@ export async function POST(request: Request) {
 
     console.error('Error during voice transcription:', error);
 
+    let errorCategory = 'UNKNOWN_FAILURE';
+    if (isTimeout) {
+      errorCategory = 'TIMEOUT';
+    } else {
+      const isPayloadLarge = errorMsg.includes('Payload Too Large') || errorMsg.includes('size limit');
+      if (isPayloadLarge) {
+        errorCategory = 'PAYLOAD_TOO_LARGE';
+      } else if (errorMsg.includes('WHISPER_API_KEY') || errorMsg.includes('Whisper API key')) {
+        errorCategory = 'MISSING_API_KEY';
+      } else if (errorMsg.includes('Local Whisper transcription service') || errorMsg.includes('Local Whisper daemon failed to load')) {
+        errorCategory = 'LOCAL_SERVICE_UNAVAILABLE';
+      } else if (errorMsg.includes('Local Whisper port conflict')) {
+        errorCategory = 'PORT_CONFLICT';
+      } else if (errorMsg.includes('Invalid audio format') || errorMsg.includes('corrupted payload')) {
+        errorCategory = 'INVALID_FORMAT';
+      } else if (errorMsg.includes('exceeds the maximum limit')) {
+        errorCategory = 'DURATION_LIMIT_EXCEEDED';
+      } else if (errorMsg.includes('busy')) {
+        errorCategory = 'ENGINE_BUSY';
+      } else if (errorMsg.includes('Empty transcription')) {
+        errorCategory = 'EMPTY_TRANSCRIPTION';
+      }
+    }
+
+    voiceDiagnostics.record({
+      requestId,
+      provider: process.env.WHISPER_PROVIDER === 'cloud' ? 'cloud' : 'local',
+      mimeBaseType: baseMime || 'unknown',
+      audioSize: audioBuffer ? audioBuffer.length : 0,
+      latencyMs: latency,
+      status: 'error',
+      errorCategory,
+    });
+
     logTelemetry({
       correlationId: requestId,
       totalLatencyMs: latency,
       status: 'error',
-      errorCategory: isTimeout ? 'TIMEOUT' : 'PROVIDER_FAILURE',
+      errorCategory,
     });
 
     const isPayloadLarge = errorMsg.includes('Payload Too Large') || errorMsg.includes('size limit');
@@ -195,6 +242,7 @@ export async function POST(request: Request) {
         {
           status: 'error',
           error: 'Payload Too Large: Audio size limit of 10 MB exceeded.',
+          errorCategory,
           requestId,
         },
         { status: 413 }
@@ -236,6 +284,7 @@ export async function POST(request: Request) {
       {
         status: 'error',
         error: displayError,
+        errorCategory,
         requestId,
       },
       { status }
