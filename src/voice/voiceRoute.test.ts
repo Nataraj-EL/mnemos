@@ -227,4 +227,44 @@ describe('POST /api/v1/voice/transcribe API Route', () => {
     expect(data.status).toBe('error');
     expect(data.error).toContain('Whisper Transcription API error');
   });
+
+  describe('Sprint 62A MIME Normalization & Safety Regression Tests', () => {
+    const runMimeTest = async (mime: string, expectStatus: number) => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ text: 'Success text response' }),
+      } as unknown as Response);
+
+      const request = new Request('http://localhost/api/v1/voice/transcribe', {
+        method: 'POST',
+        headers: {
+          'content-type': mime,
+        },
+        body: Buffer.from('mock-audio-data'),
+      });
+
+      const response = await POST(request);
+      expect(response.status).toBe(expectStatus);
+    };
+
+    it('should accept audio/webm;codecs=opus successfully', async () => {
+      await runMimeTest('audio/webm;codecs=opus', 200);
+    });
+
+    it('should accept audio/webm;codecs=vp9 successfully', async () => {
+      await runMimeTest('audio/webm;codecs=vp9', 200);
+    });
+
+    it('should accept audio/webm successfully', async () => {
+      await runMimeTest('audio/webm', 200);
+    });
+
+    it('should match MIME types case-insensitively', async () => {
+      await runMimeTest('AUDIO/WEBM;CODECS=OPUS', 200);
+    });
+
+    it('should reject unsupported base MIME with 415', async () => {
+      await runMimeTest('application/pdf', 415);
+    });
+  });
 });

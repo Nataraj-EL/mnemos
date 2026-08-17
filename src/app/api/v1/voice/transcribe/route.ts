@@ -136,7 +136,8 @@ export async function POST(request: Request) {
 
     // supported MIME type check
     const normalizedMime = mimeType ? mimeType.toLowerCase() : '';
-    if (!SUPPORTED_MIME_TYPES.includes(normalizedMime)) {
+    const baseMime = normalizedMime.split(';')[0].trim();
+    if (!SUPPORTED_MIME_TYPES.includes(baseMime)) {
       return NextResponse.json(
         { status: 'error', error: `Unsupported MIME type: "${mimeType}". Only audio formats (WAV, MP3, WebM, etc.) are supported.`, requestId },
         { status: 415 } // 415 Unsupported Media Type

@@ -933,11 +933,19 @@ export default function MemoryDashboard() {
     setExtractionError(null);
     setRecordingStart(Date.now());
     setRecordingEnd(0);
+
+    if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setTranscribeError('Voice transcription is not supported by your browser or in this insecure context.');
+      setVoiceSessionState('error');
+      return;
+    }
+
     setVoiceSessionState('recording');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream);
       const chunks: Blob[] = [];
+      let hasError = false;
 
       recorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) {
@@ -945,11 +953,28 @@ export default function MemoryDashboard() {
         }
       };
 
+      recorder.onerror = (e) => {
+        console.error('MediaRecorder error:', e);
+        hasError = true;
+        setTranscribeError('Recording failed. Please check your microphone connection.');
+        setVoiceSessionState('error');
+        setIsRecording(false);
+      };
+
       recorder.onstop = async () => {
+        if (hasError) return;
         const endTime = Date.now();
         setRecordingEnd(endTime);
         const audioBlob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
         stream.getTracks().forEach((track) => track.stop());
+
+        if (audioBlob.size === 0) {
+          setTranscribeError('Microphone captured no audio data. Please ensure it is not muted.');
+          setVoiceSessionState('error');
+          setIsRecording(false);
+          return;
+        }
+
         await uploadAudio(audioBlob);
       };
 

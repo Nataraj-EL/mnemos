@@ -126,8 +126,9 @@ export async function POST(request: Request) {
 
     const mimeType = file.type || 'audio/wav';
     const normalizedMime = mimeType.toLowerCase();
+    const baseMime = normalizedMime.split(';')[0].trim();
 
-    if (!SUPPORTED_MIME_TYPES.includes(normalizedMime)) {
+    if (!SUPPORTED_MIME_TYPES.includes(baseMime)) {
       return NextResponse.json(
         {
           status: 'error',
