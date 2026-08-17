@@ -6,6 +6,7 @@ import {
 } from './types';
 import { ConfigSafetyGuard } from './configGuard';
 import { EvaluationConfigPromotionManager } from './promotion';
+import { EvaluationRemediationExecutionManager } from './remediationExecution';
 import { RETRIEVAL_SETTINGS } from '@/core/config';
 
 export class EvaluationRemediationProposalManager {
@@ -152,11 +153,27 @@ export class EvaluationRemediationProposalManager {
       return false;
     }
 
+    const previousConfig: TuningConfig = EvaluationConfigPromotionManager.getCurrentConfig() || {
+      semanticWeight: RETRIEVAL_SETTINGS.semanticWeight,
+      lexicalWeight: RETRIEVAL_SETTINGS.lexicalWeight,
+      minSimilarity: RETRIEVAL_SETTINGS.minSimilarity,
+      diversityThreshold: RETRIEVAL_SETTINGS.diversityThreshold,
+      maxConversationSnippets: RETRIEVAL_SETTINGS.maxConversationSnippets,
+    };
+
     if (!proposal.proposedConfig) {
       // Non-config proposal (e.g. controlled A/B experiment or generic inspection)
       // Transition directly to executed
       proposal.status = 'executed';
       proposal.updatedAt = new Date().toISOString();
+
+      // Record non-config execution log
+      EvaluationRemediationExecutionManager.recordExecution({
+        proposalId: proposal.id,
+        previousConfig: null,
+        appliedConfig: null,
+        status: 'success',
+      });
       return true;
     }
 
@@ -168,12 +185,35 @@ export class EvaluationRemediationProposalManager {
       return false;
     }
 
-    // Execution must NOT mutate global RETRIEVAL_SETTINGS constants.
-    // Instead, promote to active developer evaluation promotion state
-    EvaluationConfigPromotionManager.promote(proposal.proposedConfig);
+    try {
+      // Execution must NOT mutate global RETRIEVAL_SETTINGS constants.
+      // Instead, promote to active developer evaluation promotion state
+      const auditRecord = EvaluationConfigPromotionManager.promote(proposal.proposedConfig);
 
-    proposal.status = 'executed';
-    proposal.updatedAt = new Date().toISOString();
-    return true;
+      proposal.status = 'executed';
+      proposal.updatedAt = new Date().toISOString();
+
+      EvaluationRemediationExecutionManager.recordExecution({
+        proposalId: proposal.id,
+        previousConfig,
+        appliedConfig: proposal.proposedConfig,
+        status: 'success',
+        auditId: auditRecord.id,
+      });
+
+      return true;
+    } catch {
+      proposal.status = 'rejected';
+      proposal.updatedAt = new Date().toISOString();
+
+      EvaluationRemediationExecutionManager.recordExecution({
+        proposalId: proposal.id,
+        previousConfig,
+        appliedConfig: null,
+        status: 'failed',
+      });
+
+      return false;
+    }
   }
 }

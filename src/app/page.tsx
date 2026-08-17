@@ -2060,6 +2060,30 @@ export default function MemoryDashboard() {
   const [correlationsList, setCorrelationsList] = useState<import('@/evaluation/types').AlertCorrelation[]>([]);
   const [remediationsList, setRemediationsList] = useState<import('@/evaluation/types').EvaluationRemediation[]>([]);
   const [proposalsList, setProposalsList] = useState<import('@/evaluation/types').EvaluationRemediationProposal[]>([]);
+  const [executionsList, setExecutionsList] = useState<import('@/evaluation/types').RemediationExecutionRecord[]>([]);
+
+  const fetchExecutions = async () => {
+    try {
+      const response = await fetch('/api/evaluation/remediation/executions');
+      if (response.ok) {
+        const data = await response.json();
+        setExecutionsList(data.records || []);
+      } else {
+        const { EvaluationRemediationExecutionManager } = await import('@/evaluation/remediationExecution');
+        const list = EvaluationRemediationExecutionManager.listExecutions();
+        setExecutionsList(list);
+      }
+    } catch (err) {
+      console.error('Failed to fetch executions:', err);
+      try {
+        const { EvaluationRemediationExecutionManager } = await import('@/evaluation/remediationExecution');
+        const list = EvaluationRemediationExecutionManager.listExecutions();
+        setExecutionsList(list);
+      } catch (e) {
+        console.error('Local executions list failed:', e);
+      }
+    }
+  };
 
   const fetchProposals = async () => {
     try {
@@ -2081,6 +2105,8 @@ export default function MemoryDashboard() {
       } catch (e) {
         console.error('Local proposals list failed:', e);
       }
+    } finally {
+      await fetchExecutions();
     }
   };
 
@@ -2197,6 +2223,38 @@ export default function MemoryDashboard() {
         await fetchReportHistory();
       } catch (e) {
         console.error('Local proposal execution failed:', e);
+      }
+    }
+  };
+
+  const handleRollback = async (id: string) => {
+    const confirmMsg = 'Are you sure you want to rollback this execution? This will revert the developer configuration to its previous state.';
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      const response = await fetch('/api/evaluation/remediation/executions/rollback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      if (response.ok) {
+        await fetchProposals();
+        await fetchReportHistory();
+      } else {
+        const { EvaluationRemediationExecutionManager } = await import('@/evaluation/remediationExecution');
+        EvaluationRemediationExecutionManager.rollback(id);
+        await fetchProposals();
+        await fetchReportHistory();
+      }
+    } catch (err) {
+      console.error('Failed to execute rollback:', err);
+      try {
+        const { EvaluationRemediationExecutionManager } = await import('@/evaluation/remediationExecution');
+        EvaluationRemediationExecutionManager.rollback(id);
+        await fetchProposals();
+        await fetchReportHistory();
+      } catch (e) {
+        console.error('Local rollback failed:', e);
       }
     }
   };
@@ -7794,6 +7852,119 @@ export default function MemoryDashboard() {
                                   </button>
                                 </>
                               )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Remediation Execution History */}
+            <div className="card" style={{ padding: '1.25rem', marginTop: '1.5rem' }}>
+              <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>📜 Remediation Execution History</h3>
+              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1.25rem', marginTop: '0.5rem' }}>
+                Audit trail of executed configuration proposals and rollback actions in the developer-only evaluation environment.
+                <span style={{ display: 'block', marginTop: '0.25rem', color: 'var(--primary)', fontWeight: 600 }}>
+                  ⚠️ Developer / Evaluation Only — Reversible Changes
+                </span>
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {executionsList.length === 0 ? (
+                  <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(255,255,255,0.01)', fontSize: '0.70rem', opacity: 0.6, textAlign: 'center' }}>
+                    No remediation proposals have been executed yet.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {executionsList.map((exec) => {
+                      const isSuccess = exec.status === 'success';
+                      const isRolledBack = exec.status === 'rolled_back';
+                      const isFailed = exec.status === 'failed';
+
+                      const statusColor = isSuccess ? 'var(--success)' : isRolledBack ? 'var(--text-muted)' : 'var(--error)';
+
+                      return (
+                        <div
+                          key={exec.id}
+                          style={{
+                            padding: '0.6rem 0.8rem',
+                            backgroundColor: isRolledBack ? 'rgba(255,255,255,0.01)' : isFailed ? 'rgba(179,74,60,0.03)' : 'rgba(46,204,113,0.02)',
+                            border: `1px solid ${isRolledBack ? 'var(--border)' : isFailed ? 'rgba(179,74,60,0.1)' : 'rgba(46,204,113,0.1)'}`,
+                            borderRadius: 'var(--radius-sm)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.25rem',
+                            fontSize: '0.65rem'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                              <span
+                                style={{
+                                  fontSize: '0.55rem',
+                                  padding: '0.1rem 0.35rem',
+                                  borderRadius: 'var(--radius-xs)',
+                                  border: `1px solid ${statusColor}`,
+                                  color: statusColor,
+                                  fontWeight: 700,
+                                  textTransform: 'uppercase'
+                                }}
+                              >
+                                {exec.status.replace('_', ' ')}
+                              </span>
+                              <span style={{ opacity: 0.5, fontSize: '0.55rem' }}>ID: {exec.id}</span>
+                            </div>
+                            <span style={{ opacity: 0.5, fontSize: '0.55rem' }}>Proposal: {exec.proposalId}</span>
+                          </div>
+
+                          <div style={{ opacity: 0.75, fontSize: '0.6rem' }}>
+                            Executed At: {new Date(exec.executedAt).toLocaleString()}
+                            {exec.rollbackAt && ` | Rolled back At: ${new Date(exec.rollbackAt).toLocaleString()}`}
+                            {exec.auditId && ` | Promotion Audit ID: ${exec.auditId}`}
+                          </div>
+
+                          {exec.appliedConfig && exec.previousConfig && (
+                            <div
+                              style={{
+                                marginTop: '0.25rem',
+                                padding: '0.35rem',
+                                backgroundColor: 'rgba(0,0,0,0.15)',
+                                borderRadius: '2px',
+                                fontFamily: 'monospace',
+                                fontSize: '0.55rem',
+                                color: '#ccc'
+                              }}
+                            >
+                              <div style={{ fontWeight: 600, marginBottom: '0.15rem' }}>Configuration Transitions:</div>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.15rem' }}>
+                                <div>
+                                  semanticWeight: {exec.previousConfig.semanticWeight} &rarr; {exec.appliedConfig.semanticWeight}
+                                </div>
+                                <div>
+                                  lexicalWeight: {exec.previousConfig.lexicalWeight} &rarr; {exec.appliedConfig.lexicalWeight}
+                                </div>
+                                <div>
+                                  minSimilarity: {exec.previousConfig.minSimilarity} &rarr; {exec.appliedConfig.minSimilarity}
+                                </div>
+                                <div>
+                                  maxSnippets: {exec.previousConfig.maxConversationSnippets} &rarr; {exec.appliedConfig.maxConversationSnippets}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {isSuccess && exec.previousConfig && (
+                            <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem', justifyContent: 'flex-end' }}>
+                              <button
+                                onClick={() => handleRollback(exec.id)}
+                                className="btn"
+                                style={{ fontSize: '0.55rem', padding: '0.15rem 0.4rem', border: '1px solid var(--border)', backgroundColor: 'rgba(0,0,0,0.15)', cursor: 'pointer', fontWeight: 600 }}
+                              >
+                                Rollback Changes
+                              </button>
                             </div>
                           )}
                         </div>

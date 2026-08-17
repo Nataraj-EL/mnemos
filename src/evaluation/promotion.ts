@@ -1,4 +1,4 @@
-import { TuningConfig } from './types';
+import { TuningConfig, PromotionHistoryRecord } from './types';
 import { PromotionHistoryManager } from './promotionHistory';
 
 import { ConfigSafetyGuard } from './configGuard';
@@ -17,7 +17,7 @@ export class EvaluationConfigPromotionManager {
     return JSON.parse(JSON.stringify(this.previousConfig));
   }
 
-  public static promote(config: TuningConfig): void {
+  public static promote(config: TuningConfig): PromotionHistoryRecord {
     const check = ConfigSafetyGuard.validate(config);
     if (!check.valid) {
       throw new Error(`Invalid configuration: ${check.errors.join(', ')}`);
@@ -29,12 +29,12 @@ export class EvaluationConfigPromotionManager {
     this.previousConfig = oldConfig;
     this.currentConfig = newConfig;
 
-    PromotionHistoryManager.addRecord('promote', oldConfig, newConfig);
+    return PromotionHistoryManager.addRecord('promote', oldConfig, newConfig);
   }
 
-  public static rollback(): void {
+  public static rollback(): PromotionHistoryRecord | null {
     if (!this.previousConfig) {
-      return;
+      return null;
     }
     const oldConfig = this.currentConfig ? JSON.parse(JSON.stringify(this.currentConfig)) : null;
     const newConfig = this.previousConfig ? JSON.parse(JSON.stringify(this.previousConfig)) : null;
@@ -42,7 +42,7 @@ export class EvaluationConfigPromotionManager {
     this.currentConfig = this.previousConfig;
     this.previousConfig = null;
 
-    PromotionHistoryManager.addRecord('rollback', oldConfig, newConfig);
+    return PromotionHistoryManager.addRecord('rollback', oldConfig, newConfig);
   }
 
   public static hasPromotedConfig(): boolean {

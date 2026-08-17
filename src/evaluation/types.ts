@@ -348,3 +348,19 @@ export interface EvaluationRemediationProposalSummary {
   proposals: EvaluationRemediationProposal[];
   timestamp: string;
 }
+
+export interface RemediationExecutionRecord {
+  id: string;
+  proposalId: string;
+  executedAt: string;
+  previousConfig: TuningConfig | null;
+  appliedConfig: TuningConfig | null;
+  status: 'success' | 'failed' | 'rolled_back';
+  rollbackAt?: string;
+  auditId?: string;
+}
+
+export interface RemediationExecutionHistorySummary {
+  records: RemediationExecutionRecord[];
+  timestamp: string;
+}
