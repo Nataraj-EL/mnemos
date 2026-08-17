@@ -329,3 +329,22 @@ export interface EvaluationRemediationSummary {
   remediations: EvaluationRemediation[];
   timestamp: string;
 }
+
+export type RemediationProposalStatus = 'pending' | 'approved' | 'rejected' | 'executed';
+
+export interface EvaluationRemediationProposal {
+  id: string;
+  remediationId: string;
+  status: RemediationProposalStatus;
+  proposedConfig: TuningConfig | null;
+  rationale: string;
+  evidenceIds: string[];
+  confidence: 'high' | 'medium' | 'low';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EvaluationRemediationProposalSummary {
+  proposals: EvaluationRemediationProposal[];
+  timestamp: string;
+}

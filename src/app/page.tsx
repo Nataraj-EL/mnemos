@@ -2057,9 +2057,32 @@ export default function MemoryDashboard() {
   const [alertsHistoryResult, setAlertsHistoryResult] = useState<import('@/evaluation/types').EvaluationAlertHistorySummary | null>(null);
   const [alertsHistoryLoading, setAlertsHistoryLoading] = useState(false);
   const [alertsHistoryError, setAlertsHistoryError] = useState<string | null>(null);
-
   const [correlationsList, setCorrelationsList] = useState<import('@/evaluation/types').AlertCorrelation[]>([]);
   const [remediationsList, setRemediationsList] = useState<import('@/evaluation/types').EvaluationRemediation[]>([]);
+  const [proposalsList, setProposalsList] = useState<import('@/evaluation/types').EvaluationRemediationProposal[]>([]);
+
+  const fetchProposals = async () => {
+    try {
+      const response = await fetch('/api/evaluation/remediation/proposals');
+      if (response.ok) {
+        const data = await response.json();
+        setProposalsList(data.proposals || []);
+      } else {
+        const { EvaluationRemediationProposalManager } = await import('@/evaluation/remediationProposal');
+        const list = EvaluationRemediationProposalManager.listProposals();
+        setProposalsList(list);
+      }
+    } catch (err) {
+      console.error('Failed to fetch proposals:', err);
+      try {
+        const { EvaluationRemediationProposalManager } = await import('@/evaluation/remediationProposal');
+        const list = EvaluationRemediationProposalManager.listProposals();
+        setProposalsList(list);
+      } catch (e) {
+        console.error('Local proposals list failed:', e);
+      }
+    }
+  };
 
   const fetchRemediations = async () => {
     try {
@@ -2080,6 +2103,100 @@ export default function MemoryDashboard() {
         setRemediationsList(list);
       } catch (e) {
         console.error('Local remediations run failed:', e);
+      }
+    } finally {
+      await fetchProposals();
+    }
+  };
+
+  const handleCreateProposal = async (remediation: import('@/evaluation/types').EvaluationRemediation) => {
+    try {
+      const response = await fetch('/api/evaluation/remediation/proposals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(remediation),
+      });
+      if (response.ok) {
+        await fetchProposals();
+      } else {
+        const { EvaluationRemediationProposalManager } = await import('@/evaluation/remediationProposal');
+        EvaluationRemediationProposalManager.createProposal(remediation);
+        await fetchProposals();
+      }
+    } catch (err) {
+      console.error('Failed to create proposal:', err);
+      try {
+        const { EvaluationRemediationProposalManager } = await import('@/evaluation/remediationProposal');
+        EvaluationRemediationProposalManager.createProposal(remediation);
+        await fetchProposals();
+      } catch (e) {
+        console.error('Local proposal creation failed:', e);
+      }
+    }
+  };
+
+  const handleProposalAction = async (id: string, action: 'approve' | 'reject') => {
+    const confirmMsg = `Are you sure you want to ${action} this proposal?`;
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      const response = await fetch('/api/evaluation/remediation/proposals', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action }),
+      });
+      if (response.ok) {
+        await fetchProposals();
+        await fetchReportHistory();
+      } else {
+        const { EvaluationRemediationProposalManager } = await import('@/evaluation/remediationProposal');
+        if (action === 'approve') EvaluationRemediationProposalManager.approve(id);
+        else if (action === 'reject') EvaluationRemediationProposalManager.reject(id);
+        await fetchProposals();
+        await fetchReportHistory();
+      }
+    } catch (err) {
+      console.error(`Failed to ${action} proposal:`, err);
+      try {
+        const { EvaluationRemediationProposalManager } = await import('@/evaluation/remediationProposal');
+        if (action === 'approve') EvaluationRemediationProposalManager.approve(id);
+        else if (action === 'reject') EvaluationRemediationProposalManager.reject(id);
+        await fetchProposals();
+        await fetchReportHistory();
+      } catch (e) {
+        console.error('Local proposal action failed:', e);
+      }
+    }
+  };
+
+  const handleExecuteProposal = async (id: string) => {
+    const confirmMsg = 'Are you sure you want to execute this approved proposal? This will update the active dev configuration promotion state.';
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      const response = await fetch('/api/evaluation/remediation/proposals/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      if (response.ok) {
+        await fetchProposals();
+        await fetchReportHistory();
+      } else {
+        const { EvaluationRemediationProposalManager } = await import('@/evaluation/remediationProposal');
+        EvaluationRemediationProposalManager.execute(id);
+        await fetchProposals();
+        await fetchReportHistory();
+      }
+    } catch (err) {
+      console.error('Failed to execute proposal:', err);
+      try {
+        const { EvaluationRemediationProposalManager } = await import('@/evaluation/remediationProposal');
+        EvaluationRemediationProposalManager.execute(id);
+        await fetchProposals();
+        await fetchReportHistory();
+      } catch (e) {
+        console.error('Local proposal execution failed:', e);
       }
     }
   };
@@ -7531,9 +7648,152 @@ export default function MemoryDashboard() {
                           </div>
                           <div style={{ fontWeight: 600, opacity: 0.95, fontSize: '0.7rem', marginTop: '0.15rem' }}>{rem.action}</div>
                           <div style={{ opacity: 0.75, fontSize: '0.65rem' }}>{rem.reason}</div>
-                          {rem.evidenceIds.length > 0 && (
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.4rem' }}>
+                            <button
+                              onClick={() => handleCreateProposal(rem)}
+                              className="btn"
+                              style={{ fontSize: '0.55rem', padding: '0.15rem 0.4rem', border: '1px solid var(--border)', backgroundColor: 'rgba(0,0,0,0.1)', cursor: 'pointer' }}
+                            >
+                              Create Proposal
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Remediation Proposals & Approval Workflow */}
+            <div className="card" style={{ padding: '1.25rem', marginTop: '1.5rem' }}>
+              <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>📝 Remediation Proposals</h3>
+              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1.25rem', marginTop: '0.5rem' }}>
+                Approve and execute configuration change proposals derived from remediations. Configurations are re-validated before execution.
+                <span style={{ display: 'block', marginTop: '0.25rem', color: 'var(--primary)', fontWeight: 600 }}>
+                  ⚠️ Developer / Evaluation Only — Requires Explicit Approval
+                </span>
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {proposalsList.length === 0 ? (
+                  <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(255,255,255,0.01)', fontSize: '0.70rem', opacity: 0.6, textAlign: 'center' }}>
+                    No active remediation proposals created. Click &quot;Create Proposal&quot; on any active recommendation above.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {proposalsList.map((prop) => {
+                      const isPending = prop.status === 'pending';
+                      const isApproved = prop.status === 'approved';
+                      const isRejected = prop.status === 'rejected';
+                      const isExecuted = prop.status === 'executed';
+
+                      const statusColor = isExecuted ? 'var(--success)' : isApproved ? 'var(--primary)' : isRejected ? 'var(--error)' : '#e67e22';
+
+                      return (
+                        <div
+                          key={prop.id}
+                          style={{
+                            padding: '0.6rem 0.8rem',
+                            backgroundColor: isExecuted ? 'rgba(46,204,113,0.03)' : isRejected ? 'rgba(179,74,60,0.03)' : 'rgba(255,255,255,0.02)',
+                            border: `1px solid ${isExecuted ? 'rgba(46,204,113,0.1)' : isRejected ? 'rgba(179,74,60,0.1)' : 'var(--border)'}`,
+                            borderRadius: 'var(--radius-sm)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.25rem',
+                            fontSize: '0.65rem'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                              <span
+                                style={{
+                                  fontSize: '0.55rem',
+                                  padding: '0.1rem 0.35rem',
+                                  borderRadius: 'var(--radius-xs)',
+                                  border: `1px solid ${statusColor}`,
+                                  color: statusColor,
+                                  fontWeight: 700,
+                                  textTransform: 'uppercase'
+                                }}
+                              >
+                                {prop.status}
+                              </span>
+                              <span style={{ opacity: 0.5, fontSize: '0.55rem' }}>ID: {prop.id}</span>
+                            </div>
+                            <span style={{ opacity: 0.5, fontSize: '0.55rem' }}>Confidence: {prop.confidence}</span>
+                          </div>
+
+                          <div style={{ opacity: 0.9, marginTop: '0.15rem' }}>
+                            <strong>Rationale:</strong> {prop.rationale}
+                          </div>
+
+                          {prop.proposedConfig && (
+                            <div
+                              style={{
+                                marginTop: '0.25rem',
+                                padding: '0.35rem',
+                                backgroundColor: 'rgba(0,0,0,0.15)',
+                                borderRadius: '2px',
+                                fontFamily: 'monospace',
+                                fontSize: '0.55rem',
+                                color: '#ccc'
+                              }}
+                            >
+                              <div>Proposed Tuning Configuration:</div>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.2rem 0.5rem', marginTop: '0.2rem' }}>
+                                <div>semanticWeight: {prop.proposedConfig.semanticWeight}</div>
+                                <div>lexicalWeight: {prop.proposedConfig.lexicalWeight}</div>
+                                <div>minSimilarity: {prop.proposedConfig.minSimilarity}</div>
+                                <div>maxSnippets: {prop.proposedConfig.maxConversationSnippets}</div>
+                              </div>
+                            </div>
+                          )}
+
+                          {prop.evidenceIds.length > 0 && (
                             <div style={{ opacity: 0.5, fontSize: '0.55rem', fontFamily: 'monospace', marginTop: '0.15rem' }}>
-                              Evidence reference IDs: {rem.evidenceIds.join(', ')}
+                              Evidence reference IDs: {prop.evidenceIds.join(', ')}
+                            </div>
+                          )}
+
+                          {(isPending || isApproved) && (
+                            <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem', justifyContent: 'flex-end' }}>
+                              {isPending && (
+                                <>
+                                  <button
+                                    onClick={() => handleProposalAction(prop.id, 'approve')}
+                                    className="btn btn-success"
+                                    style={{ fontSize: '0.55rem', padding: '0.15rem 0.4rem', border: 'none', backgroundColor: 'var(--success)', color: '#fff', cursor: 'pointer' }}
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    onClick={() => handleProposalAction(prop.id, 'reject')}
+                                    className="btn btn-error"
+                                    style={{ fontSize: '0.55rem', padding: '0.15rem 0.4rem', border: 'none', backgroundColor: 'var(--error)', color: '#fff', cursor: 'pointer' }}
+                                  >
+                                    Reject
+                                  </button>
+                                </>
+                              )}
+                              {isApproved && (
+                                <>
+                                  <button
+                                    onClick={() => handleExecuteProposal(prop.id)}
+                                    className="btn btn-success"
+                                    style={{ fontSize: '0.55rem', padding: '0.15rem 0.4rem', border: 'none', backgroundColor: 'var(--success)', color: '#fff', cursor: 'pointer', fontWeight: 600 }}
+                                  >
+                                    Execute
+                                  </button>
+                                  <button
+                                    onClick={() => handleProposalAction(prop.id, 'reject')}
+                                    className="btn btn-error"
+                                    style={{ fontSize: '0.55rem', padding: '0.15rem 0.4rem', border: 'none', backgroundColor: 'var(--error)', color: '#fff', cursor: 'pointer' }}
+                                  >
+                                    Reject
+                                  </button>
+                                </>
+                              )}
                             </div>
                           )}
                         </div>
