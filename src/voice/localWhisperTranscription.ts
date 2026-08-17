@@ -1,5 +1,5 @@
 import { TranscriptionProvider } from './transcription';
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, spawn, execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -25,6 +25,48 @@ function saveSecret(secret: string): void {
     fs.writeFileSync(SECRET_FILE, secret, 'utf8');
   } catch {
     // Ignore error
+  }
+}
+
+function getPidOnPort(port: number): number | null {
+  try {
+    const stdout = execSync(`lsof -t -i:${port}`, { encoding: 'utf8' }).trim();
+    if (stdout) {
+      const pid = parseInt(stdout.split('\n')[0], 10);
+      if (!isNaN(pid)) return pid;
+    }
+  } catch {
+    // Ignore
+  }
+  return null;
+}
+
+function isOurWhisperProcess(pid: number): boolean {
+  try {
+    if (process.platform === 'linux') {
+      const cmdlinePath = `/proc/${pid}/cmdline`;
+      if (fs.existsSync(cmdlinePath)) {
+        const cmdline = fs.readFileSync(cmdlinePath, 'utf8');
+        return cmdline.includes('transcription_server.py');
+      }
+    }
+    const args = execSync(`ps -p ${pid} -o args=`, { encoding: 'utf8' }).toLowerCase();
+    return args.includes('transcription_server.py');
+  } catch {
+    // Ignore
+  }
+  return false;
+}
+
+function terminateProcess(pid: number): void {
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch {
+    try {
+      execSync(`kill -9 ${pid}`, { stdio: 'ignore' });
+    } catch {
+      // Ignore
+    }
   }
 }
 
@@ -90,7 +132,19 @@ export class LocalWhisperTranscriptionProvider implements TranscriptionProvider 
 
       // If forbidden, it means a daemon is running with a different secret
       if (health.status === 'forbidden') {
-        throw new Error(`Local Whisper port conflict: Port ${this.port} is already in use by another process.`);
+        const pid = getPidOnPort(this.port);
+        if (pid && isOurWhisperProcess(pid)) {
+          terminateProcess(pid);
+          // Wait a short moment for the port to release
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          // Re-check health
+          health = await checkDaemonHealth(this.port, secret);
+          if (health.status === 'forbidden') {
+            throw new Error(`Local Whisper port conflict: Port ${this.port} is already in use by another process.`);
+          }
+        } else {
+          throw new Error(`Local Whisper port conflict: Port ${this.port} is already in use by another process.`);
+        }
       }
 
       // Verify python runtime and script exist

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { POST } from '@/app/api/v1/voice/transcribe/route';
 import { resetRateLimits } from '@/memory/security';
+import { LocalWhisperTranscriptionProvider } from './localWhisperTranscription';
 
 describe('POST /api/v1/voice/transcribe API Route', () => {
   beforeEach(() => {
@@ -265,6 +266,88 @@ describe('POST /api/v1/voice/transcribe API Route', () => {
 
     it('should reject unsupported base MIME with 415', async () => {
       await runMimeTest('application/pdf', 415);
+    });
+  });
+
+  describe('Sprint 62B Route Exception Mapping Tests', () => {
+    it('should return 503 when WHISPER_API_KEY is missing on cloud provider', async () => {
+      process.env.WHISPER_PROVIDER = 'cloud';
+      const origKey = process.env.WHISPER_API_KEY;
+      delete process.env.WHISPER_API_KEY;
+
+      const request = new Request('http://localhost/api/v1/voice/transcribe', {
+        method: 'POST',
+        headers: { 'content-type': 'audio/wav' },
+        body: Buffer.from('mock-audio-data'),
+      });
+
+      const response = await POST(request);
+      expect(response.status).toBe(503);
+      const data = await response.json();
+      expect(data.status).toBe('error');
+      expect(data.error).toContain('missing API key');
+
+      if (origKey) process.env.WHISPER_API_KEY = origKey;
+    });
+
+    it('should return 503 when Local Whisper port conflict occurs', async () => {
+      process.env.WHISPER_PROVIDER = 'local';
+      
+      const spy = vi.spyOn(LocalWhisperTranscriptionProvider.prototype, 'transcribe')
+        .mockRejectedValueOnce(new Error('Local Whisper port conflict: Port 50051 is already in use by another process.'));
+
+      const request = new Request('http://localhost/api/v1/voice/transcribe', {
+        method: 'POST',
+        headers: { 'content-type': 'audio/wav' },
+        body: Buffer.from('mock-audio-data'),
+      });
+
+      const response = await POST(request);
+      expect(response.status).toBe(503);
+      const data = await response.json();
+      expect(data.status).toBe('error');
+      expect(data.error).toContain('port conflict');
+      spy.mockRestore();
+    });
+
+    it('should return 400 when invalid audio format error occurs', async () => {
+      process.env.WHISPER_PROVIDER = 'local';
+      
+      const spy = vi.spyOn(LocalWhisperTranscriptionProvider.prototype, 'transcribe')
+        .mockRejectedValueOnce(new Error('Invalid audio format or corrupted payload.'));
+
+      const request = new Request('http://localhost/api/v1/voice/transcribe', {
+        method: 'POST',
+        headers: { 'content-type': 'audio/wav' },
+        body: Buffer.from('mock-audio-data'),
+      });
+
+      const response = await POST(request);
+      expect(response.status).toBe(400);
+      const data = await response.json();
+      expect(data.status).toBe('error');
+      expect(data.error).toContain('Invalid audio format');
+      spy.mockRestore();
+    });
+
+    it('should return 400 when audio exceeds maximum duration limit', async () => {
+      process.env.WHISPER_PROVIDER = 'local';
+      
+      const spy = vi.spyOn(LocalWhisperTranscriptionProvider.prototype, 'transcribe')
+        .mockRejectedValueOnce(new Error('Audio duration exceeds the maximum limit of 60 seconds.'));
+
+      const request = new Request('http://localhost/api/v1/voice/transcribe', {
+        method: 'POST',
+        headers: { 'content-type': 'audio/wav' },
+        body: Buffer.from('mock-audio-data'),
+      });
+
+      const response = await POST(request);
+      expect(response.status).toBe(400);
+      const data = await response.json();
+      expect(data.status).toBe('error');
+      expect(data.error).toContain('exceeds the maximum limit');
+      spy.mockRestore();
     });
   });
 });

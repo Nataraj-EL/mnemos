@@ -180,6 +180,8 @@ export async function POST(request: Request) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     const isTimeout = errorMsg.includes('timed out') || errorMsg.includes('TimeoutError');
 
+    console.error('Error during voice transcription:', error);
+
     logTelemetry({
       correlationId: requestId,
       totalLatencyMs: latency,
@@ -199,13 +201,36 @@ export async function POST(request: Request) {
       );
     }
 
-    const displayError = isTimeout
-      ? 'The transcription request timed out while communicating with external model provider.'
-      : errorMsg.includes('Whisper Transcription API error')
-      ? errorMsg
-      : errorMsg.includes('Empty transcription')
-      ? errorMsg
-      : 'An error occurred during transcription.';
+    let status = 500;
+    let displayError = 'An error occurred during transcription.';
+
+    if (isTimeout) {
+      status = 504;
+      displayError = 'The transcription request timed out while communicating with external model provider.';
+    } else if (errorMsg.includes('WHISPER_API_KEY') || errorMsg.includes('Whisper API key')) {
+      status = 503;
+      displayError = 'Cloud transcription service is currently unavailable due to missing API key.';
+    } else if (errorMsg.includes('Local Whisper transcription service') || errorMsg.includes('Local Whisper daemon failed to load')) {
+      status = 503;
+      displayError = 'Local Whisper transcription service is currently unavailable.';
+    } else if (errorMsg.includes('Local Whisper port conflict')) {
+      status = 503;
+      displayError = 'Local Whisper transcription service is currently unavailable due to a port conflict.';
+    } else if (errorMsg.includes('Invalid audio format') || errorMsg.includes('corrupted payload')) {
+      status = 400;
+      displayError = 'Invalid audio format or corrupted payload.';
+    } else if (errorMsg.includes('exceeds the maximum limit')) {
+      status = 400;
+      displayError = 'Audio duration exceeds the maximum limit of 60 seconds.';
+    } else if (errorMsg.includes('busy')) {
+      status = 503;
+      displayError = 'Transcription engine is busy. Please try again.';
+    } else if (errorMsg.includes('Empty transcription')) {
+      status = 422;
+      displayError = errorMsg;
+    } else if (errorMsg.includes('Whisper Transcription API error')) {
+      displayError = errorMsg;
+    }
 
     return NextResponse.json(
       {
@@ -213,7 +238,7 @@ export async function POST(request: Request) {
         error: displayError,
         requestId,
       },
-      { status: isTimeout ? 504 : 500 }
+      { status }
     );
   }
 }
