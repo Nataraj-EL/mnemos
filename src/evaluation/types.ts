@@ -364,3 +364,16 @@ export interface RemediationExecutionHistorySummary {
   records: RemediationExecutionRecord[];
   timestamp: string;
 }
+
+export interface RemediationOutcome {
+  executionId: string;
+  status: 'improved' | 'degraded' | 'unchanged' | 'insufficientData';
+  targetMetrics: Record<string, { before?: number; after?: number; delta?: number }>;
+  summary: string;
+  evaluatedAt: string;
+}
+
+export interface RemediationOutcomeSummary {
+  outcomes: RemediationOutcome[];
+  timestamp: string;
+}

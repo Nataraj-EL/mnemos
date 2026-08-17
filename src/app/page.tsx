@@ -2061,6 +2061,30 @@ export default function MemoryDashboard() {
   const [remediationsList, setRemediationsList] = useState<import('@/evaluation/types').EvaluationRemediation[]>([]);
   const [proposalsList, setProposalsList] = useState<import('@/evaluation/types').EvaluationRemediationProposal[]>([]);
   const [executionsList, setExecutionsList] = useState<import('@/evaluation/types').RemediationExecutionRecord[]>([]);
+  const [outcomesList, setOutcomesList] = useState<import('@/evaluation/types').RemediationOutcome[]>([]);
+
+  const fetchOutcomes = async () => {
+    try {
+      const response = await fetch('/api/evaluation/remediation/outcomes');
+      if (response.ok) {
+        const data = await response.json();
+        setOutcomesList(data.outcomes || []);
+      } else {
+        const { EvaluationRemediationOutcomeManager } = await import('@/evaluation/remediationOutcome');
+        const list = EvaluationRemediationOutcomeManager.generateOutcomes();
+        setOutcomesList(list);
+      }
+    } catch (err) {
+      console.error('Failed to fetch outcomes:', err);
+      try {
+        const { EvaluationRemediationOutcomeManager } = await import('@/evaluation/remediationOutcome');
+        const list = EvaluationRemediationOutcomeManager.generateOutcomes();
+        setOutcomesList(list);
+      } catch (e) {
+        console.error('Local outcomes list failed:', e);
+      }
+    }
+  };
 
   const fetchExecutions = async () => {
     try {
@@ -2082,6 +2106,8 @@ export default function MemoryDashboard() {
       } catch (e) {
         console.error('Local executions list failed:', e);
       }
+    } finally {
+      await fetchOutcomes();
     }
   };
 
@@ -7967,6 +7993,109 @@ export default function MemoryDashboard() {
                               </button>
                             </div>
                           )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Remediation Outcome Verification */}
+            <div className="card" style={{ padding: '1.25rem', marginTop: '1.5rem' }}>
+              <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>📊 Remediation Outcome Verification</h3>
+              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1.25rem', marginTop: '0.5rem' }}>
+                Compare evaluation report metrics before and after the configuration changes were applied to verify the remediation&apos;s impact.
+                <span style={{ display: 'block', marginTop: '0.25rem', color: 'var(--primary)', fontWeight: 600 }}>
+                  ⚠️ Developer / Evaluation Only — Outcome Verification
+                </span>
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {outcomesList.length === 0 ? (
+                  <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(255,255,255,0.01)', fontSize: '0.70rem', opacity: 0.6, textAlign: 'center' }}>
+                    No remediation outcomes evaluated yet.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {outcomesList.map((out) => {
+                      const isImproved = out.status === 'improved';
+                      const isDegraded = out.status === 'degraded';
+                      const isUnchanged = out.status === 'unchanged';
+
+
+                      const statusColor = isImproved ? 'var(--success)' : isDegraded ? 'var(--error)' : isUnchanged ? '#e67e22' : 'var(--text-muted)';
+                      const statusBg = isImproved ? 'rgba(46,204,113,0.08)' : isDegraded ? 'rgba(179,74,60,0.08)' : isUnchanged ? 'rgba(230,126,34,0.08)' : 'rgba(255,255,255,0.05)';
+
+                      return (
+                        <div
+                          key={out.executionId}
+                          style={{
+                            padding: '0.6rem 0.8rem',
+                            backgroundColor: statusBg,
+                            border: `1px solid ${isImproved ? 'rgba(46,204,113,0.15)' : isDegraded ? 'rgba(179,74,60,0.15)' : 'var(--border)'}`,
+                            borderRadius: 'var(--radius-sm)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.25rem',
+                            fontSize: '0.65rem'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                              <span
+                                style={{
+                                  fontSize: '0.55rem',
+                                  padding: '0.1rem 0.35rem',
+                                  borderRadius: 'var(--radius-xs)',
+                                  backgroundColor: statusColor,
+                                  color: '#fff',
+                                  fontWeight: 700,
+                                  textTransform: 'uppercase'
+                                }}
+                              >
+                                {out.status === 'insufficientData' ? 'INSUFFICIENT DATA' : out.status}
+                              </span>
+                              <span style={{ opacity: 0.5, fontSize: '0.55rem' }}>Execution: {out.executionId}</span>
+                            </div>
+                          </div>
+
+                          <div style={{ opacity: 0.9, marginTop: '0.15rem' }}>
+                            <strong>Summary:</strong> {out.summary}
+                          </div>
+
+                          {Object.keys(out.targetMetrics).length > 0 && (
+                            <div
+                              style={{
+                                marginTop: '0.25rem',
+                                padding: '0.35rem',
+                                backgroundColor: 'rgba(0,0,0,0.15)',
+                                borderRadius: '2px',
+                                fontFamily: 'monospace',
+                                fontSize: '0.55rem',
+                                color: '#ccc'
+                              }}
+                            >
+                              <div style={{ fontWeight: 600, marginBottom: '0.15rem' }}>Metrics Comparisons:</div>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.15rem' }}>
+                                {Object.entries(out.targetMetrics).map(([metric, values]) => {
+                                  const deltaStr = values.delta !== undefined ? (values.delta >= 0 ? `+${values.delta}` : `${values.delta}`) : '';
+                                  return (
+                                    <div key={metric} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                      <span>{metric}:</span>
+                                      <span>
+                                        {values.before} &rarr; {values.after} {deltaStr && `(${deltaStr})`}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          <div style={{ opacity: 0.5, fontSize: '0.55rem', marginTop: '0.15rem' }}>
+                            Verification Run At: {new Date(out.evaluatedAt).toLocaleString()}
+                          </div>
                         </div>
                       );
                     })}
