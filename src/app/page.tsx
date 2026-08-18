@@ -5108,7 +5108,7 @@ export default function MemoryDashboard() {
                   <button
                     onClick={handleConsolidate}
                     className="premium-btn premium-btn-primary"
-                    disabled={loadingConsolidate || memories.length === 0}
+                    disabled={!mounted || loadingConsolidate || memories.length === 0}
                     style={{ padding: '0.35rem 0.7rem', fontSize: '0.75rem' }}
                   >
                     {loadingConsolidate ? (
