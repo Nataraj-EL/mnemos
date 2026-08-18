@@ -278,6 +278,7 @@ export class LocalWhisperTranscriptionProvider implements TranscriptionProvider 
       };
     } catch (error: unknown) {
       const err = error as Error;
+      console.error('[DEBUG] LocalWhisperTranscriptionProvider error:', err);
       if (err.name === 'TimeoutError' || err.message?.includes('timeout') || err.message?.includes('aborted')) {
         throw new Error('Transcription request timed out after 15 seconds.');
       }

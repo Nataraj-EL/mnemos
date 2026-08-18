@@ -75,7 +75,22 @@ class TranscriptionHandler(BaseHTTPRequestHandler):
             audio_bytes = self.rfile.read(content_length)
 
             import tempfile
-            temp_file_fd, temp_file_path = tempfile.mkstemp(suffix=".wav")
+            content_type = self.headers.get('Content-Type', '').lower()
+            suffix = ".wav"
+            if "webm" in content_type:
+                suffix = ".webm"
+            elif "mp3" in content_type:
+                suffix = ".mp3"
+            elif "ogg" in content_type:
+                suffix = ".ogg"
+            elif "wav" in content_type:
+                suffix = ".wav"
+            elif "m4a" in content_type:
+                suffix = ".m4a"
+            elif "aac" in content_type:
+                suffix = ".aac"
+
+            temp_file_fd, temp_file_path = tempfile.mkstemp(suffix=suffix)
             try:
                 os.write(temp_file_fd, audio_bytes)
                 os.close(temp_file_fd)
