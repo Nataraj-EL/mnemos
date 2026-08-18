@@ -1795,6 +1795,138 @@ export default function MemoryDashboard() {
     }
   };
 
+  // Controlled Experiment States
+  const [controlledSemanticWeight, setControlledSemanticWeight] = useState(0.5);
+  const [controlledLexicalWeight, setControlledLexicalWeight] = useState(0.5);
+  const [controlledMinSim, setControlledMinSim] = useState(0.4);
+  const [controlledMaxConvSnippets, setControlledMaxConvSnippets] = useState(12);
+
+  const [controlledExperimentResult, setControlledExperimentResult] = useState<import('@/evaluation/types').ControlledExperimentResult | null>(null);
+  const [controlledExperimentLoading, setControlledExperimentLoading] = useState(false);
+  const [controlledExperimentError, setControlledExperimentError] = useState<string | null>(null);
+  const [controlledExperimentHistory, setControlledExperimentHistory] = useState<import('@/evaluation/types').ControlledExperimentResult[]>([]);
+  const [controlledHistoryLoading, setControlledHistoryLoading] = useState(false);
+  const [controlledHistoryError, setControlledHistoryError] = useState<string | null>(null);
+
+  const fetchControlledHistory = async () => {
+    setControlledHistoryLoading(true);
+    setControlledHistoryError(null);
+    try {
+      const response = await fetch('/api/evaluation/experiments/results');
+      if (response.ok) {
+        const json = await response.json();
+        if (json.status === 'success') {
+          setControlledExperimentHistory(json.data || []);
+        }
+      } else {
+        const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
+        setControlledExperimentHistory(ExperimentHistoryManager.listControlledRecords());
+      }
+    } catch (err) {
+      console.error('Failed to fetch controlled history:', err);
+      try {
+        const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
+        setControlledExperimentHistory(ExperimentHistoryManager.listControlledRecords());
+      } catch {
+        setControlledHistoryError('Failed to load experiment history.');
+      }
+    } finally {
+      setControlledHistoryLoading(false);
+    }
+  };
+
+  const handleRunControlledExperiment = async () => {
+    setControlledExperimentLoading(true);
+    setControlledExperimentError(null);
+    setControlledExperimentResult(null);
+
+    const candidateConfig = {
+      semanticWeight: controlledSemanticWeight,
+      lexicalWeight: controlledLexicalWeight,
+      minSimilarity: controlledMinSim,
+      diversityThreshold: 0.3,
+      maxConversationSnippets: controlledMaxConvSnippets,
+    };
+
+    const currentPromConfig = promotedConfigStatus?.currentConfig || {
+      semanticWeight: 0.7,
+      lexicalWeight: 0.3,
+      minSimilarity: 0.5,
+      diversityThreshold: 0.3,
+      maxConversationSnippets: 10,
+    };
+
+    try {
+      const response = await fetch('/api/evaluation/experiments/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ candidateConfig, baselineConfig: currentPromConfig }),
+      });
+      const data = await response.json();
+      if (response.ok && data.status === 'success') {
+        setControlledExperimentResult(data.data);
+        await fetchControlledHistory();
+      } else {
+        const errMsg = data.error || 'Server experiment execution failed.';
+        if (errMsg.includes('already in progress')) {
+          setControlledExperimentError(errMsg);
+          return;
+        }
+
+        console.warn('Controlled experiment server endpoint failed. Running locally...', errMsg);
+        const { EvaluationExperimentRunner } = await import('@/evaluation/experiment');
+        const localResult = await EvaluationExperimentRunner.runControlledExperiment(currentPromConfig, candidateConfig);
+        const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
+        ExperimentHistoryManager.addControlledRecord(localResult);
+        setControlledExperimentResult(localResult);
+        await fetchControlledHistory();
+      }
+    } catch (err: unknown) {
+      console.error('Failed to run controlled experiment:', err);
+      try {
+        const { EvaluationExperimentRunner } = await import('@/evaluation/experiment');
+        const localResult = await EvaluationExperimentRunner.runControlledExperiment(currentPromConfig, candidateConfig);
+        const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
+        ExperimentHistoryManager.addControlledRecord(localResult);
+        setControlledExperimentResult(localResult);
+        await fetchControlledHistory();
+      } catch (e: unknown) {
+        setControlledExperimentError(e instanceof Error ? e.message : 'An unexpected error occurred during experiment.');
+      }
+    } finally {
+      setControlledExperimentLoading(false);
+    }
+  };
+
+  const handleClearControlledHistory = async () => {
+    const confirmClear = confirm('Are you sure you want to delete all controlled experiment history?');
+    if (!confirmClear) return;
+
+    setControlledHistoryLoading(true);
+    setControlledHistoryError(null);
+    try {
+      const response = await fetch('/api/evaluation/experiments/results', { method: 'DELETE' });
+      if (response.ok) {
+        setControlledExperimentHistory([]);
+      } else {
+        const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
+        ExperimentHistoryManager.clearControlledHistory();
+        setControlledExperimentHistory([]);
+      }
+    } catch (err) {
+      console.error('Failed to clear controlled history:', err);
+      try {
+        const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
+        ExperimentHistoryManager.clearControlledHistory();
+        setControlledExperimentHistory([]);
+      } catch {
+        setControlledHistoryError('Failed to clear experiment history.');
+      }
+    } finally {
+      setControlledHistoryLoading(false);
+    }
+  };
+
   // A/B Experiment History State
   const [experimentHistory, setExperimentHistory] = useState<import('@/evaluation/types').ExperimentRunRecord[]>([]);
   const [expHistoryLoading, setExpHistoryLoading] = useState(false);
@@ -2901,6 +3033,7 @@ export default function MemoryDashboard() {
       fetchReportResult();
       fetchReportHistory();
       fetchVoiceHealth();
+      fetchControlledHistory();
     }, 0);
     const healthInterval = setInterval(fetchHealth, 15000);
     return () => clearInterval(healthInterval);
@@ -8438,6 +8571,247 @@ export default function MemoryDashboard() {
 
                 </div>
               )}
+            </div>
+
+            {/* Controlled Evaluation Experiments */}
+            <div className="card" style={{ padding: '1.25rem', marginTop: '1.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+                <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>🧪 Controlled Evaluation Experiments</h3>
+                <span style={{ fontSize: '0.65rem', fontWeight: 'bold', padding: '0.15rem 0.4rem', borderRadius: '12px', backgroundColor: 'rgba(219, 91, 91, 0.1)', color: '#db5b5b', border: '1px solid rgba(219, 91, 91, 0.3)' }}>
+                  Developer / Evaluation Only — No Production Impact
+                </span>
+              </div>
+              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1.25rem' }}>
+                Run controlled A/B experiments evaluating proposed configuration changes against the current active baseline under standard scenarios.
+              </p>
+
+              {/* Configurations input */}
+              <div style={{ padding: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(255,255,255,0.02)', marginBottom: '1.25rem' }}>
+                <h4 style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--primary)', marginBottom: '0.75rem' }}>Proposed Candidate Configuration</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', fontSize: '0.7rem' }}>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                    <span>Semantic Weight (0.0 - 1.0):</span>
+                    <input 
+                      type="number" 
+                      step="0.05" 
+                      min="0" 
+                      max="1"
+                      value={controlledSemanticWeight} 
+                      onChange={(e) => setControlledSemanticWeight(parseFloat(e.target.value) || 0)} 
+                      disabled={controlledExperimentLoading}
+                      style={{ padding: '0.25rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                    />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                    <span>Lexical Weight (0.0 - 1.0):</span>
+                    <input 
+                      type="number" 
+                      step="0.05" 
+                      min="0" 
+                      max="1"
+                      value={controlledLexicalWeight} 
+                      onChange={(e) => setControlledLexicalWeight(parseFloat(e.target.value) || 0)} 
+                      disabled={controlledExperimentLoading}
+                      style={{ padding: '0.25rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                    />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                    <span>Min Similarity (0.0 - 1.0):</span>
+                    <input 
+                      type="number" 
+                      step="0.05" 
+                      min="0" 
+                      max="1"
+                      value={controlledMinSim} 
+                      onChange={(e) => setControlledMinSim(parseFloat(e.target.value) || 0)} 
+                      disabled={controlledExperimentLoading}
+                      style={{ padding: '0.25rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                    />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                    <span>Max Conversation Snippets (1 - 100):</span>
+                    <input 
+                      type="number" 
+                      min="1" 
+                      max="100"
+                      value={controlledMaxConvSnippets} 
+                      onChange={(e) => setControlledMaxConvSnippets(parseInt(e.target.value) || 0)} 
+                      disabled={controlledExperimentLoading}
+                      style={{ padding: '0.25rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', backgroundColor: 'var(--surface)', color: 'var(--text)' }}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Action Button & Error Display */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.25rem' }}>
+                <button
+                  onClick={handleRunControlledExperiment}
+                  disabled={controlledExperimentLoading}
+                  className="premium-btn premium-btn-primary"
+                  style={{ width: '100%' }}
+                >
+                  {controlledExperimentLoading ? (
+                    <>
+                      {renderSpinner()}
+                      Running Controlled A/B Evaluation...
+                    </>
+                  ) : (
+                    <>🧪 Run Controlled Experiment</>
+                  )}
+                </button>
+
+                {controlledExperimentError && (
+                  <div style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--error)', backgroundColor: 'rgba(179, 74, 60, 0.05)', color: 'var(--error)', fontSize: '0.75rem' }}>
+                    ⚠️ {controlledExperimentError}
+                  </div>
+                )}
+              </div>
+
+              {/* Comparative Results Card */}
+              {controlledExperimentResult && (
+                <div style={{ padding: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(0,0,0,0.2)', marginBottom: '1.25rem' }}>
+                  <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
+                    <div>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--primary)' }}>Experiment Results</span>
+                      <span style={{ fontSize: '0.6rem', opacity: 0.6, marginLeft: '0.5rem' }}>ID: {controlledExperimentResult.experimentId}</span>
+                    </div>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                      Decision: 
+                      {controlledExperimentResult.decision === 'candidateBetter' && (
+                        <span style={{ color: 'var(--success)', marginLeft: '0.3rem' }}>🎉 Candidate Better</span>
+                      )}
+                      {controlledExperimentResult.decision === 'baselineBetter' && (
+                        <span style={{ color: 'var(--error)', marginLeft: '0.3rem' }}>⚠️ Baseline Better</span>
+                      )}
+                      {controlledExperimentResult.decision === 'noSignificantDifference' && (
+                        <span style={{ color: 'var(--text)', opacity: 0.8, marginLeft: '0.3rem' }}>⚖️ No Significant Difference</span>
+                      )}
+                      {controlledExperimentResult.decision === 'insufficientData' && (
+                        <span style={{ color: 'var(--text)', opacity: 0.5, marginLeft: '0.3rem' }}>Insufficient Data</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', fontSize: '0.7rem', textAlign: 'left', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--border)', opacity: 0.6 }}>
+                          <th style={{ padding: '0.35rem' }}>Metric</th>
+                          <th style={{ padding: '0.35rem' }}>Baseline Config</th>
+                          <th style={{ padding: '0.35rem' }}>Candidate Config</th>
+                          <th style={{ padding: '0.35rem' }}>Delta (Abs)</th>
+                          <th style={{ padding: '0.35rem' }}>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(controlledExperimentResult.metricsComparison).map(([metric, comp]: [string, import('@/evaluation/types').ControlledMetricComparison]) => {
+                          const formatVal = (metricName: string, val: number) => {
+                            if (metricName === 'averageLatency') return `${Math.round(val)} ms`;
+                            return `${(val * 100).toFixed(0)}%`;
+                          };
+
+                          let statusColor = 'var(--text)';
+                          if (comp.status === 'improved') statusColor = 'var(--success)';
+                          else if (comp.status === 'degraded') statusColor = 'var(--error)';
+
+                          const sign = comp.delta > 0 ? '+' : '';
+                          const deltaText = metric === 'averageLatency' ? `${sign}${Math.round(comp.delta)} ms` : `${sign}${(comp.delta * 100).toFixed(0)}%`;
+
+                          return (
+                            <tr key={metric} style={{ borderBottom: '1px solid var(--border)', opacity: 0.9 }}>
+                              <td style={{ padding: '0.35rem', fontWeight: 600 }}>{metric}</td>
+                              <td style={{ padding: '0.35rem' }}>{formatVal(metric, comp.baseline)}</td>
+                              <td style={{ padding: '0.35rem' }}>{formatVal(metric, comp.candidate)}</td>
+                              <td style={{ padding: '0.35rem', color: statusColor }}>{deltaText}</td>
+                              <td style={{ padding: '0.35rem', color: statusColor, fontWeight: 600, textTransform: 'capitalize' }}>{comp.status}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Bounded Controlled Experiment History */}
+              <div style={{ marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <h4 style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--primary)', margin: 0 }}>📜 Controlled Experiment History</h4>
+                  {controlledExperimentHistory.length > 0 && (
+                    <button
+                      onClick={handleClearControlledHistory}
+                      disabled={controlledHistoryLoading}
+                      className="premium-btn"
+                      style={{ fontSize: '0.65rem', padding: '0.25rem 0.5rem', backgroundColor: 'rgba(179, 74, 60, 0.1)', border: '1px solid var(--error)', color: 'var(--error)' }}
+                    >
+                      🗑️ Clear History
+                    </button>
+                  )}
+                </div>
+
+                {controlledHistoryLoading && <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Loading history...</div>}
+                {controlledHistoryError && <div style={{ fontSize: '0.75rem', color: 'var(--error)' }}>⚠️ {controlledHistoryError}</div>}
+
+                {!controlledHistoryLoading && !controlledHistoryError && controlledExperimentHistory.length === 0 && (
+                  <div style={{ fontSize: '0.75rem', opacity: 0.5, textAlign: 'center', padding: '1.5rem', border: '1px dashed var(--border)', borderRadius: 'var(--radius-md)' }}>
+                    No controlled experiment history found. Run an experiment above to log.
+                  </div>
+                )}
+
+                {controlledExperimentHistory.length > 0 && (
+                  <div style={{ overflowX: 'auto', maxHeight: '200px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
+                    <table style={{ width: '100%', fontSize: '0.7rem', textAlign: 'left', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'rgba(255,255,255,0.02)', position: 'sticky', top: 0, zIndex: 1 }}>
+                          <th style={{ padding: '0.4rem' }}>Timestamp</th>
+                          <th style={{ padding: '0.4rem' }}>Proposed Candidate</th>
+                          <th style={{ padding: '0.4rem' }}>Decision</th>
+                          <th style={{ padding: '0.4rem', textAlign: 'right' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {controlledExperimentHistory.map((run) => {
+                          const timeStr = new Date(run.timestamp).toLocaleString();
+                          return (
+                            <tr key={run.experimentId} style={{ borderBottom: '1px solid var(--border)', opacity: 0.9 }}>
+                              <td style={{ padding: '0.4rem', fontWeight: 600 }}>{timeStr}</td>
+                              <td style={{ padding: '0.4rem' }}>
+                                sem:{run.candidateConfig.semanticWeight} / lex:{run.candidateConfig.lexicalWeight} / sim:{run.candidateConfig.minSimilarity}
+                              </td>
+                              <td style={{ padding: '0.4rem' }}>
+                                {run.decision === 'candidateBetter' && <span style={{ color: 'var(--success)', fontWeight: 600 }}>Candidate Better</span>}
+                                {run.decision === 'baselineBetter' && <span style={{ color: 'var(--error)', fontWeight: 600 }}>Baseline Better</span>}
+                                {run.decision === 'noSignificantDifference' && <span style={{ color: 'var(--text)', opacity: 0.7 }}>No Difference</span>}
+                                {run.decision === 'insufficientData' && <span style={{ color: 'var(--text)', opacity: 0.5 }}>Insufficient Data</span>}
+                              </td>
+                              <td style={{ padding: '0.4rem', textAlign: 'right' }}>
+                                <button
+                                  onClick={async () => {
+                                    if (confirm('Delete this record?')) {
+                                      try {
+                                        const res = await fetch(`/api/evaluation/experiments/results?id=${run.experimentId}`, { method: 'DELETE' });
+                                        if (res.ok) {
+                                          await fetchControlledHistory();
+                                        }
+                                      } catch (err) {
+                                        console.error('Failed to delete experiment record:', err);
+                                      }
+                                    }
+                                  }}
+                                  style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', fontSize: '0.75rem', opacity: 0.8 }}
+                                >
+                                  ❌
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

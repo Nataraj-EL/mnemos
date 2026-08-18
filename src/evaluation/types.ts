@@ -377,3 +377,29 @@ export interface RemediationOutcomeSummary {
   outcomes: RemediationOutcome[];
   timestamp: string;
 }
+
+export interface ControlledMetricComparison {
+  baseline: number;
+  candidate: number;
+  delta: number;
+  status: 'improved' | 'degraded' | 'unchanged' | 'insufficientData';
+}
+
+export interface ControlledExperimentResult {
+  experimentId: string;
+  baselineConfig: TuningConfig;
+  candidateConfig: TuningConfig;
+  baselineSummary: EvalSummary;
+  candidateSummary: EvalSummary;
+  comparison: import('./regression').RegressionSummary;
+  decision: 'candidateBetter' | 'baselineBetter' | 'noSignificantDifference' | 'insufficientData';
+  metricsComparison: Record<string, ControlledMetricComparison>;
+  timestamp: string;
+  evidenceIds: string[];
+}
+
+export interface ControlledExperimentSummary {
+  experiments: ControlledExperimentResult[];
+  timestamp: string;
+}
+

@@ -1,4 +1,4 @@
-import { ExperimentRunRecord, ExperimentResult } from './types';
+import { ExperimentRunRecord, ExperimentResult, ControlledExperimentResult } from './types';
 import { sanitizeSummary } from './regression';
 
 export class ExperimentHistoryManager {
@@ -69,5 +69,38 @@ export class ExperimentHistoryManager {
 
   public static clearHistory(): void {
     this.historyMap.clear();
+  }
+
+  private static controlledHistory = new Map<string, ControlledExperimentResult>();
+
+  public static addControlledRecord(result: ControlledExperimentResult): ControlledExperimentResult {
+    const record = JSON.parse(JSON.stringify(result));
+    this.controlledHistory.set(record.experimentId, record);
+
+    if (this.controlledHistory.size > 20) {
+      const oldestId = this.controlledHistory.keys().next().value;
+      if (oldestId !== undefined) {
+        this.controlledHistory.delete(oldestId);
+      }
+    }
+    return record;
+  }
+
+  public static listControlledRecords(): ControlledExperimentResult[] {
+    return Array.from(this.controlledHistory.values()).reverse();
+  }
+
+  public static getControlledRecord(id: string): ControlledExperimentResult | undefined {
+    const record = this.controlledHistory.get(id);
+    if (!record) return undefined;
+    return JSON.parse(JSON.stringify(record));
+  }
+
+  public static deleteControlledRecord(id: string): boolean {
+    return this.controlledHistory.delete(id);
+  }
+
+  public static clearControlledHistory(): void {
+    this.controlledHistory.clear();
   }
 }

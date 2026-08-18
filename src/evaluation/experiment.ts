@@ -1,7 +1,8 @@
 import { EvaluationRunner } from './runner';
-import { TuningConfig, ExperimentResult } from './types';
+import { TuningConfig, ExperimentResult, ControlledExperimentResult, EvalSummary } from './types';
 import { compareSummaries, DEFAULT_THRESHOLDS } from './regression';
 import { EVAL_DATASET } from './dataset';
+import { ConfigSafetyGuard } from './configGuard';
 
 export class EvaluationExperimentRunner {
   private static isLocked = false;
@@ -163,6 +164,167 @@ export class EvaluationExperimentRunner {
         recommendation,
         recommendationExplanation: explanation,
       };
+    } finally {
+      this.isLocked = false;
+    }
+  }
+
+  public static async runControlledExperiment(
+    baselineConfig: TuningConfig,
+    candidateConfig: TuningConfig,
+    evidenceIds: string[] = []
+  ): Promise<ControlledExperimentResult> {
+    if (this.isLocked) {
+      throw new Error('An experiment is already in progress. Please wait.');
+    }
+
+    this.isLocked = true;
+
+    try {
+      const safetyCheck = ConfigSafetyGuard.validate(candidateConfig);
+      if (!safetyCheck.valid) {
+        throw new Error(`Invalid candidate configuration: ${safetyCheck.errors.join(', ')}`);
+      }
+
+      this.validateConfig(baselineConfig);
+      this.validateConfig(candidateConfig);
+
+      const runner = new EvaluationRunner();
+
+      const controlRun = await runner.runAll(EVAL_DATASET, baselineConfig, { benchmarkMode: 'real' });
+      const controlFailure = controlRun.results.find(r => r.failureReason && 
+        (r.failureReason.includes('API key') || 
+         r.failureReason.includes('environment variable') ||
+         r.failureReason.includes('database') ||
+         r.failureReason.includes('connection') ||
+         r.failureReason.includes('fetch') ||
+         r.failureReason.includes('not defined'))
+      );
+      if (controlFailure) {
+        throw new Error(`Control run failed due to system/pipeline error: ${controlFailure.failureReason}`);
+      }
+
+      const candidateRun = await runner.runAll(EVAL_DATASET, candidateConfig, { benchmarkMode: 'real' });
+      const candidateFailure = candidateRun.results.find(r => r.failureReason && 
+        (r.failureReason.includes('API key') || 
+         r.failureReason.includes('environment variable') ||
+         r.failureReason.includes('database') ||
+         r.failureReason.includes('connection') ||
+         r.failureReason.includes('fetch') ||
+         r.failureReason.includes('not defined'))
+      );
+      if (candidateFailure) {
+        throw new Error(`Candidate run failed due to system/pipeline error: ${candidateFailure.failureReason}`);
+      }
+
+      const baselineSummary = controlRun.summary;
+      const candidateSummary = candidateRun.summary;
+
+      const metricsToCompare = [
+        'relevance',
+        'retrievalRecall',
+        'contextPrecision',
+        'faithfulness',
+        'citationCorrectness'
+      ];
+
+      const tolerances: Record<string, number> = {
+        relevance: DEFAULT_THRESHOLDS.relevanceTolerance,
+        retrievalRecall: DEFAULT_THRESHOLDS.retrievalRecallTolerance,
+        contextPrecision: DEFAULT_THRESHOLDS.contextPrecisionTolerance,
+        faithfulness: DEFAULT_THRESHOLDS.faithfulnessTolerance,
+        citationCorrectness: DEFAULT_THRESHOLDS.citationCorrectnessTolerance,
+      };
+
+      const metricsComparison: Record<string, {
+        baseline: number;
+        candidate: number;
+        delta: number;
+        status: 'improved' | 'degraded' | 'unchanged' | 'insufficientData';
+      }> = {};
+
+      let hasDegradation = false;
+      let hasImprovement = false;
+
+      for (const m of metricsToCompare) {
+        const rawBase = baselineSummary[m as keyof EvalSummary];
+        const rawCand = candidateSummary[m as keyof EvalSummary];
+        const baseVal = typeof rawBase === 'number' ? rawBase : 0;
+        const candVal = typeof rawCand === 'number' ? rawCand : 0;
+        const delta = candVal - baseVal;
+        const tol = tolerances[m];
+
+        let status: 'improved' | 'degraded' | 'unchanged' | 'insufficientData' = 'unchanged';
+        if (delta < -tol) {
+          status = 'degraded';
+          hasDegradation = true;
+        } else if (delta > tol) {
+          status = 'improved';
+          hasImprovement = true;
+        }
+
+        metricsComparison[m] = {
+          baseline: baseVal,
+          candidate: candVal,
+          delta,
+          status
+        };
+      }
+
+      const baseLat = baselineSummary.averageLatency;
+      const candLat = candidateSummary.averageLatency;
+      const deltaLat = candLat - baseLat;
+      let latStatus: 'improved' | 'degraded' | 'unchanged' | 'insufficientData' = 'unchanged';
+
+      const isLatDegraded = deltaLat > DEFAULT_THRESHOLDS.latencyToleranceMs || 
+        (baseLat > 0 && (deltaLat / baseLat) > DEFAULT_THRESHOLDS.latencyRelativeTolerance);
+      const isLatImproved = deltaLat < -DEFAULT_THRESHOLDS.latencyToleranceMs || 
+        (baseLat > 0 && (deltaLat / baseLat) < -DEFAULT_THRESHOLDS.latencyRelativeTolerance);
+
+      if (isLatDegraded) {
+        latStatus = 'degraded';
+        hasDegradation = true;
+      } else if (isLatImproved) {
+        latStatus = 'improved';
+        hasImprovement = true;
+      }
+
+      metricsComparison['averageLatency'] = {
+        baseline: baseLat,
+        candidate: candLat,
+        delta: deltaLat,
+        status: latStatus
+      };
+
+      let decision: 'candidateBetter' | 'baselineBetter' | 'noSignificantDifference' | 'insufficientData' = 'noSignificantDifference';
+      if (baselineSummary.total === 0 || candidateSummary.total === 0) {
+        decision = 'insufficientData';
+        for (const k of Object.keys(metricsComparison)) {
+          metricsComparison[k].status = 'insufficientData';
+        }
+      } else if (hasDegradation) {
+        decision = 'baselineBetter';
+      } else if (hasImprovement) {
+        decision = 'candidateBetter';
+      }
+
+      const compCandidateToControl = compareSummaries(candidateSummary, baselineSummary);
+      const experimentId = 'exp-ctrl-' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+
+      const result: ControlledExperimentResult = {
+        experimentId,
+        baselineConfig: JSON.parse(JSON.stringify(baselineConfig)),
+        candidateConfig: JSON.parse(JSON.stringify(candidateConfig)),
+        baselineSummary: JSON.parse(JSON.stringify(baselineSummary)),
+        candidateSummary: JSON.parse(JSON.stringify(candidateSummary)),
+        comparison: compCandidateToControl,
+        decision,
+        metricsComparison,
+        timestamp: new Date().toISOString(),
+        evidenceIds,
+      };
+
+      return result;
     } finally {
       this.isLocked = false;
     }

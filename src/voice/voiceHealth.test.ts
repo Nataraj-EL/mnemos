@@ -7,7 +7,7 @@ import { resetRateLimits } from '@/memory/security';
 
 describe('Voice Health & Diagnostics API Route (Sprint 63)', () => {
   beforeEach(() => {
-    (process.env as any).NODE_ENV = 'development';
+    (process.env as Record<string, string>).NODE_ENV = 'development';
     process.env.WHISPER_PROVIDER = 'local';
     process.env.MNEMOS_AUTH_ENABLED = 'false';
     vi.stubGlobal('fetch', vi.fn());
@@ -17,11 +17,11 @@ describe('Voice Health & Diagnostics API Route (Sprint 63)', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    (process.env as any).NODE_ENV = 'test';
+    (process.env as Record<string, string>).NODE_ENV = 'test';
   });
 
   it('should block GET /api/v1/voice/health in non-development/non-testing environments (Production Isolation)', async () => {
-    (process.env as any).NODE_ENV = 'production';
+    (process.env as Record<string, string>).NODE_ENV = 'production';
     const response = await GET();
     expect(response.status).toBe(403);
     const data = await response.json();
