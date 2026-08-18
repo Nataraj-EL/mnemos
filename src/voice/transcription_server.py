@@ -16,6 +16,11 @@ init_time_ms = 0
 lock = threading.Lock()
 args_secret = ""
 
+model_name_global = "tiny.en"
+device_global = "auto"
+compute_type_global = "default"
+cache_dir_global = ""
+
 class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     pass
 
@@ -107,9 +112,29 @@ class TranscriptionHandler(BaseHTTPRequestHandler):
                     return
 
                 try:
-                    segments, info = model.transcribe(temp_file_path, beam_size=5)
-                    text_list = [segment.text for segment in segments]
-                    
+                    try:
+                        segments, info = model.transcribe(temp_file_path, beam_size=5)
+                        text_list = [segment.text for segment in segments]
+                    except Exception as transcribe_err:
+                        global model, device_used, compute_used
+                        if device_used == "cuda":
+                            print("GPU transcription failed. Falling back to CPU.", file=sys.stderr)
+                            from faster_whisper import WhisperModel
+                            c_type = "int8"
+                            model = WhisperModel(
+                                model_name_global,
+                                device="cpu",
+                                compute_type=c_type,
+                                download_root=cache_dir_global
+                            )
+                            device_used = "cpu"
+                            compute_used = c_type
+                            # Retry transcription on CPU
+                            segments, info = model.transcribe(temp_file_path, beam_size=5)
+                            text_list = [segment.text for segment in segments]
+                        else:
+                            raise transcribe_err
+
                     if info.duration > 60:
                         raise Exception("Audio duration exceeds the maximum limit of 60 seconds.")
                 finally:
@@ -158,16 +183,22 @@ def load_model_thread(model_name, device, compute_type, cache_dir):
         if device_to_try == "auto":
             try:
                 c_type = "float16" if compute_to_try == "default" else compute_to_try
-                model = WhisperModel(
+                temp_model = WhisperModel(
                     model_name,
                     device="cuda",
                     compute_type=c_type,
                     download_root=cache_dir
                 )
+                # Dry run check to force dynamic loading of cuBLAS/CUDA libraries
+                import numpy as np
+                dummy = np.zeros(16000, dtype=np.float32)
+                list(temp_model.transcribe(dummy)[0])
+
+                model = temp_model
                 device_used = "cuda"
                 compute_used = c_type
             except Exception:
-                # GPU initialization failed, try CPU
+                # GPU initialization or library loading failed, fallback to CPU
                 c_type = "int8" if compute_to_try == "default" else compute_to_try
                 model = WhisperModel(
                     model_name,
@@ -198,7 +229,7 @@ def load_model_thread(model_name, device, compute_type, cache_dir):
         model_error = str(e)
 
 def main():
-    global args_secret
+    global args_secret, model_name_global, device_global, compute_type_global, cache_dir_global
     parser = argparse.ArgumentParser(description="Local Whisper Transcription Server")
     parser.add_argument("--port", type=int, default=50051, help="Port to listen on")
     parser.add_argument("--model", default="tiny.en", help="Whisper model name")
@@ -208,7 +239,11 @@ def main():
     args = parser.parse_args()
 
     args_secret = args.secret
+    model_name_global = args.model
+    device_global = args.device
+    compute_type_global = args.compute_type
     cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../.whisper_cache")
+    cache_dir_global = cache_dir
     os.makedirs(cache_dir, exist_ok=True)
 
     # Start model loading in a background thread
