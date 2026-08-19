@@ -330,7 +330,7 @@ export interface EvaluationRemediationSummary {
   timestamp: string;
 }
 
-export type RemediationProposalStatus = 'pending' | 'approved' | 'rejected' | 'executed';
+export type RemediationProposalStatus = 'pending' | 'approved' | 'rejected' | 'executed' | 'needsExperiment';
 
 export interface EvaluationRemediationProposal {
   id: string;
@@ -342,6 +342,12 @@ export interface EvaluationRemediationProposal {
   confidence: 'high' | 'medium' | 'low';
   createdAt: string;
   updatedAt: string;
+  experimentEvidence?: {
+    experimentId: string;
+    decision: 'candidateBetter' | 'baselineBetter' | 'noSignificantDifference' | 'insufficientData';
+    evidenceStatus: string;
+    metricDeltas: Record<string, number>;
+  };
 }
 
 export interface EvaluationRemediationProposalSummary {

@@ -1,14 +1,16 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { PromotionHistoryManager } from './promotionHistory';
 import { EvaluationRemediationProposalManager } from './remediationProposal';
 import { EvaluationRemediationExecutionManager } from './remediationExecution';
 import { EvaluationConfigPromotionManager } from './promotion';
-import { EvaluationRemediation } from './types';
+import { EvaluationRemediation, ControlledExperimentResult } from './types';
 import { RETRIEVAL_SETTINGS } from '@/core/config';
 import { ResponseService } from '@/response/service';
 import { MemoryRetriever } from '@/memory/retriever';
 import { ContextAssembler } from '@/context/assembler';
 import { ResponseGenerator } from '@/response/generator';
+import { ExperimentHistoryManager } from './experimentHistory';
 
 describe('Sprint 60: Evaluation Remediation Execution History & Rollback Tests', () => {
   const sampleRemediation: EvaluationRemediation = {
@@ -19,6 +21,23 @@ describe('Sprint 60: Evaluation Remediation Execution History & Rollback Tests',
     evidenceIds: ['alr-123'],
     confidence: 'high',
   };
+
+  function attachMockEvidence(prop: any) {
+    const mockResult: ControlledExperimentResult = {
+      experimentId: 'exp-' + Math.random().toString(36).substring(2),
+      baselineConfig: { ...RETRIEVAL_SETTINGS },
+      candidateConfig: prop.proposedConfig ? { ...prop.proposedConfig } : { ...RETRIEVAL_SETTINGS },
+      baselineSummary: { total: 10, passed: 9, failed: 1, averageLatency: 200 } as any,
+      candidateSummary: { total: 10, passed: 10, failed: 0, averageLatency: 150 } as any,
+      comparison: { status: 'pass', deltas: {}, failedThresholds: [], baselineAvailable: true },
+      decision: 'candidateBetter',
+      metricsComparison: {},
+      timestamp: new Date().toISOString(),
+      evidenceIds: []
+    };
+    ExperimentHistoryManager.addControlledRecord(mockResult);
+    EvaluationRemediationProposalManager.attachEvidence(prop.id, mockResult.experimentId);
+  }
 
   beforeEach(() => {
     PromotionHistoryManager.clearHistory();
@@ -45,6 +64,7 @@ describe('Sprint 60: Evaluation Remediation Execution History & Rollback Tests',
   describe('Execution Log Records Creation', () => {
     it('should create execution history logs upon successful proposal execution', () => {
       const prop = EvaluationRemediationProposalManager.createProposal(sampleRemediation);
+      attachMockEvidence(prop);
       EvaluationRemediationProposalManager.approve(prop.id);
 
       expect(EvaluationRemediationExecutionManager.listExecutions()).toHaveLength(0);
@@ -63,6 +83,7 @@ describe('Sprint 60: Evaluation Remediation Execution History & Rollback Tests',
 
     it('should record execution failure if ConfigPromotionManager promote throws', () => {
       const prop = EvaluationRemediationProposalManager.createProposal(sampleRemediation);
+      attachMockEvidence(prop);
       EvaluationRemediationProposalManager.approve(prop.id);
 
       // Force promote to throw an error
@@ -84,6 +105,7 @@ describe('Sprint 60: Evaluation Remediation Execution History & Rollback Tests',
   describe('Rollback Safety Reversion', () => {
     it('should restore configuration to previous state and create audit record on rollback', () => {
       const prop = EvaluationRemediationProposalManager.createProposal(sampleRemediation);
+      attachMockEvidence(prop);
       EvaluationRemediationProposalManager.approve(prop.id);
 
       const baseConfig = EvaluationConfigPromotionManager.getCurrentConfig() || {
@@ -117,6 +139,7 @@ describe('Sprint 60: Evaluation Remediation Execution History & Rollback Tests',
 
     it('should prevent rollbacks for non-success executions', () => {
       const prop = EvaluationRemediationProposalManager.createProposal(sampleRemediation);
+      attachMockEvidence(prop);
       EvaluationRemediationProposalManager.approve(prop.id);
 
       vi.spyOn(EvaluationConfigPromotionManager, 'promote').mockImplementation(() => {
@@ -134,6 +157,7 @@ describe('Sprint 60: Evaluation Remediation Execution History & Rollback Tests',
 
     it('should reject repeated rollback calls on already rolled back records', () => {
       const prop = EvaluationRemediationProposalManager.createProposal(sampleRemediation);
+      attachMockEvidence(prop);
       EvaluationRemediationProposalManager.approve(prop.id);
       EvaluationRemediationProposalManager.execute(prop.id);
 
@@ -194,6 +218,7 @@ describe('Sprint 60: Evaluation Remediation Execution History & Rollback Tests',
       const originalSettingsString = JSON.stringify(RETRIEVAL_SETTINGS);
 
       const prop = EvaluationRemediationProposalManager.createProposal(sampleRemediation);
+      attachMockEvidence(prop);
       EvaluationRemediationProposalManager.approve(prop.id);
       EvaluationRemediationProposalManager.execute(prop.id);
 

@@ -1807,6 +1807,7 @@ export default function MemoryDashboard() {
   const [controlledExperimentHistory, setControlledExperimentHistory] = useState<import('@/evaluation/types').ControlledExperimentResult[]>([]);
   const [controlledHistoryLoading, setControlledHistoryLoading] = useState(false);
   const [controlledHistoryError, setControlledHistoryError] = useState<string | null>(null);
+  const [runningExperimentForProposalId, setRunningExperimentForProposalId] = useState<string | null>(null);
 
   const fetchControlledHistory = async () => {
     setControlledHistoryLoading(true);
@@ -2398,23 +2399,159 @@ export default function MemoryDashboard() {
     }
   };
 
-  const handleProposalAction = async (id: string, action: 'approve' | 'reject') => {
-    const confirmMsg = `Are you sure you want to ${action} this proposal?`;
-    if (!confirm(confirmMsg)) return;
+  const handleAttachEvidence = async (proposalId: string) => {
+    const experimentId = prompt('Enter Controlled Experiment ID to attach as evidence:');
+    if (!experimentId) return;
+
+    try {
+      const response = await fetch(`/api/evaluation/remediation/proposals/${proposalId}/evidence`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ experimentId }),
+      });
+      if (response.ok) {
+        await fetchProposals();
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Failed to attach evidence via API.');
+        const { EvaluationRemediationProposalManager } = await import('@/evaluation/remediationProposal');
+        EvaluationRemediationProposalManager.attachEvidence(proposalId, experimentId);
+        await fetchProposals();
+      }
+    } catch (err) {
+      console.error('Failed to attach evidence via API:', err);
+      try {
+        const { EvaluationRemediationProposalManager } = await import('@/evaluation/remediationProposal');
+        EvaluationRemediationProposalManager.attachEvidence(proposalId, experimentId);
+        await fetchProposals();
+      } catch (e) {
+        alert(e instanceof Error ? e.message : 'Local evidence attachment failed.');
+      }
+    }
+  };
+
+  const handleRunExperimentForProposal = async (propId: string) => {
+    const prop = proposalsList.find(p => p.id === propId);
+    if (!prop || !prop.proposedConfig) {
+      alert('This proposal does not have a proposed configuration change.');
+      return;
+    }
+
+    setRunningExperimentForProposalId(propId);
+    
+    const candidateConfig = prop.proposedConfig;
+    const currentPromConfig = promotedConfigStatus?.currentConfig || {
+      semanticWeight: 0.7,
+      lexicalWeight: 0.3,
+      minSimilarity: 0.5,
+      diversityThreshold: 0.3,
+      maxConversationSnippets: 10,
+    };
+
+    try {
+      const response = await fetch('/api/evaluation/experiments/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ candidateConfig, baselineConfig: currentPromConfig }),
+      });
+      const data = await response.json();
+      if (response.ok && data.status === 'success') {
+        const experimentId = data.data.experimentId;
+        const attachRes = await fetch(`/api/evaluation/remediation/proposals/${propId}/evidence`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ experimentId }),
+        });
+        if (attachRes.ok) {
+          await fetchProposals();
+        } else {
+          const { EvaluationRemediationProposalManager } = await import('@/evaluation/remediationProposal');
+          EvaluationRemediationProposalManager.attachEvidence(propId, experimentId);
+          await fetchProposals();
+        }
+        await fetchControlledHistory();
+      } else {
+        const errMsg = data.error || 'Server experiment execution failed.';
+        if (errMsg.includes('already in progress')) {
+          alert(errMsg);
+          return;
+        }
+
+        console.warn('Controlled experiment server endpoint failed. Running locally...', errMsg);
+        const { EvaluationExperimentRunner } = await import('@/evaluation/experiment');
+        const localResult = await EvaluationExperimentRunner.runControlledExperiment(currentPromConfig, candidateConfig);
+        const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
+        ExperimentHistoryManager.addControlledRecord(localResult);
+        
+        const { EvaluationRemediationProposalManager } = await import('@/evaluation/remediationProposal');
+        EvaluationRemediationProposalManager.attachEvidence(propId, localResult.experimentId);
+        await fetchProposals();
+        await fetchControlledHistory();
+      }
+    } catch (err: unknown) {
+      console.error('Failed to run controlled experiment for proposal:', err);
+      try {
+        const { EvaluationExperimentRunner } = await import('@/evaluation/experiment');
+        const localResult = await EvaluationExperimentRunner.runControlledExperiment(currentPromConfig, candidateConfig);
+        const { ExperimentHistoryManager } = await import('@/evaluation/experimentHistory');
+        ExperimentHistoryManager.addControlledRecord(localResult);
+        
+        const { EvaluationRemediationProposalManager } = await import('@/evaluation/remediationProposal');
+        EvaluationRemediationProposalManager.attachEvidence(propId, localResult.experimentId);
+        await fetchProposals();
+        await fetchControlledHistory();
+      } catch (e: unknown) {
+        alert(e instanceof Error ? e.message : 'An unexpected error occurred during experiment.');
+      }
+    } finally {
+      setRunningExperimentForProposalId(null);
+    }
+  };
+
+  const handleProposalAction = async (id: string, action: 'approve' | 'reject', developerConfirmed = false) => {
+    if (!developerConfirmed) {
+      const confirmMsg = `Are you sure you want to ${action} this proposal?`;
+      if (!confirm(confirmMsg)) return;
+    }
 
     try {
       const response = await fetch('/api/evaluation/remediation/proposals', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, action }),
+        body: JSON.stringify({ id, action, developerConfirmed }),
       });
       if (response.ok) {
+        const prop = await response.json();
+        if (prop.status === 'needsExperiment') {
+          alert('Proposal status set to "needsExperiment". Please run or link a controlled experiment.');
+        }
         await fetchProposals();
         await fetchReportHistory();
+      } else if (response.status === 409) {
+        const body = await response.json().catch(() => ({}));
+        if (body.code === 'CONFIRMATION_REQUIRED') {
+          const proceed = confirm("Warning: The linked experiment showed no significant difference between candidate and baseline. Do you want to override and approve this proposal anyway?");
+          if (proceed) {
+            await handleProposalAction(id, action, true);
+          }
+        } else {
+          alert(body.error || 'Failed to update proposal status.');
+        }
       } else {
         const { EvaluationRemediationProposalManager } = await import('@/evaluation/remediationProposal');
-        if (action === 'approve') EvaluationRemediationProposalManager.approve(id);
-        else if (action === 'reject') EvaluationRemediationProposalManager.reject(id);
+        if (action === 'approve') {
+          const prop = EvaluationRemediationProposalManager.getProposal(id);
+          if (prop && prop.experimentEvidence && prop.experimentEvidence.decision === 'noSignificantDifference' && !developerConfirmed) {
+            const proceed = confirm("Warning (Local Fallback): The linked experiment showed no significant difference. Do you want to override and approve anyway?");
+            if (proceed) {
+              EvaluationRemediationProposalManager.approve(id, true);
+            }
+          } else {
+            EvaluationRemediationProposalManager.approve(id, developerConfirmed);
+          }
+        } else if (action === 'reject') {
+          EvaluationRemediationProposalManager.reject(id);
+        }
         await fetchProposals();
         await fetchReportHistory();
       }
@@ -2422,8 +2559,19 @@ export default function MemoryDashboard() {
       console.error(`Failed to ${action} proposal:`, err);
       try {
         const { EvaluationRemediationProposalManager } = await import('@/evaluation/remediationProposal');
-        if (action === 'approve') EvaluationRemediationProposalManager.approve(id);
-        else if (action === 'reject') EvaluationRemediationProposalManager.reject(id);
+        if (action === 'approve') {
+          const prop = EvaluationRemediationProposalManager.getProposal(id);
+          if (prop && prop.experimentEvidence && prop.experimentEvidence.decision === 'noSignificantDifference' && !developerConfirmed) {
+            const proceed = confirm("Warning (Local Fallback): The linked experiment showed no significant difference. Do you want to override and approve anyway?");
+            if (proceed) {
+              EvaluationRemediationProposalManager.approve(id, true);
+            }
+          } else {
+            EvaluationRemediationProposalManager.approve(id, developerConfirmed);
+          }
+        } else if (action === 'reject') {
+          EvaluationRemediationProposalManager.reject(id);
+        }
         await fetchProposals();
         await fetchReportHistory();
       } catch (e) {
@@ -8058,7 +8206,7 @@ export default function MemoryDashboard() {
               <p style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '1.25rem', marginTop: '0.5rem' }}>
                 Approve and execute configuration change proposals derived from remediations. Configurations are re-validated before execution.
                 <span style={{ display: 'block', marginTop: '0.25rem', color: 'var(--primary)', fontWeight: 600 }}>
-                  ⚠️ Developer / Evaluation Only — Requires Explicit Approval
+                  ⚠️ Developer / Evaluation Only — Experiment Evidence Required for High-Confidence Approval
                 </span>
               </p>
 
@@ -8070,7 +8218,7 @@ export default function MemoryDashboard() {
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                     {proposalsList.map((prop) => {
-                      const isPending = prop.status === 'pending';
+                      const isPending = prop.status === 'pending' || prop.status === 'needsExperiment';
                       const isApproved = prop.status === 'approved';
                       const isRejected = prop.status === 'rejected';
                       const isExecuted = prop.status === 'executed';
@@ -8137,6 +8285,42 @@ export default function MemoryDashboard() {
                             </div>
                           )}
 
+                          {prop.experimentEvidence ? (
+                            <div style={{ marginTop: '0.35rem', padding: '0.4rem', borderLeft: '3px solid var(--primary)', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '2px' }}>
+                              <div style={{ fontWeight: 600, fontSize: '0.55rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span>Linked Experiment: {prop.experimentEvidence.experimentId}</span>
+                                <span style={{
+                                  padding: '0.05rem 0.25rem',
+                                  borderRadius: '2px',
+                                  fontSize: '0.5rem',
+                                  fontWeight: 700,
+                                  backgroundColor: prop.experimentEvidence.decision === 'candidateBetter' ? 'rgba(46,204,113,0.1)' : prop.experimentEvidence.decision === 'baselineBetter' ? 'rgba(179,74,60,0.1)' : 'rgba(230,126,34,0.1)',
+                                  color: prop.experimentEvidence.decision === 'candidateBetter' ? 'var(--success)' : prop.experimentEvidence.decision === 'baselineBetter' ? 'var(--error)' : 'var(--primary)'
+                                }}>
+                                  {prop.experimentEvidence.evidenceStatus}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '0.5rem', opacity: 0.8, marginTop: '0.15rem' }}>
+                                <strong>Decision Outcome:</strong> {prop.experimentEvidence.decision}
+                              </div>
+                              {prop.experimentEvidence.metricDeltas && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '0.2rem', fontSize: '0.5rem', fontFamily: 'monospace' }}>
+                                  {Object.entries(prop.experimentEvidence.metricDeltas).map(([k, val]) => (
+                                    <span key={k} style={{ padding: '0.05rem 0.2rem', backgroundColor: 'rgba(0,0,0,0.1)', borderRadius: '2px' }}>
+                                      {k}: {typeof val === 'number' ? (val > 0 ? `+${val.toFixed(3)}` : val.toFixed(3)) : val}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div style={{ marginTop: '0.35rem', padding: '0.4rem', borderLeft: '3px solid var(--text-muted)', backgroundColor: 'rgba(255,255,255,0.01)', borderRadius: '2px', opacity: 0.6 }}>
+                              <div style={{ fontWeight: 600, fontSize: '0.55rem' }}>
+                                Evidence Status: No Experiment Evidence
+                              </div>
+                            </div>
+                          )}
+
                           {prop.evidenceIds.length > 0 && (
                             <div style={{ opacity: 0.5, fontSize: '0.55rem', fontFamily: 'monospace', marginTop: '0.15rem' }}>
                               Evidence reference IDs: {prop.evidenceIds.join(', ')}
@@ -8144,7 +8328,7 @@ export default function MemoryDashboard() {
                           )}
 
                           {(isPending || isApproved) && (
-                            <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem', justifyContent: 'flex-end' }}>
+                            <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem', justifyContent: 'flex-end', alignItems: 'center' }}>
                               {isPending && (
                                 <>
                                   <button
@@ -8160,6 +8344,21 @@ export default function MemoryDashboard() {
                                     style={{ fontSize: '0.55rem', padding: '0.15rem 0.4rem', border: 'none', backgroundColor: 'var(--error)', color: '#fff', cursor: 'pointer' }}
                                   >
                                     Reject
+                                  </button>
+                                  <button
+                                    onClick={() => handleRunExperimentForProposal(prop.id)}
+                                    disabled={runningExperimentForProposalId !== null}
+                                    className="btn btn-primary"
+                                    style={{ fontSize: '0.55rem', padding: '0.15rem 0.4rem', border: 'none', backgroundColor: 'var(--primary)', color: '#fff', cursor: 'pointer' }}
+                                  >
+                                    {runningExperimentForProposalId === prop.id ? 'Running Experiment...' : 'Run Experiment'}
+                                  </button>
+                                  <button
+                                    onClick={() => handleAttachEvidence(prop.id)}
+                                    className="btn"
+                                    style={{ fontSize: '0.55rem', padding: '0.15rem 0.4rem', border: '1px solid var(--border)', backgroundColor: 'rgba(0,0,0,0.1)', cursor: 'pointer' }}
+                                  >
+                                    Attach Experiment
                                   </button>
                                 </>
                               )}

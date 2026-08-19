@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  if (process.env.NODE_ENV !== 'development') {
+  if (process.env.NODE_ENV !== 'development' && process.env.NODE_ENV !== 'test') {
     return NextResponse.json(
       { error: 'Remediation proposals endpoint is only available in development environment.' },
       { status: 403 }
@@ -55,7 +55,7 @@ export async function PATCH(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { id, action } = body || {};
+    const { id, action, developerConfirmed } = body || {};
     if (!id || !action || (action !== 'approve' && action !== 'reject')) {
       return NextResponse.json({ error: 'Invalid or missing parameters.' }, { status: 400 });
     }
@@ -65,15 +65,25 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Proposal not found.' }, { status: 404 });
     }
 
-    let success = false;
     if (action === 'approve') {
-      success = EvaluationRemediationProposalManager.approve(id);
+      const result = EvaluationRemediationProposalManager.approve(id, developerConfirmed);
+      if (!result.success) {
+        if (result.code === 'CONFIRMATION_REQUIRED') {
+          return NextResponse.json(
+            { error: result.message, code: result.code },
+            { status: 409 }
+          );
+        }
+        return NextResponse.json(
+          { error: result.message || 'Failed to approve proposal.', code: result.code },
+          { status: 400 }
+        );
+      }
     } else if (action === 'reject') {
-      success = EvaluationRemediationProposalManager.reject(id);
-    }
-
-    if (!success) {
-      return NextResponse.json({ error: 'Invalid transition state.' }, { status: 400 });
+      const success = EvaluationRemediationProposalManager.reject(id);
+      if (!success) {
+        return NextResponse.json({ error: 'Invalid transition state.' }, { status: 400 });
+      }
     }
 
     return NextResponse.json(EvaluationRemediationProposalManager.getProposal(id));

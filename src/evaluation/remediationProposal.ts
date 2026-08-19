@@ -7,7 +7,15 @@ import {
 import { ConfigSafetyGuard } from './configGuard';
 import { EvaluationConfigPromotionManager } from './promotion';
 import { EvaluationRemediationExecutionManager } from './remediationExecution';
+import { ExperimentHistoryManager } from './experimentHistory';
 import { RETRIEVAL_SETTINGS } from '@/core/config';
+
+export interface ApprovalResult {
+  success: boolean;
+  status: RemediationProposalStatus;
+  message?: string;
+  code?: 'APPROVED' | 'NEEDS_EXPERIMENT' | 'CONFIRMATION_REQUIRED' | 'REJECTED' | 'INSUFFICIENT_DATA';
+}
 
 export class EvaluationRemediationProposalManager {
   private static proposals: EvaluationRemediationProposal[] = [];
@@ -116,10 +124,65 @@ export class EvaluationRemediationProposalManager {
     return this.sanitizeData(proposal);
   }
 
-  public static approve(id: string): boolean {
+  public static configMatches(c1: TuningConfig | null, c2: TuningConfig | null): boolean {
+    if (!c1 && !c2) return true;
+    if (!c1 || !c2) return false;
+    return (
+      c1.semanticWeight === c2.semanticWeight &&
+      c1.lexicalWeight === c2.lexicalWeight &&
+      c1.minSimilarity === c2.minSimilarity &&
+      c1.diversityThreshold === c2.diversityThreshold &&
+      c1.maxConversationSnippets === c2.maxConversationSnippets
+    );
+  }
+
+  public static attachEvidence(proposalId: string, experimentId: string): boolean {
+    const proposal = this.proposals.find((p) => p.id === proposalId);
+    if (!proposal) {
+      throw new Error('Proposal not found.');
+    }
+
+    const experiment = ExperimentHistoryManager.getControlledRecord(experimentId);
+    if (!experiment) {
+      throw new Error('Experiment not found.');
+    }
+
+    if (!this.configMatches(proposal.proposedConfig, experiment.candidateConfig)) {
+      throw new Error('Mismatched configuration: Experiment candidate config does not match the proposal proposed config.');
+    }
+
+    let evidenceStatus = 'Experiment Inconclusive';
+    if (experiment.decision === 'candidateBetter') {
+      evidenceStatus = 'Experiment Validated';
+    } else if (experiment.decision === 'baselineBetter') {
+      evidenceStatus = 'Experiment Rejects Proposal';
+    } else if (experiment.decision === 'noSignificantDifference' || experiment.decision === 'insufficientData') {
+      evidenceStatus = 'Experiment Inconclusive';
+    }
+
+    const metricDeltas: Record<string, number> = {};
+    for (const [m, comp] of Object.entries(experiment.metricsComparison)) {
+      metricDeltas[m] = comp.delta;
+    }
+
+    proposal.experimentEvidence = {
+      experimentId,
+      decision: experiment.decision,
+      evidenceStatus,
+      metricDeltas: this.sanitizeData(metricDeltas),
+    };
+
+    proposal.updatedAt = new Date().toISOString();
+    return true;
+  }
+
+  public static approve(id: string, developerConfirmed?: boolean): ApprovalResult {
     const proposal = this.proposals.find((p) => p.id === id);
-    if (!proposal || proposal.status !== 'pending') {
-      return false;
+    if (!proposal) {
+      return { success: false, status: 'pending', message: 'Proposal not found.', code: 'INSUFFICIENT_DATA' };
+    }
+    if (proposal.status !== 'pending' && proposal.status !== 'needsExperiment') {
+      return { success: false, status: proposal.status, message: 'Invalid proposal status for approval.', code: 'INSUFFICIENT_DATA' };
     }
 
     // Revalidate config safety if proposing a change
@@ -128,18 +191,42 @@ export class EvaluationRemediationProposalManager {
       if (!safetyCheck.valid) {
         proposal.status = 'rejected';
         proposal.updatedAt = new Date().toISOString();
-        return false;
+        return { success: true, status: 'rejected', message: `Rejected: Unsafe configuration: ${safetyCheck.errors.join(', ')}`, code: 'REJECTED' };
       }
     }
 
-    proposal.status = 'approved';
-    proposal.updatedAt = new Date().toISOString();
-    return true;
+    if (!proposal.experimentEvidence) {
+      proposal.status = 'needsExperiment';
+      proposal.updatedAt = new Date().toISOString();
+      return { success: true, status: 'needsExperiment', message: 'Proposal requires experiment evidence before approval.', code: 'NEEDS_EXPERIMENT' };
+    }
+
+    const { decision } = proposal.experimentEvidence;
+    if (decision === 'candidateBetter') {
+      proposal.status = 'approved';
+      proposal.updatedAt = new Date().toISOString();
+      return { success: true, status: 'approved', message: 'Proposal approved based on positive experiment evidence.', code: 'APPROVED' };
+    } else if (decision === 'noSignificantDifference') {
+      if (developerConfirmed) {
+        proposal.status = 'approved';
+        proposal.updatedAt = new Date().toISOString();
+        return { success: true, status: 'approved', message: 'Proposal approved with developer override.', code: 'APPROVED' };
+      }
+      return { success: false, status: proposal.status, message: 'Inconclusive experiment results. Developer confirmation required.', code: 'CONFIRMATION_REQUIRED' };
+    } else if (decision === 'baselineBetter') {
+      proposal.status = 'rejected';
+      proposal.updatedAt = new Date().toISOString();
+      return { success: true, status: 'rejected', message: 'Proposal rejected: Baseline performed better in controlled experiment.', code: 'REJECTED' };
+    } else if (decision === 'insufficientData') {
+      return { success: false, status: proposal.status, message: 'Insufficient experiment data to approve.', code: 'INSUFFICIENT_DATA' };
+    }
+
+    return { success: false, status: proposal.status, message: 'Unknown decision outcome.', code: 'INSUFFICIENT_DATA' };
   }
 
   public static reject(id: string): boolean {
     const proposal = this.proposals.find((p) => p.id === id);
-    if (!proposal || proposal.status !== 'pending') {
+    if (!proposal || (proposal.status !== 'pending' && proposal.status !== 'needsExperiment')) {
       return false;
     }
     proposal.status = 'rejected';

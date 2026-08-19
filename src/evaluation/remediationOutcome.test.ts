@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { PromotionHistoryManager } from './promotionHistory';
 import { EvaluationRemediationProposalManager } from './remediationProposal';
@@ -5,12 +6,13 @@ import { EvaluationRemediationExecutionManager } from './remediationExecution';
 import { EvaluationConfigPromotionManager } from './promotion';
 import { EvaluationReportHistoryManager } from './reportHistory';
 import { EvaluationRemediationOutcomeManager } from './remediationOutcome';
-import { EvaluationRemediation, EvaluationReport, EvalSummary, TuningConfig } from './types';
+import { EvaluationRemediation, EvaluationReport, EvalSummary, TuningConfig, ControlledExperimentResult } from './types';
 import { RETRIEVAL_SETTINGS } from '@/core/config';
 import { ResponseService } from '@/response/service';
 import { MemoryRetriever } from '@/memory/retriever';
 import { ContextAssembler } from '@/context/assembler';
 import { ResponseGenerator } from '@/response/generator';
+import { ExperimentHistoryManager } from './experimentHistory';
 
 describe('Sprint 61: Evaluation Remediation Outcome Verification Tests', () => {
   const sampleRemediation: EvaluationRemediation = {
@@ -21,6 +23,23 @@ describe('Sprint 61: Evaluation Remediation Outcome Verification Tests', () => {
     evidenceIds: ['alr-123'],
     confidence: 'high',
   };
+
+  function attachMockEvidence(prop: any) {
+    const mockResult: ControlledExperimentResult = {
+      experimentId: 'exp-' + Math.random().toString(36).substring(2),
+      baselineConfig: { ...RETRIEVAL_SETTINGS },
+      candidateConfig: prop.proposedConfig ? { ...prop.proposedConfig } : { ...RETRIEVAL_SETTINGS },
+      baselineSummary: { total: 10, passed: 9, failed: 1, averageLatency: 200 } as any,
+      candidateSummary: { total: 10, passed: 10, failed: 0, averageLatency: 150 } as any,
+      comparison: { status: 'pass', deltas: {}, failedThresholds: [], baselineAvailable: true },
+      decision: 'candidateBetter',
+      metricsComparison: {},
+      timestamp: new Date().toISOString(),
+      evidenceIds: []
+    };
+    ExperimentHistoryManager.addControlledRecord(mockResult);
+    EvaluationRemediationProposalManager.attachEvidence(prop.id, mockResult.experimentId);
+  }
 
   const initialConfig: TuningConfig = {
     semanticWeight: 0.70,
@@ -87,6 +106,7 @@ describe('Sprint 61: Evaluation Remediation Outcome Verification Tests', () => {
     it('should successfully match reports using the strict execution-timestamp sequence and classify as improved', () => {
       // Create and Execute proposal
       const prop = EvaluationRemediationProposalManager.createProposal(sampleRemediation);
+      attachMockEvidence(prop);
       EvaluationRemediationProposalManager.approve(prop.id);
       
       const success = EvaluationRemediationProposalManager.execute(prop.id);
@@ -111,6 +131,7 @@ describe('Sprint 61: Evaluation Remediation Outcome Verification Tests', () => {
 
     it('should classify as degraded when metrics shift downwards beyond tolerance levels', () => {
       const prop = EvaluationRemediationProposalManager.createProposal(sampleRemediation);
+      attachMockEvidence(prop);
       EvaluationRemediationProposalManager.approve(prop.id);
       EvaluationRemediationProposalManager.execute(prop.id);
 
@@ -132,6 +153,7 @@ describe('Sprint 61: Evaluation Remediation Outcome Verification Tests', () => {
 
     it('should classify as unchanged when metrics shift remains within tolerance boundaries', () => {
       const prop = EvaluationRemediationProposalManager.createProposal(sampleRemediation);
+      attachMockEvidence(prop);
       EvaluationRemediationProposalManager.approve(prop.id);
       EvaluationRemediationProposalManager.execute(prop.id);
 
@@ -152,6 +174,7 @@ describe('Sprint 61: Evaluation Remediation Outcome Verification Tests', () => {
 
     it('should classify as insufficientData if reports do not align with execution timeline', () => {
       const prop = EvaluationRemediationProposalManager.createProposal(sampleRemediation);
+      attachMockEvidence(prop);
       EvaluationRemediationProposalManager.approve(prop.id);
       EvaluationRemediationProposalManager.execute(prop.id);
 
@@ -169,6 +192,7 @@ describe('Sprint 61: Evaluation Remediation Outcome Verification Tests', () => {
 
     it('should classify as insufficientData for failed executions', () => {
       const prop = EvaluationRemediationProposalManager.createProposal(sampleRemediation);
+      attachMockEvidence(prop);
       EvaluationRemediationProposalManager.approve(prop.id);
 
       // Force failure during promote execution
@@ -188,6 +212,7 @@ describe('Sprint 61: Evaluation Remediation Outcome Verification Tests', () => {
   describe('Deep Cloning & Data Sanitization', () => {
     it('should strip transcripts and diagnostic SQL from outcome objects', () => {
       const prop = EvaluationRemediationProposalManager.createProposal(sampleRemediation);
+      attachMockEvidence(prop);
       EvaluationRemediationProposalManager.approve(prop.id);
       EvaluationRemediationProposalManager.execute(prop.id);
 
