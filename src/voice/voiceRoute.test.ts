@@ -25,6 +25,21 @@ vi.mock('@/memory/ingestionService', () => {
             updatedAt: new Date(),
           }
         ]),
+        ingestVoice: vi.fn().mockResolvedValue({
+          memories: [
+            {
+              id: 'mock-memory-id',
+              userId: 'user-123',
+              type: 'FACT',
+              content: 'Mocked voice memory content',
+              metadata: { source: 'voice', type: 'conversation' },
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            }
+          ],
+          outcome: 'created',
+          affectedMemoryId: 'mock-memory-id'
+        }),
       };
     }),
   };

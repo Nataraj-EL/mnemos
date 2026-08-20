@@ -231,6 +231,9 @@ export default function MemoryDashboard() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [voiceMemories, setVoiceMemories] = useState<any[]>([]);
   const [loadingVoiceMemories, setLoadingVoiceMemories] = useState<boolean>(false);
+  
+  // Voice Ingestion Outcomes (Sprint 69)
+  const [transcribeOutcome, setTranscribeOutcome] = useState<'created' | 'reinforced' | 'discarded' | 'updated' | null>(null);
 
   // Voice Session History States (Sprint 28)
   interface VoiceSessionEntry {
@@ -571,6 +574,7 @@ export default function MemoryDashboard() {
     setExtractionError(null);
     setTranscribeSaved(false);
     setTranscribeSavedTime(null);
+    setTranscribeOutcome(null);
   };
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -1169,8 +1173,9 @@ export default function MemoryDashboard() {
           setTranscript(data.data.text);
           setTranscribeSaved(data.data.saved || false);
           setTranscribeSavedTime(new Date().toLocaleTimeString());
+          setTranscribeOutcome(data.data.outcome || null);
           setVoiceSessionState('review');
-          if (data.data.saved) {
+          if (data.data.saved || data.data.outcome === 'reinforced' || data.data.outcome === 'updated') {
             fetchVoiceMemories();
           }
         }
@@ -3997,19 +4002,31 @@ export default function MemoryDashboard() {
                             Clear & Start New Recording
                           </button>
                         </div>
-                      ) : transcribeSaved ? (
+                      ) : (transcribeOutcome !== null || transcribeSaved) ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%', marginTop: '0.25rem' }}>
                           <div style={{
                             padding: '0.5rem 0.75rem',
                             borderRadius: 'var(--radius-sm)',
                             fontSize: '0.75rem',
-                            border: '1px solid var(--success)',
-                            backgroundColor: 'rgba(91, 138, 82, 0.05)',
-                            color: 'var(--success)',
+                            border: (transcribeOutcome === 'discarded' || (!transcribeOutcome && !transcribeSaved)) ? '1px solid var(--border)' : '1px solid var(--success)',
+                            backgroundColor: (transcribeOutcome === 'discarded' || (!transcribeOutcome && !transcribeSaved)) ? 'var(--surface)' : 'rgba(91, 138, 82, 0.05)',
+                            color: (transcribeOutcome === 'discarded' || (!transcribeOutcome && !transcribeSaved)) ? 'var(--text-muted)' : 'var(--success)',
                             textAlign: 'center',
                             fontWeight: 600
                           }}>
-                            ✓ Saved to Memory (Source: voice | {transcribeSavedTime})
+                            {transcribeOutcome ? (
+                              <>
+                                {transcribeOutcome === 'created' && '✓ New Memory Saved'}
+                                {transcribeOutcome === 'reinforced' && '↻ Existing Memory Reinforced'}
+                                {transcribeOutcome === 'updated' && '↻ Memory Updated'}
+                                {transcribeOutcome === 'discarded' && '— Input Not Saved'}
+                              </>
+                            ) : (
+                              '✓ Saved to Memory'
+                            )}
+                            <span style={{ fontSize: '0.65rem', display: 'block', fontWeight: 'normal', marginTop: '0.15rem', opacity: 0.8 }}>
+                              Time: {transcribeSavedTime}
+                            </span>
                           </div>
                           <button
                             onClick={resetVoiceSession}

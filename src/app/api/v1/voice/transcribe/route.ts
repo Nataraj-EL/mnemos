@@ -207,7 +207,7 @@ export async function POST(request: Request) {
     const embeddingProvider = new GeminiEmbeddingProvider();
     const service = new MemoryIngestionService(repository, extractor, embeddingProvider);
 
-    const memories = await service.ingest(userId, result.text.trim(), {
+    const resultVoice = await service.ingestVoice(userId, result.text.trim(), {
       conversationId: 'voice-session',
       sourceType: 'voice',
       sourceTimestamp: new Date().toISOString(),
@@ -218,8 +218,10 @@ export async function POST(request: Request) {
       data: {
         text: result.text,
         metadata: result.metadata,
-        saved: memories && memories.length > 0,
-        memories: memories || [],
+        saved: resultVoice.memories && resultVoice.memories.length > 0,
+        memories: resultVoice.memories || [],
+        outcome: resultVoice.outcome,
+        affectedMemoryId: resultVoice.affectedMemoryId,
       },
       requestId,
     });

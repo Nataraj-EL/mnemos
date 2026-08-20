@@ -3,7 +3,7 @@ import { WhisperTranscriptionProvider } from '@/voice/whisperTranscription';
 import { LocalWhisperTranscriptionProvider } from '@/voice/localWhisperTranscription';
 import { GeminiEmbeddingProvider } from '@/memory/geminiEmbedding';
 import { MemoryRetriever } from '@/memory/retriever';
-import { ContextAssembler } from '@/context/assembler';
+import { ContextAssembler, getJaccardSimilarity } from '@/context/assembler';
 import { GeminiResponseGenerator } from '@/response/geminiGenerator';
 import { ResponseService } from '@/response/service';
 import { PgMemoryRepository } from '@/memory/repository';
@@ -182,10 +182,10 @@ export async function POST(request: Request) {
     const repository = new PgMemoryRepository();
     const conversationRetriever = new ConversationRetriever();
     
-    // Ingest voice query to persist any spoken facts/preferences
+    // Ingest voice query to persist any spoken facts/preferences using voice ingestion rules
     const extractor = new GeminiMemoryExtractor();
     const ingestionService = new MemoryIngestionService(repository, extractor, embeddingProvider);
-    await ingestionService.ingest(userId, transcript, {
+    await ingestionService.ingestVoice(userId, transcript, {
       conversationId: 'voice-session',
       sourceType: 'voice',
       sourceTimestamp: new Date().toISOString(),
@@ -215,13 +215,32 @@ export async function POST(request: Request) {
       model: 'whisper-1 + ' + (process.env.GENERATION_MODEL || 'gemini-3.5-flash'),
     });
 
-    const sanitizedUsedMemories = (groundedResult.usedMemories || []).map((m) => ({
+    const rawUsedMemories = (groundedResult.usedMemories || []).map((m) => ({
       id: m.id,
       content: m.content ? (m.content.length > 120 ? m.content.slice(0, 117) + '...' : m.content) : '',
       similarity: typeof m.similarity === 'number' ? m.similarity : 1.0,
       sourceType: m.sourceType || 'voice',
       timestamp: m.sourceTimestamp || new Date().toISOString(),
     }));
+
+    // 1. Sort by similarity DESC to prefer the strongest memory
+    rawUsedMemories.sort((a, b) => b.similarity - a.similarity);
+
+    // 2. Secondary presentation-layer de-duplication using Jaccard overlap (> 0.6)
+    const sanitizedUsedMemories: typeof rawUsedMemories = [];
+    for (const mem of rawUsedMemories) {
+      let isDup = false;
+      for (const existing of sanitizedUsedMemories) {
+        const overlap = getJaccardSimilarity(mem.content, existing.content);
+        if (overlap > 0.6) {
+          isDup = true;
+          break;
+        }
+      }
+      if (!isDup) {
+        sanitizedUsedMemories.push(mem);
+      }
+    }
 
     return NextResponse.json({
       status: 'success',

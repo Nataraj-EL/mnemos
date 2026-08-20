@@ -285,7 +285,26 @@ describe('Sprint 67: Persistent Voice Memory Integration Tests', () => {
             },
           },
         ],
-      }); // Get by ID on NONE action
+      }) // Get by ID on NONE action
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'mem-123',
+            userId: 'user-777',
+            type: 'PREFERENCE',
+            content: 'User prefers VS Code as their editor',
+            metadata: {
+              source: 'voice',
+              type: 'conversation',
+              confidence: 1.0,
+              importance: 6,
+              status: 'active',
+              accessCount: 1,
+              reinforcementCount: 1,
+            },
+          },
+        ],
+      }); // Update query response for reinforcement
 
     const formData = new FormData();
     const blob = new Blob([Buffer.from('wav-data')], { type: 'audio/wav' });
@@ -306,7 +325,7 @@ describe('Sprint 67: Persistent Voice Memory Integration Tests', () => {
     expect(data.data.memories).toHaveLength(1);
     expect(data.data.memories[0].id).toBe('mem-123');
 
-    // Verify no repository create or update was called (meaning no duplicates)
-    expect(mockQuery).toHaveBeenCalledTimes(2); // List + Get (no INSERT or UPDATE)
+    // Verify list, get, and update query were called
+    expect(mockQuery).toHaveBeenCalledTimes(3); // List + Get + Update
   });
 });
