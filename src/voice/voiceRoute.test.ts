@@ -3,6 +3,51 @@ import { POST } from '@/app/api/v1/voice/transcribe/route';
 import { resetRateLimits } from '@/memory/security';
 import { LocalWhisperTranscriptionProvider } from './localWhisperTranscription';
 
+// Mock DB and external services to keep route unit tests database-free
+vi.mock('@/db', () => ({
+  getDbPool: vi.fn(() => ({
+    query: vi.fn().mockResolvedValue({ rows: [] }),
+  })),
+}));
+
+vi.mock('@/memory/ingestionService', () => {
+  return {
+    MemoryIngestionService: vi.fn().mockImplementation(function () {
+      return {
+        ingest: vi.fn().mockResolvedValue([
+          {
+            id: 'mock-memory-id',
+            userId: 'user-123',
+            type: 'FACT',
+            content: 'Mocked voice memory content',
+            metadata: { source: 'voice', type: 'conversation' },
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          }
+        ]),
+      };
+    }),
+  };
+});
+
+vi.mock('@/memory/repository', () => {
+  return {
+    PgMemoryRepository: vi.fn(),
+  };
+});
+
+vi.mock('@/memory/geminiExtractor', () => {
+  return {
+    GeminiMemoryExtractor: vi.fn(),
+  };
+});
+
+vi.mock('@/memory/geminiEmbedding', () => {
+  return {
+    GeminiEmbeddingProvider: vi.fn(),
+  };
+});
+
 describe('POST /api/v1/voice/transcribe API Route', () => {
   beforeEach(() => {
     process.env.MNEMOS_AUTH_ENABLED = 'false';

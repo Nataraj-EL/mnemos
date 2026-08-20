@@ -3,6 +3,10 @@ import { WhisperTranscriptionProvider } from '@/voice/whisperTranscription';
 import { LocalWhisperTranscriptionProvider } from '@/voice/localWhisperTranscription';
 import { logTelemetry } from '@/core/logger';
 import { voiceDiagnostics } from '@/voice/voiceDiagnostics';
+import { PgMemoryRepository } from '@/memory/repository';
+import { GeminiMemoryExtractor } from '@/memory/geminiExtractor';
+import { GeminiEmbeddingProvider } from '@/memory/geminiEmbedding';
+import { MemoryIngestionService } from '@/memory/ingestionService';
 import {
   authenticate,
   checkRateLimit,
@@ -80,6 +84,7 @@ export async function POST(request: Request) {
     // 4. Parse request content-type and extract audio buffer
     const contentType = request.headers.get('content-type') || '';
     let mimeType: string | undefined = undefined;
+    let userId = 'default-user';
 
     if (contentType.includes('multipart/form-data')) {
       const formData = await request.formData().catch(() => null);
@@ -96,6 +101,11 @@ export async function POST(request: Request) {
           { status: 'error', error: 'Missing or empty parameter: file is required.', requestId },
           { status: 400 }
         );
+      }
+
+      const userIdVal = formData.get('userId');
+      if (typeof userIdVal === 'string' && userIdVal.trim()) {
+        userId = userIdVal.trim();
       }
 
       mimeType = file.type || 'audio/wav';
@@ -120,6 +130,17 @@ export async function POST(request: Request) {
         );
       }
       audioBuffer = Buffer.from(arrayBuffer);
+
+      const url = new URL(request.url);
+      const queryUserId = url.searchParams.get('userId');
+      if (queryUserId) {
+        userId = queryUserId.trim();
+      } else {
+        const headerUserId = request.headers.get('x-user-id') || request.headers.get('userId');
+        if (headerUserId) {
+          userId = headerUserId.trim();
+        }
+      }
     }
 
     // 5. Audio Validations
@@ -180,11 +201,25 @@ export async function POST(request: Request) {
       model: 'whisper-1',
     });
 
+    // Ingest the transcript into persistent memory
+    const repository = new PgMemoryRepository();
+    const extractor = new GeminiMemoryExtractor();
+    const embeddingProvider = new GeminiEmbeddingProvider();
+    const service = new MemoryIngestionService(repository, extractor, embeddingProvider);
+
+    const memories = await service.ingest(userId, result.text.trim(), {
+      conversationId: 'voice-session',
+      sourceType: 'voice',
+      sourceTimestamp: new Date().toISOString(),
+    });
+
     return NextResponse.json({
       status: 'success',
       data: {
         text: result.text,
         metadata: result.metadata,
+        saved: memories && memories.length > 0,
+        memories: memories || [],
       },
       requestId,
     });

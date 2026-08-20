@@ -53,7 +53,7 @@ export class MemoryIngestionService {
           type: act.type,
           content: act.content,
           metadata: {
-            source: 'user_input',
+            source: provenance?.sourceType || 'user_input',
             confidence: act.confidence ?? 0.8,
             importance: act.importance ?? 5,
             timestamp: new Date().toISOString(),
@@ -66,6 +66,10 @@ export class MemoryIngestionService {
               conversationId: provenance.conversationId,
               sourceType: provenance.sourceType,
               sourceTimestamp: provenance.sourceTimestamp,
+              ...(provenance.sourceType === 'voice' ? {
+                type: 'conversation',
+                createdAt: new Date().toISOString(),
+              } : {}),
             } : {}),
           },
         });
@@ -110,7 +114,7 @@ export class MemoryIngestionService {
           type: newType,
           content: newContent,
           metadata: {
-            source: 'user_input',
+            source: provenance?.sourceType || 'user_input',
             confidence: act.confidence ?? 0.8,
             importance: act.importance ?? 5,
             timestamp: nowStr,
@@ -125,10 +129,18 @@ export class MemoryIngestionService {
               conversationId: provenance.conversationId,
               sourceType: provenance.sourceType,
               sourceTimestamp: provenance.sourceTimestamp,
+              ...(provenance.sourceType === 'voice' ? {
+                type: 'conversation',
+                createdAt: nowStr,
+              } : {}),
             } : (existingMemory.metadata.conversationId ? {
               conversationId: existingMemory.metadata.conversationId as string,
               sourceType: existingMemory.metadata.sourceType as string,
               sourceTimestamp: existingMemory.metadata.sourceTimestamp as string,
+              ...(existingMemory.metadata.sourceType === 'voice' ? {
+                type: 'conversation',
+                createdAt: (existingMemory.metadata.createdAt as string) || nowStr,
+              } : {}),
             } : {})),
           },
         });
