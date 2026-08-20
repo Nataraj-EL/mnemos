@@ -1081,32 +1081,8 @@ export default function MemoryDashboard() {
 
       if (!response.ok) {
         let msg = 'Failed to process voice action.';
-        if (data.error) {
-          const errLower = data.error.toLowerCase();
-          if (data.errorCategory) {
-            const categoryMap: Record<string, string> = {
-              TIMEOUT: 'Request timed out. Please try again.',
-              MISSING_API_KEY: 'Transcription service configuration error (missing API key).',
-              LOCAL_SERVICE_UNAVAILABLE: 'Local Whisper transcription service is temporarily offline.',
-              PORT_CONFLICT: 'Transcription service port conflict. Please check server settings.',
-              INVALID_FORMAT: 'Unsupported audio format or corrupted stream captured.',
-              DURATION_LIMIT_EXCEEDED: 'Voice recording duration exceeded the 60-second limit.',
-              ENGINE_BUSY: 'Transcription engine is currently busy. Please try again.',
-              EMPTY_TRANSCRIPTION: 'No speech was detected. Please check your microphone and try again.',
-              PAYLOAD_TOO_LARGE: 'Recorded audio size exceeds the 10 MB limit.',
-            };
-            msg = categoryMap[data.errorCategory] || data.error;
-          } else {
-            if (errLower.includes('api_key') || errLower.includes('api key') || errLower.includes('provider') || errLower.includes('unavailable')) {
-              msg = 'Voice service is temporarily unavailable.';
-            } else if (errLower.includes('transcribe') || errLower.includes('transcription') || errLower.includes('audio') || errLower.includes('speech') || errLower.includes('format')) {
-              msg = 'Transcription failed. Please check your microphone and try again.';
-            } else if (errLower.includes('database') || errLower.includes('sql') || errLower.includes('persistence')) {
-              msg = 'Database connection issue. Unable to process request.';
-            } else {
-              msg = 'Unable to process voice request. Please try again.';
-            }
-          }
+        if (data && data.error) {
+          msg = data.error;
         }
         setTranscribeError(msg);
         setVoiceSessionState('error');

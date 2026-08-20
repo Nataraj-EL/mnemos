@@ -58,6 +58,7 @@ class TranscriptionHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
+        global model, device_used, compute_used
         if not self.check_auth():
             return
 
@@ -116,7 +117,6 @@ class TranscriptionHandler(BaseHTTPRequestHandler):
                         segments, info = model.transcribe(temp_file_path, beam_size=5)
                         text_list = [segment.text for segment in segments]
                     except Exception as transcribe_err:
-                        global model, device_used, compute_used
                         if device_used == "cuda":
                             print("GPU transcription failed. Falling back to CPU.", file=sys.stderr)
                             from faster_whisper import WhisperModel

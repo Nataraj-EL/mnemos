@@ -140,7 +140,7 @@ describe('POST /api/v1/voice/respond Route Handler', () => {
     expect(response.status).toBe(504);
 
     const data = await response.json();
-    expect(data.error).toContain('timed out');
+    expect(data.error.toLowerCase()).toContain('timeout');
     expect(mockRespond).not.toHaveBeenCalled();
   });
 

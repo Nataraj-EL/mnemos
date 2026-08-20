@@ -216,31 +216,82 @@ export async function POST(request: Request) {
   } catch (error: unknown) {
     const latency = Date.now() - startTime;
     const errorMsg = error instanceof Error ? error.message : String(error);
-    const isTimeout = errorMsg.includes('timed out') || errorMsg.includes('TimeoutError') || errorMsg.includes('abort');
+    const isTimeout = errorMsg.includes('timed out') || errorMsg.includes('TimeoutError') || errorMsg.includes('timeout') || errorMsg.includes('aborted');
 
-    console.error('Error during voice response processing:', error);
+    if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
+      console.error('Error during voice response processing:', error);
+    }
 
     let errorCategory = 'UNKNOWN_FAILURE';
+    let status = 500;
+    let displayError = 'An error occurred during voice response processing.';
+
     if (isTimeout) {
       errorCategory = 'TIMEOUT';
+      status = 504;
+      displayError = 'The request timed out while communicating with external model provider.';
     } else {
       const isPayloadLarge = errorMsg.includes('Payload Too Large') || errorMsg.includes('size limit');
       if (isPayloadLarge) {
         errorCategory = 'PAYLOAD_TOO_LARGE';
+        status = 413;
+        displayError = 'Payload Too Large: Audio size limit of 10 MB exceeded.';
       } else if (errorMsg.includes('GEMINI_API_KEY') || errorMsg.includes('WHISPER_API_KEY') || errorMsg.includes('Whisper API key')) {
         errorCategory = 'MISSING_API_KEY';
-      } else if (errorMsg.includes('Local Whisper transcription service') || errorMsg.includes('Local Whisper daemon failed to load')) {
+        status = 503;
+        displayError = 'Grounded voice response service is temporarily unavailable due to missing API keys.';
+      } else if (
+        errorMsg.includes('Local Whisper transcription service') ||
+        errorMsg.includes('Local Whisper daemon failed to load') ||
+        errorMsg.includes('exited unexpectedly') ||
+        errorMsg.includes('ENOENT')
+      ) {
         errorCategory = 'LOCAL_SERVICE_UNAVAILABLE';
-      } else if (errorMsg.includes('Local Whisper port conflict')) {
+        status = 503;
+        displayError = 'Local Whisper transcription service is currently unavailable.';
+      } else if (errorMsg.includes('fetch failed') || errorMsg.includes('ECONNREFUSED') || errorMsg.includes('Connection refused')) {
+        errorCategory = 'LOCAL_SERVICE_UNAVAILABLE';
+        status = 503;
+        displayError = 'Local Whisper transcription service is currently unavailable.';
+      } else if (errorMsg.includes('Local Whisper port conflict') || errorMsg.includes('port is already in use')) {
         errorCategory = 'PORT_CONFLICT';
-      } else if (errorMsg.includes('Invalid audio format') || errorMsg.includes('corrupted payload')) {
+        status = 503;
+        displayError = 'Local Whisper transcription service is currently unavailable due to a port conflict.';
+      } else if (errorMsg.includes('Invalid audio format') || errorMsg.includes('corrupted payload') || errorMsg.includes('Invalid data found')) {
         errorCategory = 'INVALID_FORMAT';
+        status = 400;
+        displayError = 'Invalid audio format or corrupted payload.';
       } else if (errorMsg.includes('exceeds the maximum limit')) {
         errorCategory = 'DURATION_LIMIT_EXCEEDED';
+        status = 400;
+        displayError = 'Audio duration exceeds the maximum limit of 60 seconds.';
       } else if (errorMsg.includes('busy')) {
         errorCategory = 'ENGINE_BUSY';
-      } else if (errorMsg.includes('Empty transcription')) {
+        status = 503;
+        displayError = 'Transcription engine is busy. Please try again.';
+      } else if (errorMsg.includes('Empty transcription') || errorMsg.includes('cannot be empty')) {
         errorCategory = 'EMPTY_TRANSCRIPTION';
+        status = 422;
+        displayError = 'Empty transcription: No text could be extracted from this audio.';
+      }
+    }
+
+    // Expose sanitized developer actionable errors in development/test only
+    if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
+      if (errorCategory === 'LOCAL_SERVICE_UNAVAILABLE') {
+        if (errorMsg.includes('fetch failed') || errorMsg.includes('ECONNREFUSED') || errorMsg.includes('Connection refused')) {
+          displayError = 'Whisper daemon connection failed';
+        } else {
+          displayError = 'Local transcription service unavailable';
+        }
+      } else if (errorCategory === 'MISSING_API_KEY') {
+        displayError = 'Missing transcription API key';
+      } else if (errorCategory === 'INVALID_FORMAT') {
+        displayError = 'Unsupported audio format';
+      } else if (errorCategory === 'EMPTY_TRANSCRIPTION') {
+        displayError = 'Audio payload is empty';
+      } else if (errorCategory === 'TIMEOUT') {
+        displayError = 'Transcription provider timeout';
       }
     }
 
@@ -260,57 +311,6 @@ export async function POST(request: Request) {
       status: 'error',
       errorCategory,
     });
-
-    if (errorMsg.includes('GEMINI_API_KEY') || errorMsg.includes('WHISPER_API_KEY') || errorMsg.includes('Whisper API key')) {
-      return NextResponse.json(
-        {
-          status: 'error',
-          error: 'Grounded voice response service is temporarily unavailable due to missing API keys.',
-          errorCategory,
-          requestId,
-        },
-        { status: 503 }
-      );
-    }
-
-    const isPayloadLarge = errorMsg.includes('Payload Too Large') || errorMsg.includes('size limit');
-    if (isPayloadLarge) {
-      return NextResponse.json(
-        {
-          status: 'error',
-          error: 'Payload Too Large: Audio size limit of 10 MB exceeded.',
-          errorCategory,
-          requestId,
-        },
-        { status: 413 }
-      );
-    }
-
-    let status = 500;
-    let displayError = 'An error occurred during voice response processing.';
-
-    if (isTimeout) {
-      status = 504;
-      displayError = 'The request timed out while communicating with external model provider.';
-    } else if (errorMsg.includes('Local Whisper transcription service') || errorMsg.includes('Local Whisper daemon failed to load')) {
-      status = 503;
-      displayError = 'Local Whisper transcription service is currently unavailable.';
-    } else if (errorMsg.includes('Local Whisper port conflict')) {
-      status = 503;
-      displayError = 'Local Whisper transcription service is currently unavailable due to a port conflict.';
-    } else if (errorMsg.includes('Invalid audio format') || errorMsg.includes('corrupted payload')) {
-      status = 400;
-      displayError = 'Invalid audio format or corrupted payload.';
-    } else if (errorMsg.includes('exceeds the maximum limit')) {
-      status = 400;
-      displayError = 'Audio duration exceeds the maximum limit of 60 seconds.';
-    } else if (errorMsg.includes('busy')) {
-      status = 503;
-      displayError = 'Transcription engine is busy. Please try again.';
-    } else if (errorMsg.includes('Empty transcription')) {
-      status = 422;
-      displayError = errorMsg;
-    }
 
     return NextResponse.json(
       {

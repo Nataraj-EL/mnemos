@@ -205,7 +205,7 @@ describe('POST /api/v1/voice/transcribe API Route', () => {
 
     const data = await response.json();
     expect(data.status).toBe('error');
-    expect(data.error).toContain('timed out');
+    expect(data.error.toLowerCase()).toContain('timeout');
   });
 
   it('should handle provider failure gracefully', async () => {
@@ -285,7 +285,8 @@ describe('POST /api/v1/voice/transcribe API Route', () => {
       expect(response.status).toBe(503);
       const data = await response.json();
       expect(data.status).toBe('error');
-      expect(data.error).toContain('missing API key');
+      expect(data.error.toLowerCase()).toContain('missing');
+      expect(data.error.toLowerCase()).toContain('api key');
 
       if (origKey) process.env.WHISPER_API_KEY = origKey;
     });
@@ -326,7 +327,7 @@ describe('POST /api/v1/voice/transcribe API Route', () => {
       expect(response.status).toBe(400);
       const data = await response.json();
       expect(data.status).toBe('error');
-      expect(data.error).toContain('Invalid audio format');
+      expect(data.error).toContain('Unsupported audio format');
       spy.mockRestore();
     });
 
@@ -348,6 +349,60 @@ describe('POST /api/v1/voice/transcribe API Route', () => {
       expect(data.status).toBe('error');
       expect(data.error).toContain('exceeds the maximum limit');
       spy.mockRestore();
+    });
+  });
+
+  describe('Sprint 66 Route Gated Error visibility & Actionable Messages', () => {
+    const runErrorTest = async (thrownError: Error, expectedMsg: string, expectedStatus: number, isProduction = false) => {
+      process.env.WHISPER_PROVIDER = 'local';
+      const origEnv = process.env.NODE_ENV;
+      if (isProduction) {
+        (process.env as Record<string, string>).NODE_ENV = 'production';
+      } else {
+        (process.env as Record<string, string>).NODE_ENV = 'test';
+      }
+
+      const spy = vi.spyOn(LocalWhisperTranscriptionProvider.prototype, 'transcribe').mockRejectedValueOnce(thrownError);
+
+      const request = new Request('http://localhost/api/v1/voice/transcribe', {
+        method: 'POST',
+        headers: { 'content-type': 'audio/wav' },
+        body: Buffer.from('mock-audio-data'),
+      });
+
+      const response = await POST(request);
+      expect(response.status).toBe(expectedStatus);
+
+      const data = await response.json();
+      expect(data.status).toBe('error');
+      expect(data.error).toBe(expectedMsg);
+
+      spy.mockRestore();
+      if (origEnv) {
+        (process.env as Record<string, string>).NODE_ENV = origEnv;
+      }
+    };
+
+    it('should map connection failures (fetch failed) to "Whisper daemon connection failed" in development/testing', async () => {
+      await runErrorTest(new Error('fetch failed'), 'Whisper daemon connection failed', 503);
+    });
+
+    it('should map daemon crashes (exited unexpectedly) to "Local transcription service unavailable" in development/testing', async () => {
+      await runErrorTest(new Error('Local Whisper daemon exited unexpectedly with code 1.'), 'Local transcription service unavailable', 503);
+    });
+
+    it('should map timeout rejections to "Transcription provider timeout" in development/testing', async () => {
+      const err = new Error('The operation timed out.');
+      err.name = 'TimeoutError';
+      await runErrorTest(err, 'Transcription provider timeout', 504);
+    });
+
+    it('should map Empty transcription errors to "Audio payload is empty" in development/testing', async () => {
+      await runErrorTest(new Error('Empty transcription: No speech detected.'), 'Audio payload is empty', 422);
+    });
+
+    it('should return generic sanitized error message in production for connection failures', async () => {
+      await runErrorTest(new Error('fetch failed'), 'Local Whisper transcription service is currently unavailable.', 503, true);
     });
   });
 });
