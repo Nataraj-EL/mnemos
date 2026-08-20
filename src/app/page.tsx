@@ -3412,6 +3412,59 @@ export default function MemoryDashboard() {
             .pulse {
               animation: pulse 1.5s infinite ease-in-out;
             }
+            .mic-btn-circle {
+              width: 100px;
+              height: 100px;
+              border-radius: 50%;
+              border: 4px solid var(--border);
+              background: linear-gradient(135deg, var(--surface) 0%, var(--background) 100%);
+              color: var(--text);
+              cursor: pointer;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              position: relative;
+              box-shadow: 0 10px 25px -5px rgba(161, 70, 28, 0.08), 0 8px 16px -6px rgba(0, 0, 0, 0.05);
+              transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+              margin: 0 auto;
+              outline: none;
+            }
+            .mic-btn-circle:hover:not(:disabled) {
+              transform: scale(1.06);
+              border-color: var(--primary);
+              color: var(--primary);
+              box-shadow: 0 15px 30px -5px rgba(161, 70, 28, 0.2), 0 10px 20px -8px rgba(161, 70, 28, 0.1);
+            }
+            .mic-btn-circle:active:not(:disabled) {
+              transform: scale(0.95);
+              box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.15), 0 4px 10px rgba(0, 0, 0, 0.05);
+            }
+            .mic-btn-circle.recording {
+              background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+              border-color: #fca5a5;
+              color: #ffffff;
+              animation: recordGlow 2s infinite ease-in-out;
+            }
+            .mic-btn-circle.processing {
+              border-color: var(--primary);
+              background: linear-gradient(135deg, var(--surface) 0%, var(--background) 100%);
+              cursor: not-allowed;
+              box-shadow: 0 10px 25px -5px rgba(161, 70, 28, 0.1);
+            }
+            @keyframes recordGlow {
+              0% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5), 0 10px 25px rgba(239, 68, 68, 0.2);
+                transform: scale(1);
+              }
+              50% {
+                box-shadow: 0 0 0 18px rgba(239, 68, 68, 0), 0 10px 25px rgba(239, 68, 68, 0.2);
+                transform: scale(1.04);
+              }
+              100% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0), 0 10px 25px rgba(239, 68, 68, 0.2);
+                transform: scale(1);
+              }
+            }
           `,
         }}
       />
