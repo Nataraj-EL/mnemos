@@ -10,6 +10,8 @@ import { PgMemoryRepository } from '@/memory/repository';
 import { logTelemetry } from '@/core/logger';
 import { voiceDiagnostics } from '@/voice/voiceDiagnostics';
 import { ConversationRetriever } from '@/conversation/retriever';
+import { MemoryIngestionService } from '@/memory/ingestionService';
+import { GeminiMemoryExtractor } from '@/memory/geminiExtractor';
 import {
   authenticate,
   checkRateLimit,
@@ -179,8 +181,19 @@ export async function POST(request: Request) {
     const generator = new GeminiResponseGenerator();
     const repository = new PgMemoryRepository();
     const conversationRetriever = new ConversationRetriever();
-    const responseService = new ResponseService(retriever, assembler, generator, repository, conversationRetriever);
+    
+    // Ingest voice query to persist any spoken facts/preferences
+    const extractor = new GeminiMemoryExtractor();
+    const ingestionService = new MemoryIngestionService(repository, extractor, embeddingProvider);
+    await ingestionService.ingest(userId, transcript, {
+      conversationId: 'voice-session',
+      sourceType: 'voice',
+      sourceTimestamp: new Date().toISOString(),
+    }).catch((ingestErr) => {
+      console.error('Ask-by-Voice Ingestion Error (continuing to respond):', ingestErr);
+    });
 
+    const responseService = new ResponseService(retriever, assembler, generator, repository, conversationRetriever);
     const groundedResult = await responseService.respond(userId, transcript);
 
     const latency = Date.now() - startTime;
@@ -202,12 +215,20 @@ export async function POST(request: Request) {
       model: 'whisper-1 + ' + (process.env.GENERATION_MODEL || 'gemini-3.5-flash'),
     });
 
+    const sanitizedUsedMemories = (groundedResult.usedMemories || []).map((m) => ({
+      id: m.id,
+      content: m.content ? (m.content.length > 120 ? m.content.slice(0, 117) + '...' : m.content) : '',
+      similarity: typeof m.similarity === 'number' ? m.similarity : 1.0,
+      sourceType: m.sourceType || 'voice',
+      timestamp: m.sourceTimestamp || new Date().toISOString(),
+    }));
+
     return NextResponse.json({
       status: 'success',
       data: {
         transcript,
         response: groundedResult.response,
-        usedMemories: groundedResult.usedMemories,
+        usedMemories: sanitizedUsedMemories,
         contextTokenCount: groundedResult.contextTokenCount,
         usedConversations: groundedResult.usedConversations,
       },

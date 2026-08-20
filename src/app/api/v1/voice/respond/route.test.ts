@@ -42,7 +42,7 @@ describe('POST /api/v1/voice/respond Route Handler', () => {
     mockTranscribe.mockResolvedValueOnce({ text: 'What is my favorite database?' });
 
     const mockUsedMemories = [
-      { id: 'mem-1', type: 'PREFERENCE', similarity: 0.85, score: 0.85 },
+      { id: 'mem-1', content: 'Mock database preference', similarity: 0.85, sourceType: 'voice', sourceTimestamp: '2026-08-20T10:00:00Z' },
     ];
     mockRespond.mockResolvedValueOnce({
       response: 'Your favorite database is Neon PostgreSQL.',
@@ -67,7 +67,9 @@ describe('POST /api/v1/voice/respond Route Handler', () => {
     expect(data.status).toBe('success');
     expect(data.data.transcript).toBe('What is my favorite database?');
     expect(data.data.response).toBe('Your favorite database is Neon PostgreSQL.');
-    expect(data.data.usedMemories).toEqual(mockUsedMemories);
+    expect(data.data.usedMemories).toEqual([
+      { id: 'mem-1', content: 'Mock database preference', similarity: 0.85, sourceType: 'voice', timestamp: '2026-08-20T10:00:00Z' }
+    ]);
     expect(data.data.contextTokenCount).toBe(15);
     expect(mockRespond).toHaveBeenCalledWith('user-123', 'What is my favorite database?');
   });

@@ -222,6 +222,15 @@ export default function MemoryDashboard() {
   const [extractionError, setExtractionError] = useState<string | null>(null);
   
   const [expandedCitations, setExpandedCitations] = useState<Record<string, boolean>>({});
+  
+  // Persistent Voice Memory states (Sprint 67)
+  const [transcribeSaved, setTranscribeSaved] = useState<boolean>(false);
+  const [transcribeSavedTime, setTranscribeSavedTime] = useState<string | null>(null);
+  
+  // Voice Memory Management states (Sprint 68)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [voiceMemories, setVoiceMemories] = useState<any[]>([]);
+  const [loadingVoiceMemories, setLoadingVoiceMemories] = useState<boolean>(false);
 
   // Voice Session History States (Sprint 28)
   interface VoiceSessionEntry {
@@ -505,6 +514,42 @@ export default function MemoryDashboard() {
     }
   };
 
+  const fetchVoiceMemories = async () => {
+    if (!userId.trim()) return;
+    setLoadingVoiceMemories(true);
+    try {
+      const response = await fetch(`/api/v1/voice/memories?userId=${encodeURIComponent(userId.trim())}`);
+      const data = await response.json();
+      if (response.ok) {
+        setVoiceMemories(data.memories || []);
+      } else {
+        console.error('Failed to fetch voice memories:', data.error);
+      }
+    } catch (err) {
+      console.error('Error fetching voice memories:', err);
+    } finally {
+      setLoadingVoiceMemories(false);
+    }
+  };
+
+  const handleDeleteVoiceMemory = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this voice memory?')) return;
+    try {
+      const response = await fetch(`/api/v1/voice/memories/${id}`, {
+        method: 'DELETE',
+      });
+      const data = await response.json();
+      if (response.ok) {
+        fetchVoiceMemories();
+      } else {
+        alert(data.error || 'Failed to delete voice memory.');
+      }
+    } catch (err) {
+      console.error('Error deleting voice memory:', err);
+      alert('An error occurred while deleting the voice memory.');
+    }
+  };
+
   const resetVoiceSession = () => {
     setTranscript('');
     setIsRecording(false);
@@ -524,6 +569,8 @@ export default function MemoryDashboard() {
     setExtractionState('idle');
     setExtractionResultCount(null);
     setExtractionError(null);
+    setTranscribeSaved(false);
+    setTranscribeSavedTime(null);
   };
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -1094,6 +1141,7 @@ export default function MemoryDashboard() {
           setVoiceUsedConversations(data.data.usedConversations || []);
           setVoiceContextTokenCount(data.data.contextTokenCount || 0);
           setVoiceSessionState('review');
+          fetchVoiceMemories();
 
           // Add to temporary session history
           const durationSeconds = recordingStart && recordingEnd ? Math.max(0, Math.round((recordingEnd - recordingStart) / 1000)) : 0;
@@ -1119,7 +1167,12 @@ export default function MemoryDashboard() {
           });
         } else {
           setTranscript(data.data.text);
+          setTranscribeSaved(data.data.saved || false);
+          setTranscribeSavedTime(new Date().toLocaleTimeString());
           setVoiceSessionState('review');
+          if (data.data.saved) {
+            fetchVoiceMemories();
+          }
         }
       }
     } catch (err: unknown) {
@@ -3157,6 +3210,7 @@ export default function MemoryDashboard() {
       fetchReportResult();
       fetchReportHistory();
       fetchVoiceHealth();
+      fetchVoiceMemories();
       fetchControlledHistory();
     }, 0);
     const healthInterval = setInterval(fetchHealth, 15000);
@@ -3168,6 +3222,7 @@ export default function MemoryDashboard() {
     setTimeout(() => {
       fetchMemories();
       fetchConversations();
+      fetchVoiceMemories();
     }, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
@@ -3942,6 +3997,29 @@ export default function MemoryDashboard() {
                             Clear & Start New Recording
                           </button>
                         </div>
+                      ) : transcribeSaved ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%', marginTop: '0.25rem' }}>
+                          <div style={{
+                            padding: '0.5rem 0.75rem',
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: '0.75rem',
+                            border: '1px solid var(--success)',
+                            backgroundColor: 'rgba(91, 138, 82, 0.05)',
+                            color: 'var(--success)',
+                            textAlign: 'center',
+                            fontWeight: 600
+                          }}>
+                            ✓ Saved to Memory (Source: voice | {transcribeSavedTime})
+                          </div>
+                          <button
+                            onClick={resetVoiceSession}
+                            className="premium-btn premium-btn-secondary"
+                            style={{ width: '100%' }}
+                            type="button"
+                          >
+                            Clear & Start New Recording
+                          </button>
+                        </div>
                       ) : (
                         <div style={{ display: 'flex', gap: '0.5rem', width: '100%', marginTop: '0.25rem' }}>
                           <button
@@ -3999,26 +4077,67 @@ export default function MemoryDashboard() {
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
                             <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--primary)' }}>🧠 Grounded Response:</span>
                             {/* Grounding Status badge */}
-                            {(() => {
-                              const status = getGroundingStatus(voiceUsedMemories, voiceUsedConversations);
-                              return (
+                            <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                              {(() => {
+                                const status = getGroundingStatus(voiceUsedMemories, voiceUsedConversations);
+                                return (
+                                  <span style={{
+                                    fontSize: '0.65rem',
+                                    fontWeight: 600,
+                                    color: status.color,
+                                    backgroundColor: status.bgColor,
+                                    border: `1px solid ${status.borderColor}`,
+                                    padding: '0.15rem 0.4rem',
+                                    borderRadius: '12px'
+                                  }}>
+                                    {status.label}
+                                  </span>
+                                );
+                              })()}
+                              {voiceUsedMemories.some(m => m.sourceType === 'voice') && (
                                 <span style={{
                                   fontSize: '0.65rem',
                                   fontWeight: 600,
-                                  color: status.color,
-                                  backgroundColor: status.bgColor,
-                                  border: `1px solid ${status.borderColor}`,
+                                  color: 'var(--success)',
+                                  backgroundColor: 'rgba(91, 138, 82, 0.05)',
+                                  border: '1px solid var(--success)',
                                   padding: '0.15rem 0.4rem',
                                   borderRadius: '12px'
                                 }}>
-                                  {status.label}
+                                  🧠 Persistent Voice Memory Linked
                                 </span>
-                              );
-                            })()}
+                              )}
+                            </div>
                           </div>
                           <div style={{ padding: '0.6rem 0.8rem', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', lineHeight: '1.45', color: 'var(--text)' }}>
                             {voiceResponseText}
                           </div>
+                          
+                          {/* Retrieved Voice Memories (Sprint 68) */}
+                          {voiceUsedMemories.some(m => m.sourceType === 'voice') && (
+                            <div style={{
+                              marginTop: '0.5rem',
+                              padding: '0.5rem 0.75rem',
+                              backgroundColor: 'rgba(91, 138, 82, 0.03)',
+                              border: '1px solid rgba(91, 138, 82, 0.15)',
+                              borderRadius: 'var(--radius-sm)',
+                              fontSize: '0.75rem'
+                            }}>
+                              <span style={{ fontWeight: 600, color: 'var(--success)', display: 'block', marginBottom: '0.25rem' }}>
+                                🔍 Retrieved Voice Memories:
+                              </span>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                {voiceUsedMemories.filter(m => m.sourceType === 'voice').map((m, idx) => (
+                                  <div key={m.id || `ruvm-${idx}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '0.25rem 0', borderBottom: '1px dashed rgba(91, 138, 82, 0.1)' }}>
+                                    <span style={{ fontStyle: 'italic', color: 'var(--text)' }}>&ldquo;{m.content}&rdquo;</span>
+                                    <span style={{ fontSize: '0.65rem', opacity: 0.8, whiteSpace: 'nowrap', marginLeft: '0.5rem', color: 'var(--text-muted)' }}>
+                                      Score: <strong>{m.similarity !== undefined ? (m.similarity * 100).toFixed(0) : '90'}%</strong>
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -4294,6 +4413,77 @@ export default function MemoryDashboard() {
                       </div>
                     </div>
                   )}
+
+                  {/* Voice Memories Panel (Sprint 68) */}
+                  <div style={{ marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                      <h4 style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--primary)', margin: 0 }}>
+                        🎙️ Voice-Created Memories ({voiceMemories.length})
+                      </h4>
+                      <button
+                        onClick={fetchVoiceMemories}
+                        className="premium-btn premium-btn-secondary"
+                        style={{ padding: '0.15rem 0.35rem', fontSize: '0.65rem', border: 'none', boxShadow: 'none' }}
+                        disabled={loadingVoiceMemories}
+                        type="button"
+                      >
+                        🔄 Refresh
+                      </button>
+                    </div>
+
+                    {loadingVoiceMemories ? (
+                      <div style={{ display: 'flex', justifyContent: 'center', padding: '0.75rem' }}>
+                        {renderSpinner()}
+                      </div>
+                    ) : voiceMemories.length === 0 ? (
+                      <div style={{ padding: '0.75rem', textAlign: 'center', opacity: 0.6, border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '0.7rem', color: 'var(--text)' }}>
+                        No voice memories found for this user.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '180px', overflowY: 'auto', paddingRight: '0.2rem' }}>
+                        {voiceMemories.map((mem) => (
+                          <div
+                            key={mem.id}
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '0.2rem',
+                              padding: '0.4rem 0.65rem',
+                              backgroundColor: 'var(--background)',
+                              border: '1px solid var(--border)',
+                              borderRadius: 'var(--radius-sm)',
+                              fontSize: '0.7rem'
+                            }}
+                          >
+                            <div style={{ fontWeight: 500, color: 'var(--text)', wordBreak: 'break-word', lineHeight: '1.3' }}>
+                              {mem.content}
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.6rem', opacity: 0.8 }}>
+                              <div style={{ display: 'flex', gap: '0.5rem', color: 'var(--text-muted)' }}>
+                                <span>Source: <strong>voice</strong></span>
+                                <span>Created: <strong>{new Date(mem.createdAt).toLocaleDateString()} {new Date(mem.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong></span>
+                              </div>
+                              <button
+                                onClick={() => handleDeleteVoiceMemory(mem.id)}
+                                style={{
+                                  backgroundColor: 'transparent',
+                                  border: 'none',
+                                  color: 'var(--error)',
+                                  cursor: 'pointer',
+                                  fontWeight: 600,
+                                  fontSize: '0.6rem',
+                                  padding: 0
+                                }}
+                                type="button"
+                              >
+                                🗑️ Delete
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
                   {/* Conversation Timeline & Intelligence (Sprint 30/31) */}
                   <div style={{ marginTop: '1.25rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
