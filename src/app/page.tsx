@@ -3486,7 +3486,7 @@ export default function MemoryDashboard() {
           {/* Left Column: Talk to Mnemos */}
           <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', textAlign: 'center', justifyContent: 'center' }}>
             <h3 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-              <span>🎙️ Talk to Mnemos</span>
+              <span>Talk to Mnemos</span>
             </h3>
             
             <div style={{ margin: '1.5rem 0' }}>
@@ -3585,7 +3585,7 @@ export default function MemoryDashboard() {
           {/* Right Column: Discuss with Mnemos */}
           <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem', justifyContent: 'center' }}>
             <h3 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span>💬 Discuss with Mnemos</span>
+              <span>Discuss with Mnemos</span>
             </h3>
             
             <form onSubmit={handleResponseSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
@@ -3717,7 +3717,7 @@ export default function MemoryDashboard() {
                       alignItems: 'center',
                       gap: '0.2rem'
                     }}>
-                      🧠 From Memory
+                      From Memory
                     </span>
                   )}
                 </div>
@@ -3729,11 +3729,11 @@ export default function MemoryDashboard() {
           </div>
         )}
 
-        {/* 🛠️ Developer / Advanced Options details block */}
+        {/* Developer / Advanced Options details block */}
         <div style={{ marginTop: '5rem', borderTop: '1px solid var(--border)', paddingTop: '2.5rem', paddingBottom: '4rem' }} id="developer-advanced-section">
           <details style={{ width: '100%', outline: 'none' }}>
             <summary style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem', userSelect: 'none', outline: 'none' }}>
-              <span>🛠️ Developer / Advanced Options</span>
+              <span>Developer / Advanced Options</span>
             </summary>
             <div style={{ marginTop: '2rem', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
@@ -4325,7 +4325,7 @@ export default function MemoryDashboard() {
                                 padding: '0.15rem 0.4rem',
                                 borderRadius: '12px'
                               }}>
-                                🧠 From Memory
+                                From Memory
                               </span>
                             )}
                           </div>
@@ -5106,7 +5106,7 @@ export default function MemoryDashboard() {
                               padding: '0.15rem 0.4rem',
                               borderRadius: '12px'
                             }}>
-                              🧠 From Memory
+                              From Memory
                             </span>
                           )}
                         </div>
