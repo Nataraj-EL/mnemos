@@ -3468,36 +3468,309 @@ export default function MemoryDashboard() {
 
       {/* Main Content Area */}
       <main className="container" style={{ flexGrow: 1, paddingTop: '1.5rem' }}>
-        {/* Compact Hero/Config section */}
-        <section style={{ marginBottom: '2rem', padding: '1.5rem', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.5rem' }}>
-          <div>
-            <h1 style={{ fontSize: '1.75rem', color: 'var(--primary)', marginBottom: '0.25rem', fontWeight: 700 }}>Mnemos</h1>
-            <p style={{ fontSize: '0.85rem', opacity: 0.7, margin: 0, maxWidth: '600px' }}>
-              Persistent Memory & Context Engine for Personal AI. Establishes long-term state, recall, and contextual continuity across conversations.
-            </p>
-          </div>
-          
-          {/* Status chips */}
-          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-            <div className="status-badge" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}>
-              <span>App:</span>
-              <span className={`status-dot ${isAppHealthy ? 'success' : 'error'}`} style={{ width: '6px', height: '6px' }} />
-              <strong>{loadingHealth ? 'LOADING' : isAppHealthy ? 'ONLINE' : 'OFFLINE'}</strong>
-            </div>
-            <div className="status-badge" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}>
-              <span>Database:</span>
-              <span className={`status-dot ${isDbConnected ? 'success' : 'error'}`} style={{ width: '6px', height: '6px' }} />
-              <strong>{loadingHealth ? 'LOADING' : isDbConnected ? 'CONNECTED' : 'DISCONNECTED'}</strong>
-            </div>
-            <div className="status-badge" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}>
-              <span>Memories:</span>
-              <strong>{memories.length} Active</strong>
-            </div>
-          </div>
-        </section>
+        {/* Brand Header */}
+        <div style={{ textAlign: 'center', marginBottom: '2.5rem', marginTop: '1.5rem' }}>
+          <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: 'var(--primary)', marginBottom: '0.5rem', letterSpacing: '-0.025em' }}>Mnemos</h1>
+          <p style={{ fontSize: '1.1rem', color: 'var(--text-muted)', fontWeight: 500, margin: 0 }}>Your AI that remembers.</p>
+        </div>
 
-        <div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+        {/* Primary Viewport Grid */}
+        <div className="primary-grid" style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+          gap: '2.5rem',
+          maxWidth: '960px',
+          margin: '0 auto 2rem auto',
+          alignItems: 'stretch'
+        }}>
+          {/* Left Column: Talk to Mnemos */}
+          <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', textAlign: 'center', justifyContent: 'center' }}>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+              <span>🎙️ Talk to Mnemos</span>
+            </h3>
+            
+            <div style={{ margin: '1.5rem 0' }}>
+              {voiceSessionState === 'recording' ? (
+                <button
+                  type="button"
+                  onClick={stopRecording}
+                  className="mic-btn-circle recording"
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem' }}>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                      <rect x="4" y="4" width="16" height="16" rx="2" />
+                    </svg>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>STOP</span>
+                  </div>
+                </button>
+              ) : (voiceSessionState === 'processing' || voiceSessionState === 'transcribing' || voiceSessionState === 'saving') ? (
+                <button
+                  type="button"
+                  disabled
+                  className="mic-btn-circle processing"
+                >
+                  <div className="animate-spin" style={{ width: '28px', height: '28px', border: '3px solid transparent', borderTopColor: 'var(--primary)', borderRadius: '50%' }} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={startRecording}
+                  className="mic-btn-circle"
+                  disabled={loadingHealth}
+                >
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    <line x1="12" x2="12" y1="19" y2="22" />
+                  </svg>
+                </button>
+              )}
+
+              <div style={{ marginTop: '0.75rem', fontWeight: 600, fontSize: '0.9rem' }}>
+                {voiceSessionState === 'recording' ? (
+                  <span style={{ color: 'var(--error)' }}>
+                    Recording ({Math.floor(recordingTime / 60).toString().padStart(2, '0')}:{(recordingTime % 60).toString().padStart(2, '0')})
+                  </span>
+                ) : (voiceSessionState === 'processing' || voiceSessionState === 'transcribing' || voiceSessionState === 'saving') ? (
+                  <span style={{ color: 'var(--primary)' }} className="pulse">Processing...</span>
+                ) : (
+                  <span style={{ opacity: 0.7 }}>Tap to Speak</span>
+                )}
+              </div>
+            </div>
+
+            {/* Voice Mode Selector */}
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '1.5rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+              <button
+                type="button"
+                onClick={() => handleSwitchVoiceMode('transcribe')}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: voiceMode === 'transcribe' ? 'var(--primary)' : 'var(--text-muted)',
+                  fontWeight: voiceMode === 'transcribe' ? '600' : '400',
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                  padding: '0.25rem 0.5rem',
+                  borderBottom: voiceMode === 'transcribe' ? '2px solid var(--primary)' : '2px solid transparent',
+                  transition: 'all 0.2s',
+                  outline: 'none'
+                }}
+                disabled={voiceSessionState === 'recording' || voiceSessionState === 'transcribing' || voiceSessionState === 'processing'}
+              >
+                Remember
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSwitchVoiceMode('ask')}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: voiceMode === 'ask' ? 'var(--primary)' : 'var(--text-muted)',
+                  fontWeight: voiceMode === 'ask' ? '600' : '400',
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                  padding: '0.25rem 0.5rem',
+                  borderBottom: voiceMode === 'ask' ? '2px solid var(--primary)' : '2px solid transparent',
+                  transition: 'all 0.2s',
+                  outline: 'none'
+                }}
+                disabled={voiceSessionState === 'recording' || voiceSessionState === 'transcribing' || voiceSessionState === 'processing'}
+              >
+                Ask
+              </button>
+            </div>
+          </div>
+
+          {/* Right Column: Discuss with Mnemos */}
+          <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem', justifyContent: 'center' }}>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span>💬 Discuss with Mnemos</span>
+            </h3>
+            
+            <form onSubmit={handleResponseSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
+              <textarea
+                rows={3}
+                placeholder="Ask something..."
+                value={responseQuery}
+                onChange={(e) => setResponseQuery(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.75rem',
+                  fontSize: '0.9rem',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'var(--surface)',
+                  color: 'var(--text)',
+                  resize: 'none',
+                  fontFamily: 'inherit',
+                  outline: 'none',
+                  transition: 'border-color 0.2s'
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleResponseSubmit(e);
+                  }
+                }}
+              />
+              <button
+                type="submit"
+                className="premium-btn premium-btn-primary"
+                style={{ alignSelf: 'flex-end', padding: '0.5rem 1.5rem', fontSize: '0.85rem' }}
+                disabled={responseLoading || !responseQuery.trim() || !userId.trim()}
+              >
+                {responseLoading ? 'Asking...' : 'Ask'}
+              </button>
+            </form>
+          </div>
+        </div>
+
+        {/* Feedback & Response Panel */}
+        {(transcript || voiceResponseText || responseResult || transcribeError || responseError) && (
+          <div style={{
+            marginTop: '2rem',
+            padding: '1.5rem',
+            backgroundColor: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-md)',
+            boxShadow: 'var(--shadow-sm)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1rem',
+            maxWidth: '960px',
+            margin: '0 auto 2rem auto'
+          }}>
+            {/* Error Message */}
+            {(transcribeError || responseError) && (
+              <div style={{
+                padding: '0.75rem 1rem',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--error)',
+                backgroundColor: 'rgba(179, 74, 60, 0.05)',
+                color: 'var(--error)',
+                fontSize: '0.85rem'
+              }}>
+                {transcribeError || responseError}
+              </div>
+            )}
+
+            {/* Transcription Review Block */}
+            {transcript && (
+              <div style={{ borderBottom: (voiceResponseText || responseResult || transcribeOutcome) ? '1px solid var(--border)' : 'none', paddingBottom: (voiceResponseText || responseResult || transcribeOutcome) ? '1rem' : '0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>You said:</span>
+                </div>
+                <textarea
+                  value={transcript}
+                  onChange={(e) => setTranscript(e.target.value)}
+                  readOnly={voiceSessionState === 'saving' || voiceSessionState === 'saved'}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    backgroundColor: 'var(--background)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '0.85rem',
+                    color: 'var(--text)',
+                    resize: 'vertical',
+                    fontFamily: 'inherit',
+                    outline: 'none'
+                  }}
+                />
+                
+                {/* Sprint 69 Memory Ingestion Indicators */}
+                {voiceMode === 'transcribe' && transcribeOutcome && (
+                  <div style={{ marginTop: '0.5rem' }}>
+                    {transcribeOutcome === 'created' && (
+                      <span style={{ color: 'var(--success)', fontWeight: 600, fontSize: '0.85rem' }}>✓ Remembered</span>
+                    )}
+                    {transcribeOutcome === 'reinforced' && (
+                      <span style={{ color: 'var(--primary)', fontWeight: 600, fontSize: '0.85rem' }}>↻ Already remembered</span>
+                    )}
+                    {transcribeOutcome === 'updated' && (
+                      <span style={{ color: 'var(--primary)', fontWeight: 600, fontSize: '0.85rem' }}>✓ Memory updated</span>
+                    )}
+                    {transcribeOutcome === 'discarded' && (
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Nothing important to remember</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* AI Grounded Response */}
+            {(voiceResponseText || (responseResult && responseResult.response)) && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--primary)' }}>AI Response:</span>
+                  {((voiceMode === 'ask' && voiceUsedMemories.length > 0) || (responseResult && responseResult.usedMemories && responseResult.usedMemories.length > 0)) && (
+                    <span style={{
+                      fontSize: '0.7rem',
+                      fontWeight: 600,
+                      color: 'var(--success)',
+                      backgroundColor: 'rgba(91, 138, 82, 0.05)',
+                      border: '1px solid var(--success)',
+                      padding: '0.15rem 0.5rem',
+                      borderRadius: '12px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.2rem'
+                    }}>
+                      🧠 From Memory
+                    </span>
+                  )}
+                </div>
+                <div style={{ color: 'var(--text)', fontSize: '0.95rem', lineHeight: '1.5' }}>
+                  {renderMarkdown(voiceResponseText || responseResult?.response || '')}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 🛠️ Developer / Advanced Options details block */}
+        <div style={{ marginTop: '5rem', borderTop: '1px solid var(--border)', paddingTop: '2.5rem', paddingBottom: '4rem' }} id="developer-advanced-section">
+          <details style={{ width: '100%', outline: 'none' }}>
+            <summary style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem', userSelect: 'none', outline: 'none' }}>
+              <span>🛠️ Developer / Advanced Options</span>
+            </summary>
+            <div style={{ marginTop: '2rem', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                
+                {/* Advanced Status Chips & Configuration */}
+                <div className="card" style={{ padding: '1.25rem' }}>
+                  <h3 className="card-title" style={{ fontSize: '0.95rem', fontWeight: 600, marginBottom: '0.75rem' }}>System Diagnostics & Settings</h3>
+                  <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+                    <div className="status-badge" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}>
+                      <span>App:</span>
+                      <span className={`status-dot ${isAppHealthy ? 'success' : 'error'}`} style={{ width: '6px', height: '6px' }} />
+                      <strong>{loadingHealth ? 'LOADING' : isAppHealthy ? 'ONLINE' : 'OFFLINE'}</strong>
+                    </div>
+                    <div className="status-badge" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}>
+                      <span>Database:</span>
+                      <span className={`status-dot ${isDbConnected ? 'success' : 'error'}`} style={{ width: '6px', height: '6px' }} />
+                      <strong>{loadingHealth ? 'LOADING' : isDbConnected ? 'CONNECTED' : 'DISCONNECTED'}</strong>
+                    </div>
+                    <div className="status-badge" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}>
+                      <span>Memories:</span>
+                      <strong>{memories.length} Active</strong>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Workspace User ID Context:</label>
+                    <input
+                      type="text"
+                      value={userId}
+                      onChange={(e) => setUserId(e.target.value)}
+                      style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', color: 'var(--text)', width: '200px' }}
+                    />
+                  </div>
+                </div>
+
+                {/* Original Workspace Layout inside collapsed Developer block */}
+                <div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
             
             {/* 1. MEMORY STORE (Ingest + Persisted Memories) */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', alignItems: 'start' }}>
@@ -5247,14 +5520,7 @@ export default function MemoryDashboard() {
           </div>
         </div>
 
-        {/* 🛠️ Developer / Advanced Options details block */}
-        <div style={{ marginTop: '3.5rem', borderTop: '1px solid var(--border)', paddingTop: '2rem', paddingBottom: '3rem' }} id="developer-advanced-section">
-          <details style={{ width: '100%', outline: 'none' }}>
-            <summary style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem', userSelect: 'none', outline: 'none' }}>
-              <span>🛠️ Developer / Advanced Options</span>
-            </summary>
-            <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+        {/* Diagnostics & Other Telemetry Tab Sections */}
             
             {/* System health and Security settings */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem', alignItems: 'start' }}>
