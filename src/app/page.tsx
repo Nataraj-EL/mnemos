@@ -3593,7 +3593,7 @@ export default function MemoryDashboard() {
                   type="button"
                   onClick={startRecording}
                   className="mic-btn-circle"
-                  disabled={loadingHealth}
+                  disabled={!mounted || loadingHealth}
                 >
                   <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
@@ -7605,7 +7605,7 @@ export default function MemoryDashboard() {
                 <h3 className="card-title" style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>📋 Saved Evaluation Reports History</h3>
                 <button
                   onClick={handleClearReportHistory}
-                  disabled={reportHistory.length === 0}
+                  disabled={!mounted || reportHistory.length === 0}
                   className="btn"
                   style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem', border: '1px solid var(--border)', backgroundColor: 'transparent', cursor: 'pointer', color: 'var(--error)' }}
                 >
