@@ -126,7 +126,6 @@ const renderMarkdown = (text: string) => {
 export default function MemoryDashboard() {
 
   // Navigation & Workspace State Tabs
-  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<'workspace' | 'developer'>('workspace');
   const [activeIntelligenceTab, setActiveIntelligenceTab] = useState<'ask' | 'search' | 'context'>('ask');
 
   // Voice Transcription State
@@ -3300,22 +3299,67 @@ export default function MemoryDashboard() {
               user-select: none;
             }
             .premium-btn-primary {
-              background-color: var(--primary);
+              background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
               color: #ffffff;
-              border-color: var(--primary-hover);
+              border: none;
+              box-shadow: 0 4px 12px 0 rgba(161, 70, 28, 0.18);
+              transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
             }
             .premium-btn-primary:hover:not(:disabled) {
-              background-color: var(--primary-hover);
-              transform: translateY(-1px);
-              box-shadow: 0 4px 10px rgba(161, 70, 28, 0.15);
+              transform: translateY(-2px);
+              box-shadow: 0 8px 22px 0 rgba(161, 70, 28, 0.35);
+              filter: brightness(1.04);
             }
             .premium-btn-primary:active:not(:disabled) {
               transform: translateY(1px);
-              box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+              box-shadow: 0 2px 6px 0 rgba(161, 70, 28, 0.2);
             }
             .premium-btn-primary:focus-visible {
               outline: none;
               box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--primary);
+            }
+            .voice-mode-selector {
+              display: flex;
+              gap: 0.25rem;
+              background-color: var(--muted);
+              padding: 0.25rem;
+              border-radius: var(--radius-md);
+              border: 1px solid var(--border);
+              box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03), inset 0 1px 2px rgba(0, 0, 0, 0.05);
+              margin: 0.5rem auto 0 auto;
+              width: fit-content;
+              transition: all 0.3s ease;
+            }
+            .voice-mode-selector:hover {
+              box-shadow: 0 6px 16px rgba(161, 70, 28, 0.08), 0 0 0 1px rgba(161, 70, 28, 0.1);
+            }
+            .voice-mode-btn {
+              padding: 0.45rem 1.25rem;
+              border: none;
+              background-color: transparent;
+              color: var(--text-muted);
+              font-weight: 500;
+              border-radius: var(--radius-sm);
+              font-size: 0.85rem;
+              cursor: pointer;
+              transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+              user-select: none;
+              outline: none;
+            }
+            .voice-mode-btn:hover:not(:disabled):not(.active) {
+              color: var(--text);
+              background-color: rgba(38, 30, 26, 0.04);
+            }
+            .voice-mode-btn.active {
+              background-color: var(--surface);
+              color: var(--primary);
+              font-weight: 600;
+              box-shadow: 0 2px 8px rgba(161, 70, 28, 0.12), 0 1px 3px rgba(0, 0, 0, 0.05);
+              transform: translateY(-0.5px);
+            }
+            .voice-mode-btn:disabled {
+              opacity: 0.5;
+              cursor: not-allowed;
             }
             .premium-btn:disabled {
               opacity: 0.5;
@@ -3478,27 +3522,7 @@ export default function MemoryDashboard() {
           </div>
         </div>
 
-        {/* View Toggle */}
-        <div className="toggle-container">
-          <button
-            onClick={() => setActiveWorkspaceTab('workspace')}
-            className={`toggle-button ${activeWorkspaceTab === 'workspace' ? 'active' : ''}`}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
-              <rect width="18" height="18" x="3" y="3" rx="2" /><path d="M3 9h18" />
-            </svg>
-            Product Workspace
-          </button>
-          <button
-            onClick={() => setActiveWorkspaceTab('developer')}
-            className={`toggle-button ${activeWorkspaceTab === 'developer' ? 'active' : ''}`}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
-              <polyline points="4 17 10 11 4 5" /><line x1="12" x2="20" y1="19" y2="19" />
-            </svg>
-            Developer Console
-          </button>
-        </div>
+
 
         <div className="status-badge" id="system-status-container">
           <span
@@ -3593,22 +3617,11 @@ export default function MemoryDashboard() {
             </div>
 
             {/* Voice Mode Selector */}
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '1.5rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+            <div className="voice-mode-selector">
               <button
                 type="button"
                 onClick={() => handleSwitchVoiceMode('transcribe')}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: voiceMode === 'transcribe' ? 'var(--primary)' : 'var(--text-muted)',
-                  fontWeight: voiceMode === 'transcribe' ? '600' : '400',
-                  fontSize: '0.85rem',
-                  cursor: 'pointer',
-                  padding: '0.25rem 0.5rem',
-                  borderBottom: voiceMode === 'transcribe' ? '2px solid var(--primary)' : '2px solid transparent',
-                  transition: 'all 0.2s',
-                  outline: 'none'
-                }}
+                className={`voice-mode-btn ${voiceMode === 'transcribe' ? 'active' : ''}`}
                 disabled={voiceSessionState === 'recording' || voiceSessionState === 'transcribing' || voiceSessionState === 'processing'}
               >
                 Remember
@@ -3616,18 +3629,7 @@ export default function MemoryDashboard() {
               <button
                 type="button"
                 onClick={() => handleSwitchVoiceMode('ask')}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: voiceMode === 'ask' ? 'var(--primary)' : 'var(--text-muted)',
-                  fontWeight: voiceMode === 'ask' ? '600' : '400',
-                  fontSize: '0.85rem',
-                  cursor: 'pointer',
-                  padding: '0.25rem 0.5rem',
-                  borderBottom: voiceMode === 'ask' ? '2px solid var(--primary)' : '2px solid transparent',
-                  transition: 'all 0.2s',
-                  outline: 'none'
-                }}
+                className={`voice-mode-btn ${voiceMode === 'ask' ? 'active' : ''}`}
                 disabled={voiceSessionState === 'recording' || voiceSessionState === 'transcribing' || voiceSessionState === 'processing'}
               >
                 Ask
