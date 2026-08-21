@@ -157,7 +157,13 @@ export class LocalWhisperTranscriptionProvider implements TranscriptionProvider 
       saveSecret(secret);
       daemonSecret = secret;
 
-      // 3. Spawn daemon
+      // 3. Spawn daemon with venv bin prepended to PATH so it can resolve the local static ffmpeg
+      const venvBinPath = path.dirname(this.pythonPath);
+      const customEnv = {
+        ...process.env,
+        PATH: `${venvBinPath}${path.delimiter}${process.env.PATH || ''}`
+      };
+
       const child = spawn(
         this.pythonPath,
         [
@@ -170,6 +176,7 @@ export class LocalWhisperTranscriptionProvider implements TranscriptionProvider 
         {
           detached: true,
           stdio: 'ignore',
+          env: customEnv,
         }
       );
 
