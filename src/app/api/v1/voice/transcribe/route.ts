@@ -174,8 +174,10 @@ export async function POST(request: Request) {
       : new LocalWhisperTranscriptionProvider();
     const result = await provider.transcribe(audioBuffer, normalizedMime);
 
-    // Empty transcript check
-    if (!result.text || !result.text.trim()) {
+    // Empty transcript and silence/noise hallucination check
+    const cleanText = result.text.trim();
+    const cleanLower = cleanText.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"']/g, "");
+    if (!cleanText || ['you', 'thank you', 'um', 'uh', 'ah', 'oh'].includes(cleanLower)) {
       return NextResponse.json(
         { status: 'error', error: 'Empty transcription: No text could be extracted from this audio.', requestId },
         { status: 422 } // Unprocessable Entity

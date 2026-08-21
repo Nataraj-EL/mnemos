@@ -527,7 +527,7 @@ const VOICE_MIN_LENGTH = 3;
 const VOICE_FILLER_PHRASES = [
   'hello', 'okay', 'ok', 'hi', 'test', 'yes', 'no', 'testing',
   'uh', 'um', 'ah', 'oh', 'thanks', 'thank you', 'bye', 'goodbye',
-  'hey', 'yo', 'placeholder', 'accidental noise', 'noise'
+  'hey', 'yo', 'placeholder', 'accidental noise', 'noise', 'you'
 ];
 
 export function isMeaninglessTranscript(text: string): boolean {

@@ -167,7 +167,8 @@ export async function POST(request: Request) {
     const transcriptionResult = await transcriptionProvider.transcribe(audioBuffer, normalizedMime);
 
     const transcript = transcriptionResult.text ? transcriptionResult.text.trim() : '';
-    if (!transcript) {
+    const cleanLower = transcript.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"']/g, "");
+    if (!transcript || ['you', 'thank you', 'um', 'uh', 'ah', 'oh'].includes(cleanLower)) {
       return NextResponse.json(
         { status: 'error', error: 'Empty transcription: No text could be extracted from this audio.', requestId },
         { status: 422 }
