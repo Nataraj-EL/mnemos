@@ -260,7 +260,17 @@ export async function POST(request: Request) {
     const isTimeout = errorMsg.includes('timed out') || errorMsg.includes('TimeoutError') || errorMsg.includes('timeout') || errorMsg.includes('aborted');
 
     if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
-      console.error('Error during voice response processing:', error);
+      if (errorMsg.includes('Empty transcription') || errorMsg.includes('cannot be empty')) {
+        console.warn('Voice response empty:', errorMsg);
+      } else {
+        const stack = error instanceof Error ? error.stack : '';
+        if (stack) {
+          const sanitizedStack = stack.replace(new RegExp(process.cwd(), 'g'), '.');
+          console.error('Error during voice response processing:', sanitizedStack);
+        } else {
+          console.error('Error during voice response processing:', error);
+        }
+      }
     }
 
     let errorCategory = 'UNKNOWN_FAILURE';
