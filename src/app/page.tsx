@@ -3270,6 +3270,28 @@ export default function MemoryDashboard() {
     </svg>
   );
 
+  if (!mounted) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#F4EEE3', fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
+        <nav className="navbar" style={{ backgroundColor: '#FAF8F4', borderBottom: '1px solid #DBD3D5', padding: '1rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="brand" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div className="brand-text" style={{ display: 'flex', flexDirection: 'column' }}>
+              <span className="brand-name" style={{ fontSize: '1.1rem', fontWeight: 700, color: '#261E1A' }}>Mnemos</span>
+              <span className="brand-tagline" style={{ fontSize: '0.75rem', color: '#261E1A', opacity: 0.6 }}>Persistent AI Memory</span>
+            </div>
+          </div>
+        </nav>
+        <main className="container" style={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '50vh' }}>
+          <div style={{ textAlign: 'center', color: '#261E1A', opacity: 0.8 }}>
+            <div style={{ width: '40px', height: '40px', border: '3px solid transparent', borderTopColor: '#A1461C', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 1rem auto' }} />
+            <style dangerouslySetInnerHTML={{ __html: '@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }' }} />
+            <p style={{ fontSize: '0.95rem', fontWeight: 500 }}>Initializing dashboard...</p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <style
