@@ -1004,6 +1004,9 @@ export class ResponseService {
       }
     }
 
-    return { isValid: true, refinedResponse: response };
+    const sanitizedResponse = response
+      .replace(/[\u2013\u2014]/g, ' - ')
+      .replace(/ +/g, ' ');
+    return { isValid: true, refinedResponse: sanitizedResponse };
   }
 }
