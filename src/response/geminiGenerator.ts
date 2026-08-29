@@ -136,10 +136,35 @@ Because job listings change constantly, you can view the latest specific opening
       .split('\n')
       .map((l) => l.trim())
       .filter((l) => l.length > 0 && !l.startsWith('User Memory Context') && !l.startsWith('"""'));
-    return `Based on your memories:\n\n` + lines.map((line) => {
-      const cleanLine = line.replace(/^\[.*?\]\s*/, '').replace(/^[a-f0-9-]{36}\s*:\s*/i, '');
-      return `- ${cleanLine}`;
-    }).join('\n') + `\n\nIs there anything specific you would like to know about these details?`;
+
+    // Filter lines based on keywords in the query
+    const queryWords = query.toLowerCase()
+      .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"']/g, "")
+      .split(/\s+/)
+      .filter(w => w.length > 3 && !['what', 'when', 'where', 'who', 'whom', 'which', 'their', 'there', 'about', 'would', 'is', 'are', 'was', 'were'].includes(w));
+
+    let matchedLines = lines;
+    if (queryWords.length > 0) {
+      matchedLines = lines.filter(line => 
+        queryWords.some(word => line.toLowerCase().includes(word))
+      );
+    }
+
+    // If no lines matched the keywords, fallback to all lines
+    if (matchedLines.length === 0) {
+      matchedLines = lines;
+    }
+
+    const cleanLines = matchedLines.map((line) => {
+      // Clean up [CURRENT], [HISTORICAL], IDs, etc.
+      return line.replace(/^\[.*?\]\s*/, '').replace(/^[a-f0-9-]{36}\s*:\s*/i, '');
+    });
+
+    if (cleanLines.length === 1) {
+      return `According to your memories: ${cleanLines[0]}`;
+    }
+
+    return `Based on your memories:\n\n` + cleanLines.map((line) => `- ${line}`).join('\n') + `\n\nIs there anything specific you would like to know about these details?`;
   }
 
   if (/salesforce/i.test(query)) {
