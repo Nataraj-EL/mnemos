@@ -213,7 +213,7 @@ export async function POST(request: Request) {
       correlationId: requestId,
       totalLatencyMs: latency,
       status: 'success',
-      model: 'whisper-1 + ' + (process.env.GENERATION_MODEL || 'gemini-3.5-flash'),
+      model: 'whisper-1 + ' + (process.env.GENERATION_MODEL || 'gemini-3.6-flash'),
     });
 
     const rawUsedMemories = (groundedResult.usedMemories || []).map((m) => ({

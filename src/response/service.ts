@@ -392,7 +392,7 @@ export class ResponseService {
           estimatedContextTokens,
           generationLatencyMs: 0,
           totalLatencyMs,
-          model: process.env.GENERATION_MODEL || 'gemini-3.5-flash',
+          model: process.env.GENERATION_MODEL || 'gemini-3.6-flash',
           status: 'success',
         });
 
@@ -420,7 +420,7 @@ export class ResponseService {
           selectedCount,
           estimatedContextTokens,
           totalLatencyMs,
-          model: process.env.GENERATION_MODEL || 'gemini-3.5-flash',
+          model: process.env.GENERATION_MODEL || 'gemini-3.6-flash',
           status: 'error',
           errorCategory: error instanceof Error ? error.name : 'UnknownError',
         });
@@ -743,7 +743,7 @@ export class ResponseService {
         estimatedContextTokens,
         generationLatencyMs: tracker ? (tracker.get('generation') ?? 0) : (totalLatencyMs - retrievalLatencyMs),
         totalLatencyMs,
-        model: process.env.GENERATION_MODEL || 'gemini-3.5-flash',
+        model: process.env.GENERATION_MODEL || 'gemini-3.6-flash',
         status: 'success',
       });
 
@@ -863,7 +863,7 @@ export class ResponseService {
         selectedCount,
         estimatedContextTokens,
         totalLatencyMs,
-        model: process.env.GENERATION_MODEL || 'gemini-3.5-flash',
+        model: process.env.GENERATION_MODEL || 'gemini-3.6-flash',
         status: 'error',
         errorCategory: error instanceof Error ? error.name : 'UnknownError',
       });

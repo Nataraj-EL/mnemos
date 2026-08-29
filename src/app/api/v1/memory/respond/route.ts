@@ -106,7 +106,7 @@ export async function POST(request: Request) {
       correlationId: requestId,
       totalLatencyMs: latency,
       status: 'success',
-      model: process.env.GENERATION_MODEL || 'gemini-3.5-flash',
+      model: process.env.GENERATION_MODEL || 'gemini-3.6-flash',
       candidateCount: result.usedMemories.length,
       selectedCount: result.usedMemories.length,
       estimatedContextTokens: result.contextTokenCount,

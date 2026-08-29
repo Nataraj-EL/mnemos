@@ -7,7 +7,7 @@ export class GeminiResponseGenerator implements ResponseGenerator {
 
   constructor() {
     this.apiKey = process.env.GEMINI_API_KEY;
-    this.model = process.env.GENERATION_MODEL || 'gemini-3.5-flash';
+    this.model = process.env.GENERATION_MODEL || 'gemini-3.6-flash';
   }
 
   async generateResponse(
