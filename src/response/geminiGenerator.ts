@@ -157,7 +157,7 @@ Because job listings change constantly, you can view the latest specific opening
 
     const cleanLines = matchedLines.map((line) => {
       // Clean up [CURRENT], [HISTORICAL], IDs, etc.
-      return line.replace(/^\[.*?\]\s*/, '').replace(/^[a-f0-9-]{36}\s*:\s*/i, '');
+      return line.replace(/^(?:\[[^\]]*\]\s*)+/, '').replace(/^[a-f0-9-]{36}\s*:\s*/i, '');
     });
 
     if (cleanLines.length === 1) {
