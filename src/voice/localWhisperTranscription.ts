@@ -105,7 +105,7 @@ export class LocalWhisperTranscriptionProvider implements TranscriptionProvider 
   private device: string;
 
   constructor() {
-    this.modelName = process.env.LOCAL_WHISPER_MODEL || 'tiny.en';
+    this.modelName = process.env.LOCAL_WHISPER_MODEL || 'tiny';
     this.port = Number(process.env.LOCAL_WHISPER_PORT || '50051');
     this.pythonPath = path.join(process.cwd(), 'venv', 'bin', 'python3');
     this.scriptPath = path.join(process.cwd(), 'src', 'voice', 'transcription_server.py');

@@ -16,7 +16,7 @@ init_time_ms = 0
 lock = threading.Lock()
 args_secret = ""
 
-model_name_global = "tiny.en"
+model_name_global = "tiny"
 device_global = "auto"
 compute_type_global = "default"
 cache_dir_global = ""
@@ -232,7 +232,7 @@ def main():
     global args_secret, model_name_global, device_global, compute_type_global, cache_dir_global
     parser = argparse.ArgumentParser(description="Local Whisper Transcription Server")
     parser.add_argument("--port", type=int, default=50051, help="Port to listen on")
-    parser.add_argument("--model", default="tiny.en", help="Whisper model name")
+    parser.add_argument("--model", default="tiny", help="Whisper model name")
     parser.add_argument("--device", default="auto", help="Execution device (cpu, cuda, auto)")
     parser.add_argument("--compute_type", default="default", help="Compute type")
     parser.add_argument("--secret", default="", help="Request authorization token")

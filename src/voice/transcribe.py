@@ -6,7 +6,7 @@ import argparse
 def main():
     parser = argparse.ArgumentParser(description="Local Whisper Transcription")
     parser.add_argument("--audio", required=True, help="Path to the audio file")
-    parser.add_argument("--model", default="tiny.en", help="Whisper model name")
+    parser.add_argument("--model", default="tiny", help="Whisper model name")
     parser.add_argument("--device", default="auto", help="Execution device (cpu, cuda, auto)")
     parser.add_argument("--compute_type", default="default", help="Compute type")
     args = parser.parse_args()

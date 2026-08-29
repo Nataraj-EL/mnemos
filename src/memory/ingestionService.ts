@@ -535,7 +535,7 @@ export function isMeaninglessTranscript(text: string): boolean {
   const minLength = Number(process.env.VOICE_MIN_LENGTH) || VOICE_MIN_LENGTH;
   if (clean.length < minLength) return true;
   if (VOICE_FILLER_PHRASES.includes(clean)) return true;
-  if (!/[a-z0-9]/i.test(clean)) return true;
+  if (!/[\p{L}\p{N}]/u.test(clean)) return true;
   return false;
 }
 
