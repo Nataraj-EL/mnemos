@@ -119,16 +119,29 @@ export async function POST(request: Request) {
     });
   } catch (error: unknown) {
     const latency = Date.now() - startTime;
-    const isTimeout = error instanceof Error && error.message.includes('timeout');
-    const displayError = isTimeout
-      ? 'The grounded response request timed out while communicating with external model provider.'
-      : 'An error occurred during contextual response generation.';
+    const errorMessage = error instanceof Error ? error.message : '';
+    const isTimeout = errorMessage.includes('timeout');
+    const isRateLimit = errorMessage.includes('429') || errorMessage.toLowerCase().includes('quota') || errorMessage.toLowerCase().includes('rate limit');
+
+    let displayError = 'An error occurred during contextual response generation.';
+    let status = 500;
+    let errorCategory = 'PROVIDER_FAILURE';
+
+    if (isTimeout) {
+      displayError = 'The grounded response request timed out while communicating with external model provider.';
+      status = 504;
+      errorCategory = 'TIMEOUT';
+    } else if (isRateLimit) {
+      displayError = 'Rate limit exceeded. Please wait a moment and try again.';
+      status = 429;
+      errorCategory = 'RATE_LIMIT';
+    }
 
     logTelemetry({
       correlationId: requestId,
       totalLatencyMs: latency,
       status: 'error',
-      errorCategory: isTimeout ? 'TIMEOUT' : 'PROVIDER_FAILURE',
+      errorCategory,
     });
 
     return NextResponse.json(
@@ -137,7 +150,7 @@ export async function POST(request: Request) {
         error: displayError,
         requestId,
       },
-      { status: isTimeout ? 504 : 500 }
+      { status }
     );
   }
 }

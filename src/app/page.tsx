@@ -1427,6 +1427,8 @@ export default function MemoryDashboard() {
           const errLower = data.error.toLowerCase();
           if (errLower.includes('api_key') || errLower.includes('api key') || errLower.includes('provider') || errLower.includes('unavailable')) {
             msg = 'Grounded response service is temporarily unavailable.';
+          } else if (errLower.includes('rate limit') || errLower.includes('quota') || errLower.includes('429')) {
+            msg = 'Rate limit exceeded. Please wait a moment and try again.';
           } else if (errLower.includes('database') || errLower.includes('sql') || errLower.includes('persistence')) {
             msg = 'Database connection issue. Unable to retrieve context.';
           } else {

@@ -82,6 +82,13 @@ export async function POST(request: Request) {
       );
     }
 
+    if (errorMessage.includes('429') || errorMessage.toLowerCase().includes('quota') || errorMessage.toLowerCase().includes('rate limit')) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded. Please wait a moment and try again.' },
+        { status: 429 }
+      );
+    }
+
     return NextResponse.json(
       { error: 'An error occurred during contextual response generation.' },
       { status: 500 }
