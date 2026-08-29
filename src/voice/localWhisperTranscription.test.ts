@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { LocalWhisperTranscriptionProvider } from './localWhisperTranscription';
+import { LocalWhisperTranscriptionProvider, normalizeTranscript } from './localWhisperTranscription';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 
@@ -231,5 +231,12 @@ describe('LocalWhisperTranscriptionProvider - Reliability & Lifecycle Tests', ()
     expect(result.metadata?.latencyMs).toBe(120);
     expect(result.metadata?.device).toBe('cuda');
     expect(result.metadata?.compute).toBe('float16');
+  });
+
+  it('8. should normalize common 2026 transcription errors in normalizeTranscript', () => {
+    expect(normalizeTranscript('the 20, 20, 16 graduates')).toBe('the 2026 graduates');
+    expect(normalizeTranscript('year 20, 20, 60')).toBe('year 2026');
+    expect(normalizeTranscript('class of 20 20 26')).toBe('class of 2026');
+    expect(normalizeTranscript('20,20,16')).toBe('2026');
   });
 });

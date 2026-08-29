@@ -355,6 +355,8 @@ process.on('SIGTERM', () => { cleanup(); process.exit(0); });
 export function normalizeTranscript(text: string): string {
   let trimmed = text.trim();
   if (!trimmed) return '';
+  // Correct common Whisper year 2026 misinterpretations (e.g., 20, 20, 16 / 20, 20, 60 -> 2026)
+  trimmed = trimmed.replace(/\b20[,\s]*20[,\s]*(16|60|26)\b/g, '2026');
   trimmed = trimmed.replace(/[ \t]+/g, ' ');
   trimmed = trimmed.replace(/[ \t]*\n[ \t]*/g, '\n');
   trimmed = trimmed.replace(/\n\s*\n+/g, '\n\n');
