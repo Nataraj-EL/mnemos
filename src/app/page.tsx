@@ -83,20 +83,41 @@ const renderMarkdown = (text: string) => {
           content = content.replace(/^[\*\-]\s+/, '');
         }
         
-        const parts = [];
-        let match;
-        let lastIndex = 0;
-        const boldRegex = /\*\*([^\*]+)\*\*/g;
-        
-        while ((match = boldRegex.exec(content)) !== null) {
-          const before = content.substring(lastIndex, match.index);
-          if (before) parts.push(before);
-          parts.push(<strong key={match.index} style={{ color: 'var(--primary)', fontWeight: 650 }}>{match[1]}</strong>);
-          lastIndex = boldRegex.lastIndex;
-        }
-        
-        const after = content.substring(lastIndex);
-        if (after) parts.push(after);
+        const rawParts = content.split(/(\*\*.*?\*\*|\[.*?\]\(.*?\))/g);
+        const parts = rawParts.map((part, pIdx) => {
+          if (part.startsWith('**') && part.endsWith('**')) {
+            const boldText = part.slice(2, -2);
+            return (
+              <strong key={pIdx} style={{ color: 'var(--primary)', fontWeight: 650 }}>
+                {boldText}
+              </strong>
+            );
+          }
+          if (part.startsWith('[') && part.endsWith(')')) {
+            const closingBracketIdx = part.indexOf('](');
+            if (closingBracketIdx !== -1) {
+              const linkText = part.slice(1, closingBracketIdx);
+              const linkUrl = part.slice(closingBracketIdx + 2, -1);
+              return (
+                <a
+                  key={pIdx}
+                  href={linkUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    color: 'var(--primary)',
+                    textDecoration: 'underline',
+                    fontWeight: 550,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {linkText}
+                </a>
+              );
+            }
+          }
+          return part;
+        });
         
         const lineEl = parts.length > 0 ? parts : content;
         
