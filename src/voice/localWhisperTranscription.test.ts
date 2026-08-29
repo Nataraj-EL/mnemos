@@ -181,7 +181,7 @@ describe('LocalWhisperTranscriptionProvider - Reliability & Lifecycle Tests', ()
     mockFetch.mockRejectedValueOnce(timeoutError);
 
     await expect(provider.transcribe(Buffer.from('bytes'), 'audio/wav')).rejects.toThrow(
-      'Transcription request timed out after 15 seconds.'
+      'Transcription request timed out after 45 seconds.'
     );
   });
 

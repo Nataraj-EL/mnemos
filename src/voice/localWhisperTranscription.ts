@@ -252,7 +252,7 @@ export class LocalWhisperTranscriptionProvider implements TranscriptionProvider 
           'X-Whisper-Secret': daemonSecret,
         },
         body: audio as unknown as BodyInit,
-        signal: AbortSignal.timeout(15000), // 15-second timeout
+        signal: AbortSignal.timeout(45000), // 45-second timeout
       });
 
       if (!response.ok) {
@@ -287,7 +287,7 @@ export class LocalWhisperTranscriptionProvider implements TranscriptionProvider 
       const err = error as Error;
       console.error('[DEBUG] LocalWhisperTranscriptionProvider error:', err);
       if (err.name === 'TimeoutError' || err.message?.includes('timeout') || err.message?.includes('aborted')) {
-        throw new Error('Transcription request timed out after 15 seconds.');
+        throw new Error('Transcription request timed out after 45 seconds.');
       }
 
       const errMsg = err.message || 'An error occurred during transcription.';
