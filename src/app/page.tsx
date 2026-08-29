@@ -3809,7 +3809,7 @@ export default function MemoryDashboard() {
         {/* Developer / Advanced Options details block */}
         <div style={{ marginTop: '5rem', borderTop: '1px solid var(--border)', paddingTop: '2.5rem', paddingBottom: '4rem' }} id="developer-advanced-section">
           <details style={{ width: '100%', outline: 'none' }}>
-            <summary style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem', userSelect: 'none', outline: 'none' }}>
+            <summary style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', userSelect: 'none', outline: 'none' }}>
               <span>Developer / Advanced Options</span>
             </summary>
             <div style={{ marginTop: '2rem', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
