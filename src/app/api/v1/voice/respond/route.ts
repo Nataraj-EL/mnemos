@@ -292,6 +292,14 @@ export async function POST(request: Request) {
         status = 503;
         displayError = 'Grounded voice response service is temporarily unavailable due to missing API keys.';
       } else if (
+        errorMsg.includes('429') ||
+        errorMsg.toLowerCase().includes('quota') ||
+        errorMsg.toLowerCase().includes('rate limit')
+      ) {
+        errorCategory = 'RATE_LIMIT';
+        status = 429;
+        displayError = 'Rate limit exceeded. Please wait a moment and try again.';
+      } else if (
         errorMsg.includes('Local Whisper transcription service') ||
         errorMsg.includes('Local Whisper daemon failed to load') ||
         errorMsg.includes('exited unexpectedly') ||
