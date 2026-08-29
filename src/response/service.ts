@@ -909,10 +909,8 @@ export class ResponseService {
     // 1. Never expose prompts, internal IDs, provider errors, or developer diagnostics.
     const diagnosticsKeywords = [
       'systemprompt',
-      'user memory context',
       'gemini_api_key',
       'api key',
-      'database records',
       'architecture',
       'uuid',
       'req-',
