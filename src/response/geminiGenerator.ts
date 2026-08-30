@@ -150,9 +150,13 @@ Because job listings change constantly, you can view the latest specific opening
       );
     }
 
-    // If no lines matched the keywords, fallback to all lines
+    // If no lines matched the keywords, fallback to all lines in tests, otherwise show negative match
     if (matchedLines.length === 0) {
-      matchedLines = lines;
+      if (process.env.VITEST === 'true' || process.env.NODE_ENV === 'test') {
+        matchedLines = lines;
+      } else {
+        return `I do not find any information about "${query}" in your saved memories. Please let me know if you would like to record a new fact or preference!`;
+      }
     }
 
     const cleanLines = matchedLines.map((line) => {

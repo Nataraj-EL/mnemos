@@ -235,10 +235,29 @@ export class ContextAssembler {
         const cleanSel = selected.content.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"']/g, '');
         const wordsCand = new Set(cleanCand.split(/\s+/).filter((w) => w.length > 0));
         const wordsSel = new Set(cleanSel.split(/\s+/).filter((w) => w.length > 0));
-        const intersection = new Set([...wordsCand].filter((x) => wordsSel.has(x)));
-        const overlap = wordsCand.size > 0 && wordsSel.size > 0
-          ? intersection.size / Math.min(wordsCand.size, wordsSel.size)
-          : 0;
+
+        const stopWords = new Set([
+          'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', 'your', 'yours',
+          'him', 'his', 'her', 'it', 'its', 'they', 'them', 'their', 'what', 'which', 'who',
+          'whom', 'this', 'that', 'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be',
+          'been', 'being', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing',
+          'a', 'an', 'the', 'and', 'but', 'if', 'or', 'because', 'as', 'until', 'while',
+          'of', 'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into', 'through',
+          'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down', 'in',
+          'out', 'on', 'off', 'over', 'under', 'again', 'further', 'then', 'once', 'user'
+        ]);
+
+        const wordsCandFiltered = new Set(Array.from(wordsCand).filter((w) => !stopWords.has(w)));
+        const wordsSelFiltered = new Set(Array.from(wordsSel).filter((w) => !stopWords.has(w)));
+
+        let overlap = 0;
+        if (wordsCandFiltered.size >= 3 && wordsSelFiltered.size >= 3) {
+          const intersection = new Set([...wordsCandFiltered].filter((x) => wordsSelFiltered.has(x)));
+          overlap = intersection.size / Math.min(wordsCandFiltered.size, wordsSelFiltered.size);
+        } else if (wordsCand.size >= 3 && wordsSel.size >= 3) {
+          const intersection = new Set([...wordsCand].filter((x) => wordsSel.has(x)));
+          overlap = intersection.size / Math.min(wordsCand.size, wordsSel.size);
+        }
 
         const similarityScore = Math.max(jaccard, overlap);
         if (similarityScore > diversityThreshold) {
