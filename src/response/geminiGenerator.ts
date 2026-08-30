@@ -73,7 +73,7 @@ Grounding & Security Rules:
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(requestBody),
-          signal: signal || AbortSignal.timeout(10000),
+          signal: signal || AbortSignal.timeout(15000),
         });
 
         if (!response.ok) {

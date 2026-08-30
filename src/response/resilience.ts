@@ -44,11 +44,11 @@ export function isTransientError(error: unknown): boolean {
 
   const msg = error.message.toLowerCase();
 
-  // Abort / Cancellation is never retryable
+  // Abort / Cancellation is never retryable (except when it is a timeout abort)
   if (
-    msg.includes('abort') ||
-    msg.includes('cancel') ||
-    error.name === 'AbortError'
+    error.name === 'AbortError' ||
+    (msg.includes('abort') && !msg.includes('timeout')) ||
+    msg.includes('cancel')
   ) {
     return false;
   }
