@@ -114,7 +114,9 @@ class TranscriptionHandler(BaseHTTPRequestHandler):
 
                 try:
                     try:
-                        segments, info = model.transcribe(temp_file_path, beam_size=5)
+                        language_env = os.environ.get("WHISPER_LANGUAGE", "en")
+                        lang_param = None if language_env == "auto" else language_env
+                        segments, info = model.transcribe(temp_file_path, beam_size=5, language=lang_param)
                         text_list = [segment.text for segment in segments]
                     except Exception as transcribe_err:
                         if device_used == "cuda":
@@ -130,7 +132,9 @@ class TranscriptionHandler(BaseHTTPRequestHandler):
                             device_used = "cpu"
                             compute_used = c_type
                             # Retry transcription on CPU
-                            segments, info = model.transcribe(temp_file_path, beam_size=5)
+                            language_env = os.environ.get("WHISPER_LANGUAGE", "en")
+                            lang_param = None if language_env == "auto" else language_env
+                            segments, info = model.transcribe(temp_file_path, beam_size=5, language=lang_param)
                             text_list = [segment.text for segment in segments]
                         else:
                             raise transcribe_err

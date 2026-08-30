@@ -28,6 +28,10 @@ export class WhisperTranscriptionProvider implements TranscriptionProvider {
     const blob = new Blob([audio as unknown as BlobPart], { type: mimeType || 'audio/wav' });
     formData.append('file', blob, 'audio.wav');
     formData.append('model', 'whisper-1');
+    const language = process.env.WHISPER_LANGUAGE || 'en';
+    if (language !== 'auto') {
+      formData.append('language', language);
+    }
 
     try {
       const response = await fetch(url, {
