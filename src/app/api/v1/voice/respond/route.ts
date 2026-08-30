@@ -183,15 +183,15 @@ export async function POST(request: Request) {
     const repository = new PgMemoryRepository();
     const conversationRetriever = new ConversationRetriever();
     
-    // Ingest voice query to persist any spoken facts/preferences using voice ingestion rules
+    // Ingest voice query asynchronously in the background so it does not block the response response latency
     const extractor = new GeminiMemoryExtractor();
     const ingestionService = new MemoryIngestionService(repository, extractor, embeddingProvider);
-    await ingestionService.ingestVoice(userId, transcript, {
+    ingestionService.ingestVoice(userId, transcript, {
       conversationId: 'voice-session',
       sourceType: 'voice',
       sourceTimestamp: new Date().toISOString(),
     }).catch((ingestErr) => {
-      console.error('Ask-by-Voice Ingestion Error (continuing to respond):', ingestErr);
+      console.error('Ask-by-Voice Ingestion Error (background):', ingestErr);
     });
 
     const responseService = new ResponseService(retriever, assembler, generator, repository, conversationRetriever);
@@ -350,7 +350,9 @@ export async function POST(request: Request) {
       } else if (errorCategory === 'EMPTY_TRANSCRIPTION') {
         displayError = 'Audio payload is empty';
       } else if (errorCategory === 'TIMEOUT') {
-        displayError = 'Transcription provider timeout';
+        displayError = errorMsg.toLowerCase().includes('transcribe') || errorMsg.toLowerCase().includes('transcription')
+          ? 'Transcription provider timeout'
+          : 'Grounded response generation timeout';
       }
     }
 
