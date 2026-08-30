@@ -75,7 +75,7 @@ const renderMarkdown = (text: string) => {
   if (!text) return null;
   const lines = text.split('\n');
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
       {lines.map((line, idx) => {
         const isBullet = line.trim().startsWith('* ') || line.trim().startsWith('- ');
         let content = line.trim();
@@ -83,7 +83,7 @@ const renderMarkdown = (text: string) => {
           content = content.replace(/^[\*\-]\s+/, '');
         }
         
-        const rawParts = content.split(/(\*\*.*?\*\*|\[.*?\]\(.*?\))/g);
+        const rawParts = content.split(/(\*\*.*?\*\*|\*.*?\*|\[.*?\]\(.*?\))/g);
         const parts = rawParts.map((part, pIdx) => {
           if (part.startsWith('**') && part.endsWith('**')) {
             const boldText = part.slice(2, -2);
@@ -91,6 +91,14 @@ const renderMarkdown = (text: string) => {
               <strong key={pIdx} style={{ color: 'var(--primary)', fontWeight: 650 }}>
                 {boldText}
               </strong>
+            );
+          }
+          if (part.startsWith('*') && part.endsWith('*')) {
+            const italicText = part.slice(1, -1);
+            return (
+              <em key={pIdx} style={{ fontStyle: 'italic', color: 'var(--text)', opacity: 0.95, fontWeight: 500 }}>
+                {italicText}
+              </em>
             );
           }
           if (part.startsWith('[') && part.endsWith(')')) {
@@ -123,19 +131,19 @@ const renderMarkdown = (text: string) => {
         
         if (isBullet) {
           return (
-            <div key={idx} style={{ display: 'flex', gap: '0.5rem', paddingLeft: '0.75rem', fontSize: '0.85rem', lineHeight: '1.6', alignItems: 'flex-start' }}>
+            <div key={idx} style={{ display: 'flex', gap: '0.6rem', paddingLeft: '0.75rem', fontSize: '0.85rem', lineHeight: '1.6', alignItems: 'flex-start' }}>
               <span style={{ color: 'var(--primary)', fontSize: '0.8rem', marginTop: '0.1rem' }}>•</span>
-              <span style={{ flex: 1 }}>{lineEl}</span>
+              <span style={{ flex: 1, color: 'var(--text)' }}>{lineEl}</span>
             </div>
           );
         }
         
         if (!line.trim()) {
-          return <div key={idx} style={{ height: '0.25rem' }} />;
+          return <div key={idx} style={{ height: '0.3rem' }} />;
         }
         
         return (
-          <p key={idx} style={{ margin: 0, fontSize: '0.85rem', lineHeight: '1.6' }}>
+          <p key={idx} style={{ margin: 0, fontSize: '0.85rem', lineHeight: '1.6', color: 'var(--text)' }}>
             {lineEl}
           </p>
         );
